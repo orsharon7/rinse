@@ -4,6 +4,9 @@
 # Subcommands:
 #   status    — Check review state (pending / new_review / approved / no_reviews)
 #   comments  — List all unresolved Copilot comments on the PR
+#
+# Both `status` (on new_review) and `comments` automatically react with 👀 to
+# each comment, so the PR author can see they've been acknowledged.
 #   reply     — Reply to a specific comment by ID
 #   reply-all — Reply to all comments in latest review (reads JSON from stdin)
 #   request   — Request Copilot review (only if not already pending)
@@ -112,6 +115,25 @@ load_last_known() {
 save_last_known() {
   local rid="$1"
   echo "$rid" > "$(state_file)"
+}
+
+# ─── Reactions ─────────────────────────────────────────────────────────────────
+
+# React with 👀 to PR review comments (acknowledges we've seen them)
+react_eyes_to_comments() {
+  local comment_ids="$1"  # JSON array of comment IDs
+  local count
+  count=$(echo "$comment_ids" | jq 'length')
+  if [[ "$count" -eq 0 ]]; then return; fi
+
+  for i in $(seq 0 $((count - 1))); do
+    local cid
+    cid=$(echo "$comment_ids" | jq -r ".[$i]")
+    gh api "repos/${REPO}/pulls/comments/${cid}/reactions" \
+      -X POST -f content=eyes >/dev/null 2>&1 && \
+      >&2 echo "  👀 Reacted to comment ${cid}" || \
+      >&2 echo "  ⚠️  Failed to react to comment ${cid}"
+  done
 }
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -266,6 +288,13 @@ _emit_review_status() {
   comments=$(get_review_comments "$rid")
   comment_count=$(echo "$comments" | jq 'length')
 
+  # React 👀 to new comments
+  if [[ "$comment_count" -gt 0 ]]; then
+    local cids
+    cids=$(echo "$comments" | jq '[.[].id]')
+    react_eyes_to_comments "$cids"
+  fi
+
   jq -n \
     --arg rid "$rid" --arg rat "$rat" --arg rstate "$rstate" \
     --argjson cc "$comment_count" --argjson comments "$comments" --argjson total "$total" \
@@ -294,6 +323,13 @@ cmd_comments() {
   # Filter to only top-level comments (not replies)
   comments=$(echo "$comments" | jq '[.[] | select(.in_reply_to_id == null)]')
   count=$(echo "$comments" | jq 'length')
+
+  # React 👀 to comments
+  if [[ "$count" -gt 0 ]]; then
+    local cids
+    cids=$(echo "$comments" | jq '[.[].id]')
+    react_eyes_to_comments "$cids"
+  fi
 
   jq -n --arg rid "$rid" --argjson count "$count" --argjson comments "$comments" \
     '{"review_id":$rid,"count":$count,"comments":$comments}'
