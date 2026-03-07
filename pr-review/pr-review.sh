@@ -119,21 +119,19 @@ save_last_known() {
 
 # ─── Reactions ─────────────────────────────────────────────────────────────────
 
-# React with 👀 to PR review comments (acknowledges we've seen them)
-react_eyes_to_comments() {
-  local comment_ids="$1"  # JSON array of comment IDs
-  local count
-  count=$(echo "$comment_ids" | jq 'length')
-  if [[ "$count" -eq 0 ]]; then return; fi
-
-  for i in $(seq 0 $((count - 1))); do
-    local cid
-    cid=$(echo "$comment_ids" | jq -r ".[$i]")
-    gh api "repos/${REPO}/pulls/comments/${cid}/reactions" \
-      -X POST -f content=eyes >/dev/null 2>&1 && \
-      >&2 echo "  👀 Reacted to comment ${cid}" || \
-      >&2 echo "  ⚠️  Failed to react to comment ${cid}"
-  done
+# React with 👀 to the review summary (the main review comment, not individual comments)
+react_eyes_to_review() {
+  local review_id="$1"
+  # Get the review's node_id for GraphQL
+  local node_id
+  node_id=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews/${review_id}" --jq '.node_id' 2>/dev/null)
+  if [[ -z "$node_id" || "$node_id" == "null" ]]; then
+    >&2 echo "  ⚠️  Could not get node_id for review ${review_id}"
+    return
+  fi
+  gh api graphql -f query="mutation { addReaction(input: {subjectId: \"${node_id}\", content: EYES}) { reaction { content } } }" >/dev/null 2>&1 && \
+    >&2 echo "  👀 Reacted to review ${review_id}" || \
+    >&2 echo "  ⚠️  Failed to react to review ${review_id}"
 }
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -288,11 +286,9 @@ _emit_review_status() {
   comments=$(get_review_comments "$rid")
   comment_count=$(echo "$comments" | jq 'length')
 
-  # React 👀 to new comments
+  # React 👀 to the review summary
   if [[ "$comment_count" -gt 0 ]]; then
-    local cids
-    cids=$(echo "$comments" | jq '[.[].id]')
-    react_eyes_to_comments "$cids"
+    react_eyes_to_review "$rid"
   fi
 
   jq -n \
@@ -324,11 +320,9 @@ cmd_comments() {
   comments=$(echo "$comments" | jq '[.[] | select(.in_reply_to_id == null)]')
   count=$(echo "$comments" | jq 'length')
 
-  # React 👀 to comments
+  # React 👀 to the review summary
   if [[ "$count" -gt 0 ]]; then
-    local cids
-    cids=$(echo "$comments" | jq '[.[].id]')
-    react_eyes_to_comments "$cids"
+    react_eyes_to_review "$rid"
   fi
 
   jq -n --arg rid "$rid" --argjson count "$count" --argjson comments "$comments" \
