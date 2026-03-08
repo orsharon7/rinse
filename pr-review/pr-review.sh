@@ -766,9 +766,21 @@ cmd_poll_all() {
         react_eyes_to_review "$rid"
       fi
 
-      results=$(echo "$results" | jq --arg repo "$repo" --argjson pr "$pr" --arg rid "$rid" \
-        --argjson cc "$comment_count" --argjson comments "$comments" \
-        '. + [{"repo":$repo,"pr":$pr,"status":"new_review","review_id":$rid,"comment_count":$cc,"comments":$comments}]')
+      if [[ "$comment_count" -eq 0 ]]; then
+        # Clean review — no comments means all good
+        react_eyes_to_review "$rid"
+        results=$(echo "$results" | jq --arg repo "$repo" --argjson pr "$pr" --arg rid "$rid" \
+          '. + [{"repo":$repo,"pr":$pr,"status":"clean","review_id":$rid,"message":"Copilot reviewed with no new comments — ready to merge"}]')
+        # Auto-unwatch on clean review
+        updated_watches=$(echo "$updated_watches" | jq --arg repo "$repo" --argjson pr "$pr" \
+          '[.[] | select(.repo != $repo or .pr != $pr)]')
+        >&2 echo "  ✅ Clean review (0 comments) — unwatched"
+      else
+        results=$(echo "$results" | jq --arg repo "$repo" --argjson pr "$pr" --arg rid "$rid" \
+          --argjson cc "$comment_count" --argjson comments "$comments" \
+          '. + [{"repo":$repo,"pr":$pr,"status":"new_review","review_id":$rid,"comment_count":$cc,"comments":$comments}]')
+        >&2 echo "  🆕 New review: ${comment_count} comments"
+      fi
 
       # Update last_review_id
       updated_watches=$(echo "$updated_watches" | jq --arg repo "$repo" --argjson pr "$pr" --arg rid "$rid" \
