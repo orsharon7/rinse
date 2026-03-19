@@ -176,7 +176,7 @@ check_pr_state() {
 }
 
 is_copilot_pending() {
-  echo "$PR_DATA" | jq '[.requested_reviewers[] | select(.login == "copilot-pull-request-reviewer[bot]")] | length'
+  echo "$PR_DATA" | jq '[.requested_reviewers[] | select(.login == "copilot-pull-request-reviewer[bot]" or .login == "Copilot")] | length'
 }
 
 get_latest_copilot_review() {
