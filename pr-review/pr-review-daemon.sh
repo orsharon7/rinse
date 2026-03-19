@@ -33,8 +33,8 @@ LOGFILE="${HOME}/.pr-review-daemon.log"
 # Using a function instead of associative array to avoid bash slash issues
 get_repo_path() {
   case "$1" in
-    "orsharon7/gsc-solar-monitor") echo "/Users/orsharon/Downloads/General OrSh/GSC/dev/gsc-solar-monitor/" ;;
-    "orsharon7/gsc-website") echo "/Users/orsharon/Downloads/General OrSh/GSC/dev/gsc-website/" ;;
+    "orsharon7/gsc-solar-monitor") echo "/home/luli/.openclaw/workspace/gsc-solar-monitor/" ;;
+    "orsharon7/gsc-website") echo "/home/luli/.openclaw/workspace/gsc-website/" ;;
     *) echo "" ;;
   esac
 }

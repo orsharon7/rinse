@@ -303,8 +303,13 @@ _emit_review_status() {
   comment_count=$(echo "$comments" | jq 'length')
 
   # React 👀 to the review summary
-  if [[ "$comment_count" -gt 0 ]]; then
-    react_eyes_to_review "$rid"
+  react_eyes_to_review "$rid"
+
+  if [[ "$comment_count" -eq 0 ]]; then
+    jq -n \
+      --arg rid "$rid" --arg rat "$rat" --argjson total "$total" \
+      '{"status":"clean","review_id":$rid,"submitted_at":$rat,"total_reviews":$total,"message":"Copilot reviewed with no new comments — ready to merge"}'
+    return
   fi
 
   jq -n \
