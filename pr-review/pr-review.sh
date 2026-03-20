@@ -305,6 +305,16 @@ _emit_review_status() {
   # React 👀 to the review summary
   react_eyes_to_review "$rid"
 
+  # Check review body for Copilot error messages
+  local review_body
+  review_body=$(echo "$latest_review" | jq -r '.body // ""')
+  if echo "$review_body" | grep -qiE 'encountered an error|unable to review|try again'; then
+    jq -n \
+      --arg rid "$rid" --arg rat "$rat" --argjson total "$total" --arg body "$review_body" \
+      '{"status":"error","review_id":$rid,"submitted_at":$rat,"total_reviews":$total,"message":"Copilot review failed — re-request needed","body":$body}'
+    return
+  fi
+
   if [[ "$comment_count" -eq 0 ]]; then
     jq -n \
       --arg rid "$rid" --arg rat "$rat" --argjson total "$total" \
@@ -772,14 +782,28 @@ cmd_poll_all() {
       fi
 
       if [[ "$comment_count" -eq 0 ]]; then
-        # Clean review — no comments means all good
-        react_eyes_to_review "$rid"
-        results=$(echo "$results" | jq --arg repo "$repo" --argjson pr "$pr" --arg rid "$rid" \
-          '. + [{"repo":$repo,"pr":$pr,"status":"clean","review_id":$rid,"message":"Copilot reviewed with no new comments — ready to merge"}]')
-        # Auto-unwatch on clean review
-        updated_watches=$(echo "$updated_watches" | jq --arg repo "$repo" --argjson pr "$pr" \
-          '[.[] | select(.repo != $repo or .pr != $pr)]')
-        >&2 echo "  ✅ Clean review (0 comments) — unwatched"
+        # Check for Copilot error in review body
+        local review_body
+        review_body=$(echo "$latest" | jq -r '.body // ""')
+        if echo "$review_body" | grep -qiE 'encountered an error|unable to review|try again'; then
+          # Copilot error — auto re-request review
+          >&2 echo "  ⚠️ Copilot error — auto re-requesting review"
+          gh api "repos/$repo/pulls/$pr/requested_reviewers" -X POST --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null 2>&1
+          results=$(echo "$results" | jq --arg repo "$repo" --argjson pr "$pr" --arg rid "$rid" \
+            '. + [{"repo":$repo,"pr":$pr,"status":"copilot_error","review_id":$rid,"message":"Copilot error — auto re-requested review"}]')
+          # Update last_review_id so we don't re-process this error
+          updated_watches=$(echo "$updated_watches" | jq --arg repo "$repo" --argjson pr "$pr" --arg rid "$rid" \
+            '[.[] | if .repo == $repo and .pr == ($pr | tonumber) then .last_review_id = ($rid | tonumber) else . end]')
+        else
+          # Clean review — no comments means all good
+          react_eyes_to_review "$rid"
+          results=$(echo "$results" | jq --arg repo "$repo" --argjson pr "$pr" --arg rid "$rid" \
+            '. + [{"repo":$repo,"pr":$pr,"status":"clean","review_id":$rid,"message":"Copilot reviewed with no new comments — ready to merge"}]')
+          # Auto-unwatch on clean review
+          updated_watches=$(echo "$updated_watches" | jq --arg repo "$repo" --argjson pr "$pr" \
+            '[.[] | select(.repo != $repo or .pr != $pr)]')
+          >&2 echo "  ✅ Clean review (0 comments) — unwatched"
+        fi
       else
         results=$(echo "$results" | jq --arg repo "$repo" --argjson pr "$pr" --arg rid "$rid" \
           --argjson cc "$comment_count" --argjson comments "$comments" \
