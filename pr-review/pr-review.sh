@@ -33,7 +33,7 @@
 # Global flags (before or after subcommand):
 #   --repo <owner/repo>        Override repo detection
 #   --last-known <review_id>   Skip if latest review matches this ID
-#   --no-color                 Suppress emoji in stderr progress messages (historical flag name)
+#   --no-color                 Suppress emoji in stderr progress messages (historical flag name; does not affect ANSI colors)
 #
 # reply-all stdin format (JSON array):
 #   [{"comment_id": 123, "body": "Fixed in abc123"}, ...]
@@ -354,7 +354,7 @@ cmd_comments() {
     local latest
     latest=$(get_latest_copilot_review) || return
     if [[ -z "$latest" || "$latest" == "null" ]]; then
-      echo '{"comments":[],"count":0}' | tr -d '\000-\031'
+      echo '{"comments":[],"count":0}' | tr -d '\000'
       return
     fi
     rid=$(echo "$latest" | jq -r '.id')
