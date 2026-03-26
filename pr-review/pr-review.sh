@@ -582,8 +582,18 @@ cmd_cycle() {
   while [[ $elapsed2 -lt $WAIT_MAX ]]; do
     pending=$(is_copilot_pending)
     if [[ "$pending" -eq 0 ]]; then
-      _emit_review_status
-      return
+      local cur_review2 cur_id2
+      cur_review2=$(get_latest_copilot_review) || true
+      cur_id2=""
+      if [[ -n "$cur_review2" && "$cur_review2" != "null" ]]; then
+        cur_id2=$(echo "$cur_review2" | jq -r '.id')
+      fi
+      if [[ "$cur_id2" != "$snapshot_id" ]]; then
+        LAST_KNOWN=""
+        _emit_review_status
+        return
+      fi
+      # Same review as before stall recovery — keep waiting
     fi
     >&2 echo "[$(date +%H:%M:%S)] Copilot reviewing (retry)... (${elapsed2}s / ${WAIT_MAX}s)"
     local sleep_time2=$((interval < (WAIT_MAX - elapsed2) ? interval : (WAIT_MAX - elapsed2)))
