@@ -48,7 +48,7 @@
 #   closed       — PR closed without merge
 #   error        — API error or PR not found
 #
-# All output is JSON (stdout). Progress/logs go to stderr.
+# All output is JSON (stdout) with NUL bytes stripped. Progress/logs go to stderr.
 
 set -uo pipefail
 
@@ -115,7 +115,7 @@ done
 if [[ "$SUBCOMMAND" != "poll-all" && -z "$REPO" ]]; then
   REPO=$(gh repo view --json nameWithOwner -q '.nameWithOwner' 2>/dev/null || echo "")
   if [[ -z "$REPO" ]]; then
-    echo '{"status":"error","message":"Could not detect repo. Use --repo owner/repo"}'
+    echo '{"status":"error","message":"Could not detect repo. Use --repo owner/repo"}' | tr -d '\000'
     exit 1
   fi
 fi
@@ -171,7 +171,7 @@ PR_DATA=""
 
 fetch_pr() {
   PR_DATA=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" 2>/dev/null) || {
-    echo "{\"status\":\"error\",\"message\":\"PR #${PR_NUMBER} not found in ${REPO}\"}"
+    echo "{\"status\":\"error\",\"message\":\"PR #${PR_NUMBER} not found in ${REPO}\"}" | tr -d '\000'
     exit 1
   }
 }
@@ -182,9 +182,9 @@ check_pr_state() {
   merged=$(echo "$PR_DATA" | jq -r '.merged_at // empty')
   if [[ "$state" == "closed" ]]; then
     if [[ -n "$merged" ]]; then
-      echo "{\"status\":\"merged\",\"message\":\"PR #${PR_NUMBER} was merged at ${merged}\"}"
+      echo "{\"status\":\"merged\",\"message\":\"PR #${PR_NUMBER} was merged at ${merged}\"}" | tr -d '\000'
     else
-      echo "{\"status\":\"closed\",\"message\":\"PR #${PR_NUMBER} is closed (not merged)\"}"
+      echo "{\"status\":\"closed\",\"message\":\"PR #${PR_NUMBER} is closed (not merged)\"}" | tr -d '\000'
     fi
     exit 0
   fi
@@ -198,7 +198,7 @@ get_latest_copilot_review() {
   local reviews
   reviews=$(gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/reviews?per_page=100" \
     --jq '[.[] | select(.user.login | contains("copilot")) | {id: .id, state: .state, submitted_at: .submitted_at}]' 2>/dev/null) || {
-    echo '{"status":"error","message":"Failed to fetch reviews"}'
+    echo '{"status":"error","message":"Failed to fetch reviews"}' | tr -d '\000'
     return 1
   }
   echo "$reviews" | jq -s 'add | sort_by(.submitted_at) | last // empty'
@@ -238,14 +238,14 @@ cmd_status() {
     if ! gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
       -X DELETE --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null; then
       >&2 echo "Failed to dismiss existing Copilot review request."
-      echo '{"status":"error","message":"Failed to dismiss existing Copilot review request"}'
+      echo '{"status":"error","message":"Failed to dismiss existing Copilot review request"}' | tr -d '\000'
       return 1
     fi
     sleep 2
     if ! gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
       -X POST --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null; then
       >&2 echo "Failed to re-request Copilot review — aborting cycle."
-      echo '{"status":"error","message":"Failed to re-request Copilot review"}'
+      echo '{"status":"error","message":"Failed to re-request Copilot review"}' | tr -d '\000'
       return 1
     fi
     >&2 echo "Re-requested. Waiting another ${WAIT_MAX}s..."
@@ -267,7 +267,7 @@ cmd_status() {
       fetch_pr
     done
 
-    echo '{"status":"pending","message":"Copilot still stalled after dismiss+re-request (total '"$((WAIT_MAX * 2))"'s)"}'
+    echo '{"status":"pending","message":"Copilot still stalled after dismiss+re-request (total '"$((WAIT_MAX * 2))"'s)"}' | tr -d '\000'
     return
   fi
 
@@ -275,7 +275,7 @@ cmd_status() {
   local pending
   pending=$(is_copilot_pending)
   if [[ "$pending" -gt 0 ]]; then
-    echo '{"status":"pending","message":"Copilot review in progress"}'
+    echo '{"status":"pending","message":"Copilot review in progress"}' | tr -d '\000'
     return
   fi
 
@@ -386,7 +386,7 @@ cmd_reply() {
   local result
   result=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments/${COMMENT_ID}/replies" \
     -X POST -f body="$REPLY_BODY" --jq '{id: .id, body: .body, created_at: .created_at}' 2>&1) || {
-    echo "{\"status\":\"error\",\"message\":\"Failed to reply to comment ${COMMENT_ID}\",\"detail\":$(echo "$result" | jq -Rs .)}"
+    echo "{\"status\":\"error\",\"message\":\"Failed to reply to comment ${COMMENT_ID}\",\"detail\":$(echo "$result" | jq -Rs .)}" | tr -d '\000'
     exit 1
   }
 
@@ -403,7 +403,7 @@ cmd_reply_all() {
   count=$(echo "$input" | jq 'length')
 
   if [[ "$count" -eq 0 ]]; then
-    echo '{"status":"ok","replied":0,"failed":0}'
+      echo '{"status":"ok","replied":0,"failed":0}' | tr -d '\000'
     return
   fi
 
@@ -484,7 +484,7 @@ cmd_push() {
 
   if [[ "$ahead" -gt 0 ]]; then
     git push origin "$branch" 2>&1 || {
-      echo '{"status":"error","message":"Failed to push"}'
+      echo '{"status":"error","message":"Failed to push"}' | tr -d '\000'
       exit 1
     }
     >&2 echo "Pushed ${ahead} commit(s) to ${branch}"
@@ -518,20 +518,19 @@ cmd_cycle() {
     snapshot_id=$(echo "$_snap" | jq -r '.id')
   fi
 
-  # If Copilot isn't pending and there's no review request, request one
+  # If Copilot isn't pending, always request a fresh review so the wait loop
+  # has something to detect.  snapshot_id is still used below as the baseline
+  # to recognise when the *new* review has landed.
   local pending
   pending=$(is_copilot_pending)
   if [[ "$pending" -eq 0 ]]; then
-    # If snapshot matches (or no review at all), request a new review
-    if [[ -z "$snapshot_id" ]]; then
-      >&2 echo "Requesting Copilot review..."
-      if ! gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
-        -X POST --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null; then
-        >&2 echo "Warning: Failed to request Copilot review."
-      fi
-      sleep 3
-      fetch_pr
+    >&2 echo "Requesting Copilot review..."
+    if ! gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
+      -X POST --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null; then
+      >&2 echo "Warning: Failed to request Copilot review."
     fi
+    sleep 3
+    fetch_pr
   fi
 
   # Now wait — compare against snapshot_id, not LAST_KNOWN from state file
@@ -565,14 +564,14 @@ cmd_cycle() {
   if ! gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
     -X DELETE --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null; then
     >&2 echo "Failed to dismiss existing Copilot review request."
-    echo '{"status":"error","message":"Failed to dismiss existing Copilot review request"}'
+    echo '{"status":"error","message":"Failed to dismiss existing Copilot review request"}' | tr -d '\000'
     return 1
   fi
   sleep 2
   if ! gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
     -X POST --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null; then
     >&2 echo "Failed to re-request Copilot review — aborting cycle."
-    echo '{"status":"error","message":"Failed to re-request Copilot review"}'
+    echo '{"status":"error","message":"Failed to re-request Copilot review"}' | tr -d '\000'
     return 1
   fi
   >&2 echo "Re-requested. Waiting another ${WAIT_MAX}s..."
@@ -593,7 +592,7 @@ cmd_cycle() {
     fetch_pr
   done
 
-  echo '{"status":"pending","message":"Copilot still stalled after dismiss+re-request (total '"$((WAIT_MAX * 2))"'s)"}'
+  echo '{"status":"pending","message":"Copilot still stalled after dismiss+re-request (total '"$((WAIT_MAX * 2))"'s)"}' | tr -d '\000'
 }
 
 # ─── Subcommand: watch ────────────────────────────────────────────────────────
@@ -603,7 +602,7 @@ cmd_watch() {
     REPO=$(gh repo view --json nameWithOwner -q '.nameWithOwner' 2>/dev/null || echo "")
   fi
   if [[ -z "$REPO" ]]; then
-    echo '{"status":"error","message":"--repo required for watch"}'
+    echo '{"status":"error","message":"--repo required for watch"}' | tr -d '\000'
     exit 1
   fi
 
@@ -618,7 +617,7 @@ cmd_watch() {
   exists=$(echo "$watches" | jq --arg repo "$REPO" --arg pr "$PR_NUMBER" \
     '[.[] | select(.repo == $repo and .pr == ($pr | tonumber))] | length')
   if [[ "$exists" -gt 0 ]]; then
-    echo "{\"status\":\"already_watching\",\"repo\":\"$REPO\",\"pr\":$PR_NUMBER}"
+    echo "{\"status\":\"already_watching\",\"repo\":\"$REPO\",\"pr\":$PR_NUMBER}" | tr -d '\000'
     return
   fi
 
@@ -637,7 +636,7 @@ cmd_watch() {
   echo "$watches" > "$WATCH_FILE"
 
   jq -n --arg repo "$REPO" --argjson pr "$PR_NUMBER" --argjson lrid "$last_review_id" \
-    '{"status":"watching","repo":$repo,"pr":$pr,"last_review_id":$lrid}'
+    '{"status":"watching","repo":$repo,"pr":$pr,"last_review_id":$lrid}' | tr -d '\000'
 }
 
 # ─── Subcommand: unwatch ─────────────────────────────────────────────────────
@@ -648,7 +647,7 @@ cmd_unwatch() {
   fi
 
   if [[ ! -f "$WATCH_FILE" ]]; then
-    echo '{"status":"not_found"}'
+    echo '{"status":"not_found"}' | tr -d '\000'
     return
   fi
 
@@ -662,9 +661,9 @@ cmd_unwatch() {
   after_count=$(echo "$after" | jq 'length')
 
   if [[ "$before" -eq "$after_count" ]]; then
-    echo "{\"status\":\"not_found\",\"repo\":\"$REPO\",\"pr\":$PR_NUMBER}"
+    echo "{\"status\":\"not_found\",\"repo\":\"$REPO\",\"pr\":$PR_NUMBER}" | tr -d '\000'
   else
-    echo "{\"status\":\"unwatched\",\"repo\":\"$REPO\",\"pr\":$PR_NUMBER}"
+    echo "{\"status\":\"unwatched\",\"repo\":\"$REPO\",\"pr\":$PR_NUMBER}" | tr -d '\000'
   fi
 }
 
@@ -672,7 +671,7 @@ cmd_unwatch() {
 
 cmd_poll_all() {
   if [[ ! -f "$WATCH_FILE" ]]; then
-    echo '{"watches":[],"results":[]}'
+    echo '{"watches":[],"results":[]}' | tr -d '\000'
     return
   fi
 
@@ -682,7 +681,7 @@ cmd_poll_all() {
   count=$(echo "$watches" | jq 'length')
 
   if [[ "$count" -eq 0 ]]; then
-    echo '{"watches":[],"results":[]}'
+    echo '{"watches":[],"results":[]}' | tr -d '\000'
     return
   fi
 
@@ -871,6 +870,20 @@ cmd_poll_all() {
     '{"results":$results,"watches":$watches}' | tr -d '\000'
 }
 
+# ─── Subcommand: clear-state ─────────────────────────────────────────────────
+
+cmd_clear_state() {
+  if [[ -z "$PR_NUMBER" ]]; then
+    >&2 echo "Error: PR_NUMBER is required for clear-state"
+    echo '{"status":"error","message":"PR_NUMBER is required"}' | tr -d '\000'
+    exit 1
+  fi
+  local sf
+  sf="$(state_file)"
+  rm -f "$sf"
+  echo '{"status":"cleared"}' | tr -d '\000'
+}
+
 # ─── Dispatch ─────────────────────────────────────────────────────────────────
 
 case "$SUBCOMMAND" in
@@ -881,7 +894,7 @@ case "$SUBCOMMAND" in
   request)     cmd_request ;;
   push)        cmd_push ;;
   cycle)       cmd_cycle ;;
-  clear-state) rm -f "$(state_file)"; echo '{"status":"cleared"}' | tr -d '\000' ;;
+  clear-state) cmd_clear_state ;;
   watch)       cmd_watch ;;
   unwatch)     cmd_unwatch ;;
   poll-all)    cmd_poll_all ;;
