@@ -33,7 +33,7 @@
 # Global flags (before or after subcommand):
 #   --repo <owner/repo>        Override repo detection
 #   --last-known <review_id>   Skip if latest review matches this ID
-#   --no-color                 Suppress emoji in stderr progress messages
+#   --no-color                 Suppress emoji in stderr progress messages (historical flag name)
 #
 # reply-all stdin format (JSON array):
 #   [{"comment_id": 123, "body": "Fixed in abc123"}, ...]
@@ -287,7 +287,7 @@ _emit_review_status() {
   latest=$(get_latest_copilot_review) || return
 
   if [[ -z "$latest" || "$latest" == "null" ]]; then
-    echo '{"status":"no_reviews"}' | tr -d '\000-\031'
+    echo '{"status":"no_reviews"}' | tr -d '\000'
     return
   fi
 
@@ -303,13 +303,13 @@ _emit_review_status() {
 
   if [[ "$rstate" == "APPROVED" ]]; then
     jq -n --arg rid "$rid" --arg rat "$rat" --argjson total "$total" \
-      '{"status":"approved","review_id":$rid,"submitted_at":$rat,"total_reviews":$total}' | tr -d '\000-\031'
+      '{"status":"approved","review_id":$rid,"submitted_at":$rat,"total_reviews":$total}' | tr -d '\000'
     return
   fi
 
   if [[ -n "$LAST_KNOWN" && "$rid" == "$LAST_KNOWN" ]]; then
     jq -n --arg rid "$rid" --arg rat "$rat" --argjson total "$total" \
-      '{"status":"no_change","review_id":$rid,"submitted_at":$rat,"total_reviews":$total}' | tr -d '\000-\031'
+      '{"status":"no_change","review_id":$rid,"submitted_at":$rat,"total_reviews":$total}' | tr -d '\000'
     return
   fi
 
@@ -322,25 +322,25 @@ _emit_review_status() {
 
   # Check review body for Copilot error messages
   local review_body
-  review_body=$(echo "$latest_review" | jq -r '.body // ""')
+  review_body=$(echo "$latest" | jq -r '.body // ""')
   if echo "$review_body" | grep -qiE 'encountered an error|unable to review|try again'; then
     jq -n \
       --arg rid "$rid" --arg rat "$rat" --argjson total "$total" --arg body "$review_body" \
-      '{"status":"error","review_id":$rid,"submitted_at":$rat,"total_reviews":$total,"message":"Copilot review failed — re-request needed","body":$body}' | tr -d '\000-\031'
+      '{"status":"error","review_id":$rid,"submitted_at":$rat,"total_reviews":$total,"message":"Copilot review failed — re-request needed","body":$body}' | tr -d '\000'
     return
   fi
 
   if [[ "$comment_count" -eq 0 ]]; then
     jq -n \
       --arg rid "$rid" --arg rat "$rat" --argjson total "$total" \
-      '{"status":"clean","review_id":$rid,"submitted_at":$rat,"total_reviews":$total,"message":"Copilot reviewed with no new comments — ready to merge"}' | tr -d '\000-\031'
+      '{"status":"clean","review_id":$rid,"submitted_at":$rat,"total_reviews":$total,"message":"Copilot reviewed with no new comments — ready to merge"}' | tr -d '\000'
     return
   fi
 
   jq -n \
     --arg rid "$rid" --arg rat "$rat" --arg rstate "$rstate" \
     --argjson cc "$comment_count" --argjson comments "$comments" --argjson total "$total" \
-    '{"status":"new_review","review_id":$rid,"submitted_at":$rat,"review_state":$rstate,"comment_count":$cc,"comments":$comments,"total_reviews":$total}' | tr -d '\000-\031'
+    '{"status":"new_review","review_id":$rid,"submitted_at":$rat,"review_state":$rstate,"comment_count":$cc,"comments":$comments,"total_reviews":$total}' | tr -d '\000'
 }
 
 # ─── Subcommand: comments ────────────────────────────────────────────────────
@@ -372,7 +372,7 @@ cmd_comments() {
   fi
 
   jq -n --arg rid "$rid" --argjson count "$count" --argjson comments "$comments" \
-    '{"review_id":$rid,"count":$count,"comments":$comments}' | tr -d '\000-\031'
+    '{"review_id":$rid,"count":$count,"comments":$comments}' | tr -d '\000'
 }
 
 # ─── Subcommand: reply ────────────────────────────────────────────────────────
@@ -390,7 +390,7 @@ cmd_reply() {
     exit 1
   }
 
-  echo "$result" | jq --arg cid "$COMMENT_ID" '. + {"status":"replied","comment_id":$cid}' | tr -d '\000-\031'
+  echo "$result" | jq --arg cid "$COMMENT_ID" '. + {"status":"replied","comment_id":$cid}' | tr -d '\000'
 }
 
 # ─── Subcommand: reply-all ────────────────────────────────────────────────────
@@ -434,7 +434,7 @@ cmd_reply_all() {
   done
 
   jq -n --argjson replied "$replied" --argjson failed "$failed" --argjson errors "$errors" \
-    '{"status":"ok","replied":$replied,"failed":$failed,"failed_ids":$errors}' | tr -d '\000-\031'
+    '{"status":"ok","replied":$replied,"failed":$failed,"failed_ids":$errors}' | tr -d '\000'
 }
 
 # ─── Subcommand: request ─────────────────────────────────────────────────────
@@ -446,17 +446,17 @@ cmd_request() {
   local pending
   pending=$(is_copilot_pending)
   if [[ "$pending" -gt 0 ]]; then
-    echo '{"status":"already_pending","message":"Copilot review already in progress — not re-requesting"}' | tr -d '\000-\031'
+    echo '{"status":"already_pending","message":"Copilot review already in progress — not re-requesting"}' | tr -d '\000'
     return
   fi
 
   gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
     -X POST --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null 2>&1 || {
-    echo '{"status":"error","message":"Failed to request review"}' | tr -d '\000-\031'
+    echo '{"status":"error","message":"Failed to request review"}' | tr -d '\000'
     exit 1
   }
 
-  echo '{"status":"requested","message":"Copilot review requested"}' | tr -d '\000-\031'
+  echo '{"status":"requested","message":"Copilot review requested"}' | tr -d '\000'
 }
 
 # ─── Subcommand: push ────────────────────────────────────────────────────────
@@ -493,7 +493,7 @@ cmd_push() {
   fi
 
   jq -n --arg branch "$branch" --argjson ahead "$ahead" \
-    '{"status":"pushed","branch":$branch,"commits_pushed":$ahead}' | tr -d '\000-\031'
+    '{"status":"pushed","branch":$branch,"commits_pushed":$ahead}' | tr -d '\000'
 }
 
 # ─── Subcommand: cycle ────────────────────────────────────────────────────────
@@ -523,7 +523,7 @@ cmd_cycle() {
   pending=$(is_copilot_pending)
   if [[ "$pending" -eq 0 ]]; then
     # If snapshot matches (or no review at all), request a new review
-    if [[ -z "$snapshot_id" ]] || true; then
+    if [[ -z "$snapshot_id" ]]; then
       >&2 echo "Requesting Copilot review..."
       if ! gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
         -X POST --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null; then
@@ -860,11 +860,6 @@ cmd_poll_all() {
       # Update last_review_id
       updated_watches=$(echo "$updated_watches" | jq --arg repo "$repo" --argjson pr "$pr" --arg rid "$rid" \
         '[.[] | if .repo == $repo and .pr == $pr then .last_review_id = ($rid | tonumber) | .retries = 0 else . end]')
-      if [[ "$NO_COLOR" -eq 0 ]]; then
-        >&2 echo "  🆕 New review: ${comment_count} comments"
-      else
-        >&2 echo "  [new] New review: ${comment_count} comments"
-      fi
     fi
   done
 
@@ -873,7 +868,7 @@ cmd_poll_all() {
 
   # Output results
   jq -n --argjson results "$results" --argjson watches "$(cat "$WATCH_FILE")" \
-    '{"results":$results,"watches":$watches}' | tr -d '\000-\031'
+    '{"results":$results,"watches":$watches}' | tr -d '\000'
 }
 
 # ─── Dispatch ─────────────────────────────────────────────────────────────────
@@ -886,7 +881,7 @@ case "$SUBCOMMAND" in
   request)     cmd_request ;;
   push)        cmd_push ;;
   cycle)       cmd_cycle ;;
-  clear-state) rm -f "$(state_file)"; echo '{"status":"cleared"}' ;;
+  clear-state) rm -f "$(state_file)"; echo '{"status":"cleared"}' | tr -d '\000' ;;
   watch)       cmd_watch ;;
   unwatch)     cmd_unwatch ;;
   poll-all)    cmd_poll_all ;;
