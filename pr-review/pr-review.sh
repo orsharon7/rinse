@@ -48,7 +48,7 @@
 #   closed       — PR closed without merge
 #   error        — API error or PR not found
 #
-# All output is JSON (stdout) with NUL bytes stripped. Progress/logs go to stderr.
+# All output is JSON (stdout) with NUL bytes (\\000) stripped. Progress/logs go to stderr.
 
 set -uo pipefail
 
@@ -322,7 +322,7 @@ _emit_review_status() {
 
   # Check review body for Copilot error messages
   local review_body
-  review_body=$(echo "$latest" | jq -r '.body // ""')
+  review_body=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews/$rid" --jq '.body // ""' 2>/dev/null || echo "")
   if echo "$review_body" | grep -qiE 'encountered an error|unable to review|try again'; then
     jq -n \
       --arg rid "$rid" --arg rat "$rat" --argjson total "$total" --arg body "$review_body" \
