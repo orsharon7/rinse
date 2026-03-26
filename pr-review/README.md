@@ -19,6 +19,18 @@ CLI tool for managing GitHub Copilot PR review cycles. Designed for AI agents an
 | `request` | Request Copilot review |
 | `push` | Commit + push + request review |
 | `cycle` | Wait for review → return comments (agent loop) |
+| `clear-state` | Delete the local state file for this PR (reset last-known) |
+| `watch` | Add a PR to the watch list (async polling) |
+| `unwatch` | Remove a PR from the watch list |
+| `poll-all` | Check all watched PRs, output results, auto-retry errors |
+
+### Global flags
+
+| Flag | Description |
+|------|-------------|
+| `--repo <owner/repo>` | Override repo detection |
+| `--last-known <review_id>` | Skip if latest review matches this ID |
+| `--no-color` | Suppress emoji in stderr progress messages |
 
 ### Examples
 
@@ -34,6 +46,12 @@ CLI tool for managing GitHub Copilot PR review cycles. Designed for AI agents an
 
 # Full agent loop cycle
 ./pr-review.sh 42 cycle --wait 300
+
+# Reset state (forces next cycle to treat any review as new)
+./pr-review.sh 42 clear-state
+
+# Suppress emoji output (useful for CI / log parsers)
+./pr-review.sh 42 cycle --wait 300 --no-color
 
 # Cross-repo
 ./pr-review.sh 2 status --repo orsharon7/gsc-solar-monitor
