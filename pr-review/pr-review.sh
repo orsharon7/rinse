@@ -656,10 +656,18 @@ cmd_watch() {
     last_review_id=$(echo "$latest" | jq '.id')
   fi
 
-  # Add to watch list
-  watches=$(echo "$watches" | jq --arg repo "$REPO" --arg pr "$PR_NUMBER" --argjson lrid "$last_review_id" \
+  # Add to watch list (under lock for safe concurrent access)
+  watchfile_lock || {
+    echo '{"status":"error","message":"Could not acquire watch file lock"}' | tr -d '\000'
+    return 1
+  }
+  # Re-read inside lock to pick up any concurrent writes
+  local watches_locked="[]"
+  [[ -f "$WATCH_FILE" ]] && watches_locked=$(cat "$WATCH_FILE")
+  watches_locked=$(echo "$watches_locked" | jq --arg repo "$REPO" --arg pr "$PR_NUMBER" --argjson lrid "$last_review_id" \
     '. + [{"repo": $repo, "pr": ($pr | tonumber), "last_review_id": $lrid, "added_at": (now | todate), "retries": 0}]')
-  echo "$watches" > "$WATCH_FILE"
+  watchfile_write "$watches_locked" || { watchfile_unlock; echo '{"status":"error","message":"Failed to write watch file"}' | tr -d '\000'; return 1; }
+  watchfile_unlock
 
   jq -n --arg repo "$REPO" --argjson pr "$PR_NUMBER" --argjson lrid "$last_review_id" \
     '{"status":"watching","repo":$repo,"pr":$pr,"last_review_id":$lrid}' | tr -d '\000'
@@ -677,11 +685,17 @@ cmd_unwatch() {
     return
   fi
 
-  local before after
+  local before after after_count
   before=$(cat "$WATCH_FILE" | jq 'length')
+
+  watchfile_lock || {
+    echo '{"status":"error","message":"Could not acquire watch file lock"}' | tr -d '\000'
+    return 1
+  }
   after=$(cat "$WATCH_FILE" | jq --arg repo "$REPO" --arg pr "$PR_NUMBER" \
     '[.[] | select(.repo != $repo or .pr != ($pr | tonumber))]')
-  echo "$after" > "$WATCH_FILE"
+  watchfile_write "$after" || { watchfile_unlock; echo '{"status":"error","message":"Failed to write watch file"}' | tr -d '\000'; return 1; }
+  watchfile_unlock
 
   local after_count
   after_count=$(echo "$after" | jq 'length')
@@ -918,8 +932,23 @@ cmd_poll_all() {
   # Save updated watches (skip in dry-run mode)
   if [[ "$DRY_RUN" -eq 0 ]]; then
     if watchfile_lock; then
+      # Re-read the on-disk file inside the lock so concurrent resolved_comments
+      # updates (from resolve-comment) are not clobbered by our stale snapshot.
+      local disk_watches="[]"
+      [[ -f "$WATCH_FILE" ]] && disk_watches=$(cat "$WATCH_FILE")
+      # Merge: for each entry in updated_watches, carry over resolved_comments
+      # from the on-disk version if present, then write the merged result.
+      local merged_watches
+      merged_watches=$(jq -n \
+        --argjson mem "$updated_watches" \
+        --argjson disk "$disk_watches" \
+        '$mem | map(
+          . as $entry |
+          ($disk[] | select(.repo == $entry.repo and .pr == $entry.pr) | .resolved_comments) as $rc |
+          if $rc then .resolved_comments = $rc else . end
+        )')
       local write_status=0
-      watchfile_write "$updated_watches" || write_status=$?
+      watchfile_write "$merged_watches" || write_status=$?
       watchfile_unlock
       if [[ "$write_status" -ne 0 ]]; then
         >&2 echo "Warning: could not write watch file — changes not saved"
