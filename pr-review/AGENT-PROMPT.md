@@ -96,16 +96,18 @@ Then, for every comment where `in_reply_to_id` is null (top-level only):
 
 ### Step 2: Check comment resolution state
 Before fixing, check if this `comment_id` has already been handled in a previous run.
-The watch file (`~/.pr-review-watches.json`) stores a `resolved_comments` map per PR:
+The watch file (`~/.pr-review-watches.json`) stores a `resolved_comments` map per PR entry (it is a JSON **array** of PR entries):
 
 ```json
-{
-  "repo": "orsharon7/gsc-website",
-  "pr": 184,
-  "resolved_comments": {
-    "2109873421": "abc1234"
+[
+  {
+    "repo": "orsharon7/gsc-website",
+    "pr": 184,
+    "resolved_comments": {
+      "2109873421": "abc1234"
+    }
   }
-}
+]
 ```
 
 If `comment_id` is in `resolved_comments`, skip the fix but still reply if no reply exists yet.

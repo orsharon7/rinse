@@ -462,7 +462,10 @@ cmd_request() {
   if gh pr edit "$PR_NUMBER" --repo "$REPO" --add-reviewer "@copilot" >/dev/null 2>&1; then
     echo '{"status":"requested","message":"Copilot review requested (gh pr edit)"}' | tr -d '\000'
   else
-    # Fallback to raw API
+    # Fallback to raw API: DELETE first for idempotent re-request semantics, then POST
+    gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
+      -X DELETE --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null 2>&1 || true
+    sleep 1
     gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
       -X POST --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null 2>&1 || {
       echo '{"status":"error","message":"Failed to request review"}' | tr -d '\000'
@@ -796,16 +799,21 @@ cmd_poll_all() {
         >&2 echo "  [dry-run] Would re-request Copilot review for ${repo}#${pr}"
       fi
 
-      # Increment retry counter
+      local retry_msg="Copilot error — re-requested review"
+      [[ "$DRY_RUN" -eq 1 ]] && retry_msg="Copilot error — would re-request review (dry-run)"
+
+      # Increment retry counter (skip in dry-run)
       local retries
       retries=$(echo "$updated_watches" | jq --arg repo "$repo" --argjson pr "$pr" \
         '[.[] | select(.repo == $repo and .pr == $pr)][0].retries // 0')
       retries=$((retries + 1))
-      updated_watches=$(echo "$updated_watches" | jq --arg repo "$repo" --argjson pr "$pr" --argjson r "$retries" \
-        '[.[] | if .repo == $repo and .pr == $pr then .retries = $r else . end]')
+      if [[ "$DRY_RUN" -eq 0 ]]; then
+        updated_watches=$(echo "$updated_watches" | jq --arg repo "$repo" --argjson pr "$pr" --argjson r "$retries" \
+          '[.[] | if .repo == $repo and .pr == $pr then .retries = $r else . end]')
+      fi
 
-      results=$(echo "$results" | jq --arg repo "$repo" --argjson pr "$pr" --argjson r "$retries" \
-        '. + [{"repo":$repo,"pr":$pr,"status":"error_retried","retries":$r,"message":"Copilot error — re-requested review"}]')
+      results=$(echo "$results" | jq --arg repo "$repo" --argjson pr "$pr" --argjson r "$retries" --arg msg "$retry_msg" \
+        '. + [{"repo":$repo,"pr":$pr,"status":"error_retried","retries":$r,"message":$msg}]')
       continue
     fi
 
@@ -819,8 +827,8 @@ cmd_poll_all() {
 
     # New review!
     if [[ "$rstate" == "APPROVED" ]]; then
-      # React 👀 to approved review
-      react_eyes_to_review "$rid"
+      # React 👀 to approved review (skip in dry-run)
+      [[ "$DRY_RUN" -eq 0 ]] && react_eyes_to_review "$rid"
       results=$(echo "$results" | jq --arg repo "$repo" --argjson pr "$pr" --arg rid "$rid" \
         '. + [{"repo":$repo,"pr":$pr,"status":"approved","review_id":$rid}]')
       # Auto-unwatch on approval
@@ -837,8 +845,8 @@ cmd_poll_all() {
       comments=$(get_review_comments "$rid")
       comment_count=$(echo "$comments" | jq 'length')
 
-      # React 👀 to review
-      if [[ "$comment_count" -gt 0 ]]; then
+      # React 👀 to review (skip in dry-run)
+      if [[ "$comment_count" -gt 0 && "$DRY_RUN" -eq 0 ]]; then
         react_eyes_to_review "$rid"
       fi
 
@@ -848,24 +856,26 @@ cmd_poll_all() {
         review_body=$(echo "$latest" | jq -r '.body // ""')
         if echo "$review_body" | grep -qiE 'encountered an error|unable to review|try again'; then
           # Copilot error — auto re-request review
-          if [[ "$NO_COLOR" -eq 0 ]]; then
-            >&2 echo "  ⚠️ Copilot error — auto re-requesting review"
-          else
-            >&2 echo "  [warn] Copilot error — auto re-requesting review"
-          fi
+          local copilot_msg="Copilot error — auto re-requested review"
           if [[ "$DRY_RUN" -eq 0 ]]; then
+            if [[ "$NO_COLOR" -eq 0 ]]; then
+              >&2 echo "  ⚠️ Copilot error — auto re-requesting review"
+            else
+              >&2 echo "  [warn] Copilot error — auto re-requesting review"
+            fi
             gh api "repos/$repo/pulls/$pr/requested_reviewers" -X POST --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null 2>&1
           else
             >&2 echo "  [dry-run] Would re-request Copilot review for ${repo}#${pr}"
+            copilot_msg="Copilot error — would auto re-request review (dry-run)"
           fi
-          results=$(echo "$results" | jq --arg repo "$repo" --argjson pr "$pr" --arg rid "$rid" \
-            '. + [{"repo":$repo,"pr":$pr,"status":"copilot_error","review_id":$rid,"message":"Copilot error — auto re-requested review"}]')
+          results=$(echo "$results" | jq --arg repo "$repo" --argjson pr "$pr" --arg rid "$rid" --arg msg "$copilot_msg" \
+            '. + [{"repo":$repo,"pr":$pr,"status":"copilot_error","review_id":$rid,"message":$msg}]')
           # Update last_review_id so we don't re-process this error
           updated_watches=$(echo "$updated_watches" | jq --arg repo "$repo" --argjson pr "$pr" --arg rid "$rid" \
             '[.[] | if .repo == $repo and .pr == ($pr | tonumber) then .last_review_id = ($rid | tonumber) else . end]')
         else
           # Clean review — no comments means all good
-          react_eyes_to_review "$rid"
+          [[ "$DRY_RUN" -eq 0 ]] && react_eyes_to_review "$rid"
           results=$(echo "$results" | jq --arg repo "$repo" --argjson pr "$pr" --arg rid "$rid" \
             '. + [{"repo":$repo,"pr":$pr,"status":"clean","review_id":$rid,"message":"Copilot reviewed with no new comments — ready to merge"}]')
           # Auto-unwatch on clean review
@@ -918,31 +928,44 @@ cmd_resolve_comment() {
     REPO=$(gh repo view --json nameWithOwner -q '.nameWithOwner' 2>/dev/null || echo "")
   fi
 
-  local watches="[]"
-  [[ -f "$WATCH_FILE" ]] && watches=$(cat "$WATCH_FILE")
+  local resolution_status="resolved"
 
-  # Check if this PR is in the watch list
-  local exists
-  exists=$(echo "$watches" | jq --arg repo "$REPO" --argjson pr "$PR_NUMBER" \
-    '[.[] | select(.repo == $repo and .pr == $pr)] | length')
+  {
+    flock -x 200
 
-  if [[ "$exists" -eq 0 ]]; then
-    # PR not watched — still record, just no-op on watch list update
+    local watches="[]"
+    [[ -f "$WATCH_FILE" ]] && watches=$(cat "$WATCH_FILE")
+
+    # Check if this PR is in the watch list (with safe numeric fallback)
+    local exists=0
+    exists=$(echo "$watches" | jq --arg repo "$REPO" --argjson pr "$PR_NUMBER" \
+      '[.[] | select(.repo == $repo and .pr == $pr)] | length' 2>/dev/null) || exists=0
+    [[ "$exists" =~ ^[0-9]+$ ]] || exists=0
+
+    if [[ "$exists" -eq 0 ]]; then
+      # PR not in watch list — no-op on watch file
+      resolution_status="not_watched"
+    else
+      # Merge the new resolved comment into the existing entry
+      watches=$(echo "$watches" | jq \
+        --arg repo "$REPO" --argjson pr "$PR_NUMBER" \
+        --arg cid "$cid" --arg sha "$sha" \
+        '[.[] | if .repo == $repo and .pr == $pr then
+            .resolved_comments = ((.resolved_comments // {}) + {($cid): $sha})
+          else . end]')
+      # Atomic update: write to temp file then mv
+      local tmp_file="${WATCH_FILE}.tmp.$$"
+      printf '%s\n' "$watches" > "$tmp_file"
+      mv "$tmp_file" "$WATCH_FILE"
+    fi
+  } 200>"${WATCH_FILE}.lock"
+
+  if [[ "$resolution_status" == "not_watched" ]]; then
     echo "{\"status\":\"not_watched\",\"comment_id\":\"$cid\",\"commit\":\"$sha\"}" | tr -d '\000'
-    return
+  else
+    jq -n --arg cid "$cid" --arg sha "$sha" --arg repo "$REPO" --argjson pr "$PR_NUMBER" \
+      '{"status":"resolved","repo":$repo,"pr":$pr,"comment_id":$cid,"commit":$sha}' | tr -d '\000'
   fi
-
-  # Merge the new resolved comment into the existing map
-  watches=$(echo "$watches" | jq \
-    --arg repo "$REPO" --argjson pr "$PR_NUMBER" \
-    --arg cid "$cid" --arg sha "$sha" \
-    '[.[] | if .repo == $repo and .pr == $pr then
-        .resolved_comments = ((.resolved_comments // {}) + {($cid): $sha})
-      else . end]')
-  echo "$watches" > "$WATCH_FILE"
-
-  jq -n --arg cid "$cid" --arg sha "$sha" --arg repo "$REPO" --argjson pr "$PR_NUMBER" \
-    '{"status":"resolved","repo":$repo,"pr":$pr,"comment_id":$cid,"commit":$sha}' | tr -d '\000'
 }
 
 # ─── Subcommand: clear-state ─────────────────────────────────────────────────
