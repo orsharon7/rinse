@@ -863,7 +863,18 @@ cmd_poll_all() {
             else
               >&2 echo "  [warn] Copilot error — auto re-requesting review"
             fi
-            gh api "repos/$repo/pulls/$pr/requested_reviewers" -X POST --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null 2>&1
+            local copilot_reviewer_body='{"reviewers":["copilot-pull-request-reviewer[bot]"]}'
+            gh api "repos/$repo/pulls/$pr/requested_reviewers" -X DELETE --input - <<< "$copilot_reviewer_body" >/dev/null 2>&1 || true
+            if gh api "repos/$repo/pulls/$pr/requested_reviewers" -X POST --input - <<< "$copilot_reviewer_body" >/dev/null 2>&1; then
+              copilot_msg="Copilot error — auto re-requested review"
+            else
+              copilot_msg="Copilot error — failed to auto re-request review"
+              if [[ "$NO_COLOR" -eq 0 ]]; then
+                >&2 echo "  ⚠️ Failed to re-request Copilot review (GitHub API error)"
+              else
+                >&2 echo "  [warn] Failed to re-request Copilot review (GitHub API error)"
+              fi
+            fi
           else
             >&2 echo "  [dry-run] Would re-request Copilot review for ${repo}#${pr}"
             copilot_msg="Copilot error — would auto re-request review (dry-run)"
@@ -906,7 +917,8 @@ cmd_poll_all() {
 
   # Save updated watches (skip in dry-run mode)
   if [[ "$DRY_RUN" -eq 0 ]]; then
-    echo "$updated_watches" > "$WATCH_FILE"
+    watchfile_lock && { watchfile_write "$updated_watches"; watchfile_unlock; } || \
+      >&2 echo "Warning: could not acquire watch file lock — changes not saved"
   else
     >&2 echo "[dry-run] Would write updated watch file (not saved)"
   fi
@@ -914,6 +926,37 @@ cmd_poll_all() {
   # Output results (always use in-memory updated_watches, not on-disk file)
   jq -n --argjson results "$results" --argjson watches "$updated_watches" \
     '{"results":$results,"watches":$watches}' | tr -d '\000'
+}
+
+# ─── Portable watch-file locking ─────────────────────────────────────────────
+# Use mkdir-based locking for macOS compatibility (flock is not available by default).
+# The lock directory is created atomically; the caller must call watchfile_unlock.
+
+WATCH_LOCK_DIR="${WATCH_FILE}.lock.d"
+
+watchfile_lock() {
+  local retries=20 wait_ms=100
+  while ! mkdir "$WATCH_LOCK_DIR" 2>/dev/null; do
+    retries=$((retries - 1))
+    if [[ $retries -le 0 ]]; then
+      >&2 echo "Timed out waiting for watch file lock"
+      return 1
+    fi
+    sleep "0.${wait_ms}"
+  done
+  # Store PID in lock so stale locks can be detected
+  echo $$ > "${WATCH_LOCK_DIR}/pid"
+}
+
+watchfile_unlock() {
+  rm -rf "$WATCH_LOCK_DIR"
+}
+
+watchfile_write() {
+  # Atomic update: write to temp then mv
+  local tmp_file="${WATCH_FILE}.tmp.$$"
+  printf '%s\n' "$1" > "$tmp_file"
+  mv "$tmp_file" "$WATCH_FILE"
 }
 
 # ─── Subcommand: resolve-comment ─────────────────────────────────────────────
@@ -930,35 +973,35 @@ cmd_resolve_comment() {
 
   local resolution_status="resolved"
 
-  {
-    flock -x 200
+  watchfile_lock || {
+    echo '{"status":"error","message":"Could not acquire watch file lock"}' | tr -d '\000'
+    return 1
+  }
 
-    local watches="[]"
-    [[ -f "$WATCH_FILE" ]] && watches=$(cat "$WATCH_FILE")
+  local watches="[]"
+  [[ -f "$WATCH_FILE" ]] && watches=$(cat "$WATCH_FILE")
 
-    # Check if this PR is in the watch list (with safe numeric fallback)
-    local exists=0
-    exists=$(echo "$watches" | jq --arg repo "$REPO" --argjson pr "$PR_NUMBER" \
-      '[.[] | select(.repo == $repo and .pr == $pr)] | length' 2>/dev/null) || exists=0
-    [[ "$exists" =~ ^[0-9]+$ ]] || exists=0
+  # Check if this PR is in the watch list (with safe numeric fallback)
+  local exists=0
+  exists=$(echo "$watches" | jq --arg repo "$REPO" --argjson pr "$PR_NUMBER" \
+    '[.[] | select(.repo == $repo and .pr == $pr)] | length' 2>/dev/null) || exists=0
+  [[ "$exists" =~ ^[0-9]+$ ]] || exists=0
 
-    if [[ "$exists" -eq 0 ]]; then
-      # PR not in watch list — no-op on watch file
-      resolution_status="not_watched"
-    else
-      # Merge the new resolved comment into the existing entry
-      watches=$(echo "$watches" | jq \
-        --arg repo "$REPO" --argjson pr "$PR_NUMBER" \
-        --arg cid "$cid" --arg sha "$sha" \
-        '[.[] | if .repo == $repo and .pr == $pr then
-            .resolved_comments = ((.resolved_comments // {}) + {($cid): $sha})
-          else . end]')
-      # Atomic update: write to temp file then mv
-      local tmp_file="${WATCH_FILE}.tmp.$$"
-      printf '%s\n' "$watches" > "$tmp_file"
-      mv "$tmp_file" "$WATCH_FILE"
-    fi
-  } 200>"${WATCH_FILE}.lock"
+  if [[ "$exists" -eq 0 ]]; then
+    # PR not in watch list — no-op on watch file
+    resolution_status="not_watched"
+  else
+    # Merge the new resolved comment into the existing entry
+    watches=$(echo "$watches" | jq \
+      --arg repo "$REPO" --argjson pr "$PR_NUMBER" \
+      --arg cid "$cid" --arg sha "$sha" \
+      '[.[] | if .repo == $repo and .pr == $pr then
+          .resolved_comments = ((.resolved_comments // {}) + {($cid): $sha})
+        else . end]')
+    watchfile_write "$watches"
+  fi
+
+  watchfile_unlock
 
   if [[ "$resolution_status" == "not_watched" ]]; then
     echo "{\"status\":\"not_watched\",\"comment_id\":\"$cid\",\"commit\":\"$sha\"}" | tr -d '\000'
