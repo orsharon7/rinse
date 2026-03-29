@@ -945,11 +945,11 @@ WATCH_LOCK_DIR="${WATCH_FILE}.lock.d"
 watchfile_lock() {
   local retries=20
   while ! mkdir "$WATCH_LOCK_DIR" 2>/dev/null; do
-    # Stale lock recovery: if the locking PID is no longer alive, remove it
+    # Stale lock recovery: if the locking PID is no longer alive (or pid file is missing), remove it
     local lock_pid=""
     lock_pid=$(cat "${WATCH_LOCK_DIR}/pid" 2>/dev/null || true)
-    if [[ -n "$lock_pid" ]] && ! kill -0 "$lock_pid" 2>/dev/null; then
-      >&2 echo "Removing stale watch file lock (PID ${lock_pid} not alive)"
+    if [[ -z "$lock_pid" ]] || ! kill -0 "$lock_pid" 2>/dev/null; then
+      >&2 echo "Removing stale watch file lock (PID '${lock_pid}' not alive or missing)"
       rm -rf "$WATCH_LOCK_DIR"
       continue
     fi
@@ -961,7 +961,12 @@ watchfile_lock() {
     sleep 0.1
   done
   # Store PID so stale locks can be detected by future callers
-  echo $$ > "${WATCH_LOCK_DIR}/pid"
+  # If this write fails, release the lock immediately and return error
+  if ! echo $$ > "${WATCH_LOCK_DIR}/pid" 2>/dev/null; then
+    rm -rf "$WATCH_LOCK_DIR"
+    >&2 echo "Failed to write PID to watch lock"
+    return 1
+  fi
 }
 
 watchfile_unlock() {
@@ -1008,12 +1013,18 @@ cmd_resolve_comment() {
     resolution_status="not_watched"
   else
     # Merge the new resolved comment into the existing entry
-    watches=$(echo "$watches" | jq \
+    local new_watches
+    if ! new_watches=$(echo "$watches" | jq \
       --arg repo "$REPO" --argjson pr "$PR_NUMBER" \
       --arg cid "$cid" --arg sha "$sha" \
       '[.[] | if .repo == $repo and .pr == $pr then
           .resolved_comments = ((.resolved_comments // {}) + {($cid): $sha})
-        else . end]')
+        else . end]' 2>/dev/null); then
+      watchfile_unlock
+      echo '{"status":"error","message":"Failed to parse or update watch file"}' | tr -d '\000'
+      return 1
+    fi
+    watches="$new_watches"
     if ! watchfile_write "$watches"; then
       watchfile_unlock
       echo '{"status":"error","message":"Failed to update watch file"}' | tr -d '\000'
