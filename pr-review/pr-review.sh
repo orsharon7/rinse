@@ -690,16 +690,19 @@ cmd_unwatch() {
     return
   fi
 
-  local before=0 after="" after_count=0
-  before=$(cat "$WATCH_FILE" | jq 'length' 2>/dev/null) || before=0
-  [[ "$before" =~ ^[0-9]+$ ]] || before=0
+  local before=0 after="" after_count=0 current=""
 
   watchfile_lock || {
     echo '{"status":"error","message":"Could not acquire watch file lock"}' | tr -d '\000'
     return 1
   }
+  # Read inside lock so before/after reflect the same snapshot
+  [[ -f "$WATCH_FILE" ]] && current=$(cat "$WATCH_FILE") || current="[]"
+  before=$(echo "$current" | jq 'length' 2>/dev/null) || before=0
+  [[ "$before" =~ ^[0-9]+$ ]] || before=0
+
   local filtered
-  if ! filtered=$(cat "$WATCH_FILE" | jq --arg repo "$REPO" --arg pr "$PR_NUMBER" \
+  if ! filtered=$(echo "$current" | jq --arg repo "$REPO" --arg pr "$PR_NUMBER" \
     '[.[] | select(.repo != $repo or .pr != ($pr | tonumber))]' 2>/dev/null); then
     watchfile_unlock
     echo '{"status":"error","message":"Failed to parse watch file"}' | tr -d '\000'
@@ -946,19 +949,23 @@ cmd_poll_all() {
     if watchfile_lock; then
       # Re-read the on-disk file inside the lock so concurrent resolved_comments
       # updates (from resolve-comment) are not clobbered by our stale snapshot.
+      # Also preserve any entries only present on disk (new PRs added concurrently).
       local disk_watches="[]"
       [[ -f "$WATCH_FILE" ]] && disk_watches=$(cat "$WATCH_FILE")
-      # Merge: for each entry in updated_watches, carry over resolved_comments
-      # from the on-disk version if present, then write the merged result.
       local merged_watches
       merged_watches=$(jq -n \
         --argjson mem "$updated_watches" \
         --argjson disk "$disk_watches" \
-        '$mem | map(
-          . as $entry |
-          ($disk[] | select(.repo == $entry.repo and .pr == $entry.pr) | .resolved_comments) as $rc |
-          if $rc then .resolved_comments = $rc else . end
-        )')
+        '($mem | map(
+            . as $entry |
+            ($disk[] | select(.repo == $entry.repo and .pr == $entry.pr) | .resolved_comments) as $rc |
+            if $rc then .resolved_comments = $rc else . end
+          )) as $mem_merged |
+         ($disk | map(
+            . as $d |
+            select([$mem[] | select(.repo == $d.repo and .pr == $d.pr)] | length == 0)
+          )) as $disk_only |
+         ($mem_merged + $disk_only)')
       local write_status=0
       watchfile_write "$merged_watches" || write_status=$?
       watchfile_unlock
@@ -986,15 +993,25 @@ WATCH_LOCK_DIR="${WATCH_FILE}.lock.d"
 watchfile_lock() {
   local retries=20
   while ! mkdir "$WATCH_LOCK_DIR" 2>/dev/null; do
-    # Stale lock recovery: only remove the lock when the PID is known AND dead.
-    # Do NOT treat a missing/empty pid file as stale — that could race with a
-    # process that created the lock dir but hasn't written its PID yet.
+    # Stale lock recovery:
+    # 1. If pid file exists and PID is dead → remove lock
+    # 2. If pid file is missing/empty and lock dir is older than 60s → remove lock (crash recovery)
     local lock_pid=""
     lock_pid=$(cat "${WATCH_LOCK_DIR}/pid" 2>/dev/null || true)
     if [[ -n "$lock_pid" ]] && ! kill -0 "$lock_pid" 2>/dev/null; then
       >&2 echo "Removing stale watch file lock (PID '${lock_pid}' not alive)"
       rm -rf "$WATCH_LOCK_DIR"
       continue
+    fi
+    if [[ -z "$lock_pid" ]]; then
+      # Check lock dir age for crash recovery (no pid = process died before writing it)
+      local lock_age=0
+      lock_age=$(( $(date +%s) - $(stat -f %m "$WATCH_LOCK_DIR" 2>/dev/null || stat -c %Y "$WATCH_LOCK_DIR" 2>/dev/null || echo 0) ))
+      if [[ "$lock_age" -gt 60 ]]; then
+        >&2 echo "Removing stale watch file lock (no PID, lock dir ${lock_age}s old)"
+        rm -rf "$WATCH_LOCK_DIR"
+        continue
+      fi
     fi
     retries=$((retries - 1))
     if [[ $retries -le 0 ]]; then
