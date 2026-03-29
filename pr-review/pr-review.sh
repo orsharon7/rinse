@@ -817,19 +817,22 @@ cmd_poll_all() {
       else
         >&2 echo "  [error] Copilot error — re-requesting review"
       fi
-      # Re-request review (skip in dry-run)
+      # Re-request review (skip in dry-run), check exit code for accurate reporting
+      local retry_msg="Copilot error — would re-request review (dry-run)"
       if [[ "$DRY_RUN" -eq 0 ]]; then
         gh api "repos/${repo}/pulls/${pr}/requested_reviewers" \
-          -X DELETE --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null 2>&1
+          -X DELETE --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null 2>&1 || true
         sleep 1
-        gh api "repos/${repo}/pulls/${pr}/requested_reviewers" \
-          -X POST --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null 2>&1
+        if gh api "repos/${repo}/pulls/${pr}/requested_reviewers" \
+          -X POST --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null 2>&1; then
+          retry_msg="Copilot error — re-requested review"
+        else
+          retry_msg="Copilot error — failed to re-request review"
+          >&2 echo "  [warn] Failed to re-request Copilot review for ${repo}#${pr}"
+        fi
       else
         >&2 echo "  [dry-run] Would re-request Copilot review for ${repo}#${pr}"
       fi
-
-      local retry_msg="Copilot error — re-requested review"
-      [[ "$DRY_RUN" -eq 1 ]] && retry_msg="Copilot error — would re-request review (dry-run)"
 
       # Increment retry counter (skip in dry-run)
       local retries
@@ -967,20 +970,25 @@ cmd_poll_all() {
           )) as $disk_only |
          ($mem_merged + $disk_only)')
       local write_status=0
+      local final_watches="$updated_watches"
       watchfile_write "$merged_watches" || write_status=$?
-      watchfile_unlock
-      if [[ "$write_status" -ne 0 ]]; then
+      if [[ "$write_status" -eq 0 ]]; then
+        final_watches="$merged_watches"
+      else
         >&2 echo "Warning: could not write watch file — changes not saved"
       fi
+      watchfile_unlock
     else
       >&2 echo "Warning: could not acquire watch file lock — changes not saved"
+      local final_watches="$updated_watches"
     fi
   else
     >&2 echo "[dry-run] Would write updated watch file (not saved)"
+    local final_watches="$updated_watches"
   fi
 
-  # Output results (always use in-memory updated_watches, not on-disk file)
-  jq -n --argjson results "$results" --argjson watches "$updated_watches" \
+  # Output results using the actually-persisted watch state
+  jq -n --argjson results "$results" --argjson watches "$final_watches" \
     '{"results":$results,"watches":$watches}' | tr -d '\000'
 }
 
