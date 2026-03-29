@@ -13,6 +13,7 @@
 #   push      — Commit, push, and request review in one step
 #   cycle       — Full cycle: wait for review → show comments (used by agents)
 #   clear-state — Delete the local state file for this PR (reset last-known)
+#   resolve-comment — Mark a comment as resolved (comment_id → commit_sha) in the watch file
 #   watch       — Add a PR to the watch list (for async polling)
 #   unwatch     — Remove a PR from the watch list
 #   poll-all    — Check all watched PRs, output results, auto-retry errors
@@ -26,9 +27,10 @@
 #   ./scripts/pr-review.sh <pr_number> push [-m <message>]
 #   ./scripts/pr-review.sh <pr_number> cycle [--wait <seconds>]
 #   ./scripts/pr-review.sh <pr_number> clear-state
+#   ./scripts/pr-review.sh <pr_number> resolve-comment <comment_id> <commit_sha>
 #   ./scripts/pr-review.sh <pr_number> watch --repo <owner/repo>
 #   ./scripts/pr-review.sh <pr_number> unwatch --repo <owner/repo>
-#   ./scripts/pr-review.sh poll-all
+#   ./scripts/pr-review.sh poll-all [--dry-run]
 #
 # Global flags (before or after subcommand):
 #   --repo <owner/repo>        Override repo detection
@@ -81,6 +83,7 @@ COMMENT_ID=""
 REPLY_BODY=""
 COMMIT_MSG=""
 NO_COLOR=0
+DRY_RUN=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -88,6 +91,7 @@ while [[ $# -gt 0 ]]; do
     --repo) REPO="$2"; shift 2 ;;
     --review-id) REVIEW_ID="$2"; shift 2 ;;
     --no-color) NO_COLOR=1; shift ;;
+    --dry-run) DRY_RUN=1; shift ;;
     --wait)
       WAIT=1
       if [[ $# -ge 2 && "$2" =~ ^[0-9]+$ ]]; then
@@ -450,13 +454,18 @@ cmd_request() {
     return
   fi
 
-  gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
-    -X POST --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null 2>&1 || {
-    echo '{"status":"error","message":"Failed to request review"}' | tr -d '\000'
-    exit 1
-  }
-
-  echo '{"status":"requested","message":"Copilot review requested"}' | tr -d '\000'
+  # Try the newer `gh pr edit --add-reviewer @copilot` syntax first (gh ≥ 2.67, March 2026)
+  if gh pr edit "$PR_NUMBER" --repo "$REPO" --add-reviewer "@copilot" >/dev/null 2>&1; then
+    echo '{"status":"requested","message":"Copilot review requested (gh pr edit)"}' | tr -d '\000'
+  else
+    # Fallback to raw API
+    gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
+      -X POST --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null 2>&1 || {
+      echo '{"status":"error","message":"Failed to request review"}' | tr -d '\000'
+      exit 1
+    }
+    echo '{"status":"requested","message":"Copilot review requested (API fallback)"}' | tr -d '\000'
+  fi
 }
 
 # ─── Subcommand: push ────────────────────────────────────────────────────────
@@ -678,6 +687,7 @@ cmd_unwatch() {
 }
 
 # ─── Subcommand: poll-all ────────────────────────────────────────────────────
+# --dry-run: print what would be fired to OpenClaw without mutating state
 
 cmd_poll_all() {
   if [[ ! -f "$WATCH_FILE" ]]; then
@@ -872,12 +882,56 @@ cmd_poll_all() {
     fi
   done
 
-  # Save updated watches
-  echo "$updated_watches" > "$WATCH_FILE"
+  # Save updated watches (skip in dry-run mode)
+  if [[ "$DRY_RUN" -eq 0 ]]; then
+    echo "$updated_watches" > "$WATCH_FILE"
+  else
+    >&2 echo "[dry-run] Would write updated watch file (not saved)"
+  fi
 
   # Output results
   jq -n --argjson results "$results" --argjson watches "$(cat "$WATCH_FILE")" \
     '{"results":$results,"watches":$watches}' | tr -d '\000'
+}
+
+# ─── Subcommand: resolve-comment ─────────────────────────────────────────────
+# Record that a comment has been addressed at a given commit, so future runs
+# skip re-fixing it.  Stored in ~/.pr-review-watches.json under
+# resolved_comments: { "<comment_id>": "<commit_sha>" }
+
+cmd_resolve_comment() {
+  local cid="${COMMENT_ID:?Usage: pr-review.sh <pr> resolve-comment <comment_id> <commit_sha>}"
+  local sha="${REPLY_BODY:?Usage: pr-review.sh <pr> resolve-comment <comment_id> <commit_sha>}"
+
+  if [[ -z "$REPO" ]]; then
+    REPO=$(gh repo view --json nameWithOwner -q '.nameWithOwner' 2>/dev/null || echo "")
+  fi
+
+  local watches="[]"
+  [[ -f "$WATCH_FILE" ]] && watches=$(cat "$WATCH_FILE")
+
+  # Check if this PR is in the watch list
+  local exists
+  exists=$(echo "$watches" | jq --arg repo "$REPO" --argjson pr "$PR_NUMBER" \
+    '[.[] | select(.repo == $repo and .pr == $pr)] | length')
+
+  if [[ "$exists" -eq 0 ]]; then
+    # PR not watched — still record, just no-op on watch list update
+    echo "{\"status\":\"not_watched\",\"comment_id\":\"$cid\",\"commit\":\"$sha\"}" | tr -d '\000'
+    return
+  fi
+
+  # Merge the new resolved comment into the existing map
+  watches=$(echo "$watches" | jq \
+    --arg repo "$REPO" --argjson pr "$PR_NUMBER" \
+    --arg cid "$cid" --arg sha "$sha" \
+    '[.[] | if .repo == $repo and .pr == $pr then
+        .resolved_comments = ((.resolved_comments // {}) + {($cid): $sha})
+      else . end]')
+  echo "$watches" > "$WATCH_FILE"
+
+  jq -n --arg cid "$cid" --arg sha "$sha" --arg repo "$REPO" --argjson pr "$PR_NUMBER" \
+    '{"status":"resolved","repo":$repo,"pr":$pr,"comment_id":$cid,"commit":$sha}' | tr -d '\000'
 }
 
 # ─── Subcommand: clear-state ─────────────────────────────────────────────────
@@ -897,17 +951,18 @@ cmd_clear_state() {
 # ─── Dispatch ─────────────────────────────────────────────────────────────────
 
 case "$SUBCOMMAND" in
-  status)      cmd_status ;;
-  comments)    cmd_comments ;;
-  reply)       cmd_reply ;;
-  reply-all)   cmd_reply_all ;;
-  request)     cmd_request ;;
-  push)        cmd_push ;;
-  cycle)       cmd_cycle ;;
-  clear-state) cmd_clear_state ;;
-  watch)       cmd_watch ;;
-  unwatch)     cmd_unwatch ;;
-  poll-all)    cmd_poll_all ;;
+  status)         cmd_status ;;
+  comments)       cmd_comments ;;
+  reply)          cmd_reply ;;
+  reply-all)      cmd_reply_all ;;
+  request)        cmd_request ;;
+  push)           cmd_push ;;
+  cycle)          cmd_cycle ;;
+  clear-state)    cmd_clear_state ;;
+  resolve-comment) cmd_resolve_comment ;;
+  watch)          cmd_watch ;;
+  unwatch)        cmd_unwatch ;;
+  poll-all)       cmd_poll_all ;;
   help|--help|-h)
     head -50 "$0" | grep '^#' | sed 's/^# \?//'
     ;;

@@ -30,11 +30,20 @@ PIDFILE="${HOME}/.pr-review-daemon.pid"
 LOGFILE="${HOME}/.pr-review-daemon.log"
 
 # Repo path mapping (repo → local path)
-# Using a function instead of associative array to avoid bash slash issues
+# Override by setting REPO_PATH_<slug> env vars, e.g.:
+#   export REPO_PATH_orsharon7_gsc_website=/path/to/gsc-website
+# Falls back to sensible macOS defaults based on $HOME.
 get_repo_path() {
+  local slug
+  slug=$(echo "$1" | tr '/-' '__')
+  local env_var="REPO_PATH_${slug}"
+  if [[ -n "${!env_var:-}" ]]; then
+    echo "${!env_var}"
+    return
+  fi
   case "$1" in
-    "orsharon7/gsc-solar-monitor") echo "/home/luli/.openclaw/workspace/gsc-solar-monitor/" ;;
-    "orsharon7/gsc-website") echo "/home/luli/.openclaw/workspace/gsc-website/" ;;
+    "orsharon7/gsc-solar-monitor") echo "${HOME}/Downloads/General OrSh/GSC/dev/gsc-solar-monitor/" ;;
+    "orsharon7/gsc-website")       echo "${HOME}/Downloads/General OrSh/GSC/dev/gsc-website/" ;;
     *) echo "" ;;
   esac
 }
