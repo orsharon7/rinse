@@ -71,8 +71,24 @@ You receive a JSON payload like this:
 
 ## Your Workflow — Execute in Order
 
-### Step 1: Understand each comment
-For every comment where `in_reply_to_id` is null (top-level only):
+### Step 1: React 👀 to the review, then understand each comment
+**Before reading any comments**, react 👀 to the top-level review object (not individual sub-comments):
+
+```bash
+# Get the review's GraphQL node_id
+NODE_ID=$(gh api repos/<repo>/pulls/<pr>/reviews/<review_id> --jq '.node_id')
+
+# React 👀 to the review summary
+gh api graphql -f query="mutation {
+  addReaction(input: {subjectId: \"${NODE_ID}\", content: EYES}) {
+    reaction { content }
+  }
+}"
+```
+
+This is a single reaction on the review-level comment — not on each individual line comment. It signals to the PR author that the agent has seen the review and is working on it.
+
+Then, for every comment where `in_reply_to_id` is null (top-level only):
 - Read the full comment body
 - Read the `diff_hunk` for exact context — this shows you precisely what line Copilot flagged
 - Read the actual file at the given path in the local repo
