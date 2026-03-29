@@ -917,8 +917,16 @@ cmd_poll_all() {
 
   # Save updated watches (skip in dry-run mode)
   if [[ "$DRY_RUN" -eq 0 ]]; then
-    watchfile_lock && { watchfile_write "$updated_watches"; watchfile_unlock; } || \
+    if watchfile_lock; then
+      local write_status=0
+      watchfile_write "$updated_watches" || write_status=$?
+      watchfile_unlock
+      if [[ "$write_status" -ne 0 ]]; then
+        >&2 echo "Warning: could not write watch file — changes not saved"
+      fi
+    else
       >&2 echo "Warning: could not acquire watch file lock — changes not saved"
+    fi
   else
     >&2 echo "[dry-run] Would write updated watch file (not saved)"
   fi
@@ -935,16 +943,24 @@ cmd_poll_all() {
 WATCH_LOCK_DIR="${WATCH_FILE}.lock.d"
 
 watchfile_lock() {
-  local retries=20 wait_ms=100
+  local retries=20
   while ! mkdir "$WATCH_LOCK_DIR" 2>/dev/null; do
+    # Stale lock recovery: if the locking PID is no longer alive, remove it
+    local lock_pid=""
+    lock_pid=$(cat "${WATCH_LOCK_DIR}/pid" 2>/dev/null || true)
+    if [[ -n "$lock_pid" ]] && ! kill -0 "$lock_pid" 2>/dev/null; then
+      >&2 echo "Removing stale watch file lock (PID ${lock_pid} not alive)"
+      rm -rf "$WATCH_LOCK_DIR"
+      continue
+    fi
     retries=$((retries - 1))
     if [[ $retries -le 0 ]]; then
       >&2 echo "Timed out waiting for watch file lock"
       return 1
     fi
-    sleep "0.${wait_ms}"
+    sleep 0.1
   done
-  # Store PID in lock so stale locks can be detected
+  # Store PID so stale locks can be detected by future callers
   echo $$ > "${WATCH_LOCK_DIR}/pid"
 }
 
@@ -998,7 +1014,11 @@ cmd_resolve_comment() {
       '[.[] | if .repo == $repo and .pr == $pr then
           .resolved_comments = ((.resolved_comments // {}) + {($cid): $sha})
         else . end]')
-    watchfile_write "$watches"
+    if ! watchfile_write "$watches"; then
+      watchfile_unlock
+      echo '{"status":"error","message":"Failed to update watch file"}' | tr -d '\000'
+      return 1
+    fi
   fi
 
   watchfile_unlock
