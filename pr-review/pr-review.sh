@@ -945,11 +945,13 @@ WATCH_LOCK_DIR="${WATCH_FILE}.lock.d"
 watchfile_lock() {
   local retries=20
   while ! mkdir "$WATCH_LOCK_DIR" 2>/dev/null; do
-    # Stale lock recovery: if the locking PID is no longer alive (or pid file is missing), remove it
+    # Stale lock recovery: only remove the lock when the PID is known AND dead.
+    # Do NOT treat a missing/empty pid file as stale — that could race with a
+    # process that created the lock dir but hasn't written its PID yet.
     local lock_pid=""
     lock_pid=$(cat "${WATCH_LOCK_DIR}/pid" 2>/dev/null || true)
-    if [[ -z "$lock_pid" ]] || ! kill -0 "$lock_pid" 2>/dev/null; then
-      >&2 echo "Removing stale watch file lock (PID '${lock_pid}' not alive or missing)"
+    if [[ -n "$lock_pid" ]] && ! kill -0 "$lock_pid" 2>/dev/null; then
+      >&2 echo "Removing stale watch file lock (PID '${lock_pid}' not alive)"
       rm -rf "$WATCH_LOCK_DIR"
       continue
     fi
