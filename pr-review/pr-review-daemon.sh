@@ -35,7 +35,8 @@ LOGFILE="${HOME}/.pr-review-daemon.log"
 # Falls back to sensible macOS defaults based on $HOME.
 get_repo_path() {
   local slug
-  slug=$(echo "$1" | tr '/-' '__')
+  # Sanitize to valid bash variable name: replace all non-alphanumeric chars with _
+  slug=$(echo "$1" | tr -cs 'A-Za-z0-9' '_' | sed 's/_$//')
   local env_var="REPO_PATH_${slug}"
   if [[ -n "${!env_var:-}" ]]; then
     echo "${!env_var}"

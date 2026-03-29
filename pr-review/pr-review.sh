@@ -102,10 +102,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     -m) COMMIT_MSG="$2"; shift 2 ;;
     *)
-      # Positional args for reply subcommand
+      # Positional args for reply and resolve-comment subcommands
       if [[ "$SUBCOMMAND" == "reply" && -z "$COMMENT_ID" ]]; then
         COMMENT_ID="$1"; shift
       elif [[ "$SUBCOMMAND" == "reply" && -z "$REPLY_BODY" ]]; then
+        REPLY_BODY="$1"; shift
+      elif [[ "$SUBCOMMAND" == "resolve-comment" && -z "$COMMENT_ID" ]]; then
+        COMMENT_ID="$1"; shift
+      elif [[ "$SUBCOMMAND" == "resolve-comment" && -z "$REPLY_BODY" ]]; then
         REPLY_BODY="$1"; shift
       else
         >&2 echo "Unknown arg: $1"; exit 1
@@ -781,12 +785,16 @@ cmd_poll_all() {
       else
         >&2 echo "  [error] Copilot error — re-requesting review"
       fi
-      # Re-request review
-      gh api "repos/${repo}/pulls/${pr}/requested_reviewers" \
-        -X DELETE --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null 2>&1
-      sleep 1
-      gh api "repos/${repo}/pulls/${pr}/requested_reviewers" \
-        -X POST --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null 2>&1
+      # Re-request review (skip in dry-run)
+      if [[ "$DRY_RUN" -eq 0 ]]; then
+        gh api "repos/${repo}/pulls/${pr}/requested_reviewers" \
+          -X DELETE --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null 2>&1
+        sleep 1
+        gh api "repos/${repo}/pulls/${pr}/requested_reviewers" \
+          -X POST --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null 2>&1
+      else
+        >&2 echo "  [dry-run] Would re-request Copilot review for ${repo}#${pr}"
+      fi
 
       # Increment retry counter
       local retries
@@ -845,7 +853,11 @@ cmd_poll_all() {
           else
             >&2 echo "  [warn] Copilot error — auto re-requesting review"
           fi
-          gh api "repos/$repo/pulls/$pr/requested_reviewers" -X POST --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null 2>&1
+          if [[ "$DRY_RUN" -eq 0 ]]; then
+            gh api "repos/$repo/pulls/$pr/requested_reviewers" -X POST --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null 2>&1
+          else
+            >&2 echo "  [dry-run] Would re-request Copilot review for ${repo}#${pr}"
+          fi
           results=$(echo "$results" | jq --arg repo "$repo" --argjson pr "$pr" --arg rid "$rid" \
             '. + [{"repo":$repo,"pr":$pr,"status":"copilot_error","review_id":$rid,"message":"Copilot error — auto re-requested review"}]')
           # Update last_review_id so we don't re-process this error
@@ -889,8 +901,8 @@ cmd_poll_all() {
     >&2 echo "[dry-run] Would write updated watch file (not saved)"
   fi
 
-  # Output results
-  jq -n --argjson results "$results" --argjson watches "$(cat "$WATCH_FILE")" \
+  # Output results (always use in-memory updated_watches, not on-disk file)
+  jq -n --argjson results "$results" --argjson watches "$updated_watches" \
     '{"results":$results,"watches":$watches}' | tr -d '\000'
 }
 
@@ -902,7 +914,6 @@ cmd_poll_all() {
 cmd_resolve_comment() {
   local cid="${COMMENT_ID:?Usage: pr-review.sh <pr> resolve-comment <comment_id> <commit_sha>}"
   local sha="${REPLY_BODY:?Usage: pr-review.sh <pr> resolve-comment <comment_id> <commit_sha>}"
-
   if [[ -z "$REPO" ]]; then
     REPO=$(gh repo view --json nameWithOwner -q '.nameWithOwner' 2>/dev/null || echo "")
   fi
