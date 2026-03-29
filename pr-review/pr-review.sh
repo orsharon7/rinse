@@ -664,9 +664,14 @@ cmd_watch() {
   # Re-read inside lock to pick up any concurrent writes
   local watches_locked="[]"
   [[ -f "$WATCH_FILE" ]] && watches_locked=$(cat "$WATCH_FILE")
-  watches_locked=$(echo "$watches_locked" | jq --arg repo "$REPO" --arg pr "$PR_NUMBER" --argjson lrid "$last_review_id" \
-    '. + [{"repo": $repo, "pr": ($pr | tonumber), "last_review_id": $lrid, "added_at": (now | todate), "retries": 0}]')
-  watchfile_write "$watches_locked" || { watchfile_unlock; echo '{"status":"error","message":"Failed to write watch file"}' | tr -d '\000'; return 1; }
+  local new_watches_locked
+  if ! new_watches_locked=$(echo "$watches_locked" | jq --arg repo "$REPO" --arg pr "$PR_NUMBER" --argjson lrid "$last_review_id" \
+    '. + [{"repo": $repo, "pr": ($pr | tonumber), "last_review_id": $lrid, "added_at": (now | todate), "retries": 0}]' 2>/dev/null); then
+    watchfile_unlock
+    echo '{"status":"error","message":"Failed to update watch list (invalid JSON?)"}' | tr -d '\000'
+    return 1
+  fi
+  watchfile_write "$new_watches_locked" || { watchfile_unlock; echo '{"status":"error","message":"Failed to write watch file"}' | tr -d '\000'; return 1; }
   watchfile_unlock
 
   jq -n --arg repo "$REPO" --argjson pr "$PR_NUMBER" --argjson lrid "$last_review_id" \
@@ -685,20 +690,27 @@ cmd_unwatch() {
     return
   fi
 
-  local before after after_count
-  before=$(cat "$WATCH_FILE" | jq 'length')
+  local before=0 after="" after_count=0
+  before=$(cat "$WATCH_FILE" | jq 'length' 2>/dev/null) || before=0
+  [[ "$before" =~ ^[0-9]+$ ]] || before=0
 
   watchfile_lock || {
     echo '{"status":"error","message":"Could not acquire watch file lock"}' | tr -d '\000'
     return 1
   }
-  after=$(cat "$WATCH_FILE" | jq --arg repo "$REPO" --arg pr "$PR_NUMBER" \
-    '[.[] | select(.repo != $repo or .pr != ($pr | tonumber))]')
+  local filtered
+  if ! filtered=$(cat "$WATCH_FILE" | jq --arg repo "$REPO" --arg pr "$PR_NUMBER" \
+    '[.[] | select(.repo != $repo or .pr != ($pr | tonumber))]' 2>/dev/null); then
+    watchfile_unlock
+    echo '{"status":"error","message":"Failed to parse watch file"}' | tr -d '\000'
+    return 1
+  fi
+  after="$filtered"
   watchfile_write "$after" || { watchfile_unlock; echo '{"status":"error","message":"Failed to write watch file"}' | tr -d '\000'; return 1; }
   watchfile_unlock
 
-  local after_count
-  after_count=$(echo "$after" | jq 'length')
+  after_count=$(echo "$after" | jq 'length' 2>/dev/null) || after_count=0
+  [[ "$after_count" =~ ^[0-9]+$ ]] || after_count=0
 
   if [[ "$before" -eq "$after_count" ]]; then
     echo "{\"status\":\"not_found\",\"repo\":\"$REPO\",\"pr\":$PR_NUMBER}" | tr -d '\000'
