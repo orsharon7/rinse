@@ -456,6 +456,7 @@ PROMPT_EOF
       --agent opencode \
       >> "$LOGFILE" 2>&1 &
     reflect_pid=$!
+    ui_reflect_start "$LOGFILE"
   fi
 
   claude_exit=0
@@ -464,12 +465,15 @@ PROMPT_EOF
 
   if [[ $claude_exit -ne 0 ]]; then
     log "❌ Claude exited with code ${claude_exit} — aborting"
-    [[ -n "$reflect_pid" ]] && kill "$reflect_pid" 2>/dev/null || true
+    if [[ -n "$reflect_pid" ]]; then
+      kill "$reflect_pid" 2>/dev/null || true
+      ui_reflect_done "$LOGFILE"
+    fi
     exit 1
   fi
 
   if [[ -n "$reflect_pid" ]]; then
-    wait "$reflect_pid" && log "✓ Reflection complete" || log "⚠️  Reflection exited non-zero (non-fatal)"
+    wait "$reflect_pid" && ui_reflect_done "$LOGFILE" || { ui_reflect_done "$LOGFILE"; log "⚠️  Reflection exited non-zero (non-fatal)"; }
   fi
 
   # Save last-known review ID so next iteration knows to wait for a fresh review

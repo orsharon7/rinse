@@ -252,7 +252,12 @@ fi
 
 log "Committing updated rules to ${MAIN_BRANCH}..."
 git -C "$WORKTREE_DIR" add AGENTS.md CLAUDE.md
+
+# Count new rule lines added (lines starting with "- " inside the COPILOT-RULES block)
+rules_added=$(git -C "$WORKTREE_DIR" diff --cached AGENTS.md CLAUDE.md \
+  | grep '^+' | grep -v '^+++' | grep -c '^\+- ' 2>/dev/null || echo "0")
+
 git -C "$WORKTREE_DIR" commit -m "chore: update AI coding rules from Copilot review #${PR_NUMBER} [skip ci]"
 git -C "$WORKTREE_DIR" push origin "HEAD:${MAIN_BRANCH}"
 
-log "✓ Reflection complete — AGENTS.md and CLAUDE.md pushed to ${MAIN_BRANCH}"
+log "✓ Reflection complete — +${rules_added} rule(s) pushed to ${MAIN_BRANCH}"

@@ -413,3 +413,121 @@ _ui_do_open_browser() {
   gh pr view "$pr" --repo "$repo" --web 2>/dev/null \
     || _ui_print "${C_WARN}Could not open browser — try: gh pr view ${pr} --repo ${repo} --web${C_RESET}"
 }
+
+# ─── Reflection status bar ────────────────────────────────────────────────────
+#
+# Draws a persistent dim status line at the bottom of the terminal showing
+# reflection agent progress. The fix-agent log scrolls normally above it.
+#
+# A background subshell polls the reflect logfile every 2 seconds and rewrites
+# the bar in place. The bar is cleaned up when ui_reflect_done is called.
+#
+# Public API:
+#   ui_reflect_start <logfile>   — draw bar, start background poller
+#   ui_reflect_done  <logfile>   — stop poller, rewrite bar with final result, clear
+#
+# Internal state:
+_UI_REFLECT_PID=""
+_UI_REFLECT_ROW=""   # terminal row the bar occupies
+
+_ui_reflect_bar() {
+  # $1 = message text (no ANSI — we handle color here)
+  local msg="$1"
+  local cols
+  cols=$(tput cols 2>/dev/null || echo 80)
+  # Truncate to terminal width, padding with spaces to overwrite previous content
+  local prefix=" ◎ reflect │ "
+  local available=$(( cols - ${#prefix} - 1 ))
+  [[ ${#msg} -gt $available ]] && msg="${msg:0:$available}"
+  local line="${prefix}${msg}"
+  # Pad to full width
+  printf "%-${cols}s" "$line"
+}
+
+_ui_reflect_goto_bar() {
+  # Move cursor to the last terminal row
+  local rows
+  rows=$(tput lines 2>/dev/null || echo 24)
+  tput cup $(( rows - 1 )) 0 2>/dev/null || printf "\033[%d;0H" "$rows"
+}
+
+ui_reflect_start() {
+  [[ "$_UI_TTY" != true ]] && return 0
+  local logfile="$1"
+
+  # Reserve bottom row by printing a blank line if we're not already at the bottom
+  printf "\n" >&2
+
+  # Draw initial bar
+  _ui_reflect_goto_bar >&2
+  printf "%b" "${C_DIM}$(_ui_reflect_bar "starting…")${C_RESET}" >&2
+  # Restore cursor to wherever the log was
+  tput cup 0 0 2>/dev/null; tput cup $(( $(tput lines) - 2 )) 0 2>/dev/null || true
+
+  # Background poller: tail logfile, rewrite bar with latest [reflect] line
+  (
+    local last=""
+    while true; do
+      sleep 2
+      # Grab the last [reflect] line from the logfile
+      local latest
+      latest=$(grep '\[reflect\]' "$logfile" 2>/dev/null | tail -1 | sed 's/^[^ ]* \[reflect\] //' || echo "")
+      [[ -z "$latest" ]] && latest="running…"
+      if [[ "$latest" != "$last" ]]; then
+        last="$latest"
+        _ui_reflect_goto_bar >&2
+        printf "%b" "${C_DIM}$(_ui_reflect_bar "$latest")${C_RESET}" >&2
+        # Move cursor back up so log output continues above the bar
+        tput cup $(( $(tput lines 2>/dev/null || echo 24) - 2 )) 0 2>/dev/null || true
+      fi
+    done
+  ) &
+  _UI_REFLECT_PID=$!
+  disown "$_UI_REFLECT_PID" 2>/dev/null || true
+}
+
+ui_reflect_done() {
+  [[ "$_UI_TTY" != true ]] && return 0
+  local logfile="$1"
+
+  # Stop background poller
+  if [[ -n "$_UI_REFLECT_PID" ]]; then
+    kill "$_UI_REFLECT_PID" 2>/dev/null || true
+    _UI_REFLECT_PID=""
+  fi
+
+  # Determine final status from logfile
+  local final_line rules_summary ok=true
+  if grep -q "Reflection complete" "$logfile" 2>/dev/null; then
+    local added
+    added=$(grep "Reflection complete" "$logfile" 2>/dev/null | tail -1 | grep -o '+[0-9]* rule' || echo "")
+    if [[ -n "$added" ]]; then
+      rules_summary="done — ${added}s pushed"
+    else
+      rules_summary="done — rules pushed"
+    fi
+  elif grep -q "No changes to AGENTS.md" "$logfile" 2>/dev/null; then
+    rules_summary="done — no new rules found"
+  elif grep -q "No top-level comments" "$logfile" 2>/dev/null; then
+    rules_summary="skipped — no comments to reflect on"
+  else
+    rules_summary="exited (check ~/.pr-review-reflect.log)"
+    ok=false
+  fi
+
+  # Rewrite bar with final status, hold for 4 seconds, then clear it
+  _ui_reflect_goto_bar >&2
+  if [[ "$ok" == true ]]; then
+    printf "%b" "${C_DIM}${C_GREEN}$(_ui_reflect_bar "✓ ${rules_summary}")${C_RESET}" >&2
+  else
+    printf "%b" "${C_DIM}${C_WARN}$(_ui_reflect_bar "⚠ ${rules_summary}")${C_RESET}" >&2
+  fi
+  sleep 4
+
+  # Clear the bar row
+  _ui_reflect_goto_bar >&2
+  local cols
+  cols=$(tput cols 2>/dev/null || echo 80)
+  printf "%-${cols}s" "" >&2
+  tput cup $(( $(tput lines 2>/dev/null || echo 24) - 2 )) 0 2>/dev/null || true
+}

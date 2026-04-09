@@ -423,6 +423,7 @@ PROMPT_EOF
       --agent opencode \
       >> "$LOGFILE" 2>&1 &
     reflect_pid=$!
+    ui_reflect_start "$LOGFILE"
   fi
 
   oc_exit=0
@@ -433,13 +434,16 @@ PROMPT_EOF
 
   if [[ $oc_exit -ne 0 ]]; then
     log "❌ opencode exited with code ${oc_exit} — aborting"
-    [[ -n "$reflect_pid" ]] && kill "$reflect_pid" 2>/dev/null || true
+    if [[ -n "$reflect_pid" ]]; then
+      kill "$reflect_pid" 2>/dev/null || true
+      ui_reflect_done "$LOGFILE"
+    fi
     exit 1
   fi
 
   # Wait for reflection to finish (it should complete well before next Copilot review)
   if [[ -n "$reflect_pid" ]]; then
-    wait "$reflect_pid" && log "✓ Reflection complete" || log "⚠️  Reflection exited non-zero (non-fatal)"
+    wait "$reflect_pid" && ui_reflect_done "$LOGFILE" || { ui_reflect_done "$LOGFILE"; log "⚠️  Reflection exited non-zero (non-fatal)"; }
   fi
 
   echo "$rid" > "$STATE_FILE"
