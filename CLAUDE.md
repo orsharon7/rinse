@@ -23,6 +23,7 @@ Project instructions for AI coding agents.
 ### Documentation Integrity
 - Keep README directory trees and file references in sync with actual repository contents; if a path is user-created at runtime, document it as such rather than listing it as a committed file.
 - Ensure log messages, menu text, and UI labels exactly match the behavior the code actually performs; never describe a side effect (e.g. "with remote branch deletion") unless the corresponding flag or call is present in the implementation.
+- When a README section references a project artifact (e.g. a LICENSE file, a config file, a script), ensure that artifact actually exists in the repository; remove or update the section whenever the artifact is added, renamed, or deleted.
 
 ### CLI & User Input
 - When a parameter is optional (e.g. "leave blank for default"), default its prompt to an empty string and only include the corresponding flag/argument in the command when the user explicitly provides a non-empty value; never use a non-empty default that silently pins a value the user intended to omit.
