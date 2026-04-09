@@ -135,14 +135,32 @@ wait_for_review() {
   done
   ui_wait_clear
 
-  log "   ⚠️  Stalled after ${WAIT_MAX}s — dismissing and re-requesting..."
+  # Grace check: review may have arrived in the last poll window — check before acting
+  if [[ "$(copilot_is_pending)" == "false" ]]; then
+    log "   ✓ Review arrived just before timeout — continuing"
+    return 0
+  fi
+
+  # Stall confirmed — ask user what to do (interactive) or auto-dismiss (non-interactive)
+  if [[ "$_UI_TTY" == true ]]; then
+    _stall_menu
+    return $?
+  else
+    log "   ⚠️  Stalled after ${WAIT_MAX}s — dismissing and re-requesting (non-interactive)..."
+    _dismiss_and_rerequst
+    return $?
+  fi
+}
+
+# Called when Copilot is confirmed stalled: dismiss + re-request + wait once more
+_dismiss_and_rerequst() {
   gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
     -X DELETE --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null 2>&1 || true
   sleep 2
   request_copilot_review || true
   sleep 5
 
-  local elapsed2=0
+  local elapsed2=0 interval=15
   while [[ $elapsed2 -lt $WAIT_MAX ]]; do
     [[ "$(copilot_is_pending)" == "false" ]] && { ui_wait_clear; return 0; }
     ui_wait_tick "$elapsed2" "$WAIT_MAX" "Copilot reviewing (retry)"
@@ -151,9 +169,72 @@ wait_for_review() {
     elapsed2=$(( elapsed2 + sleep_time2 ))
   done
   ui_wait_clear
-
-  log "   ❌ Copilot still stalled after $(( WAIT_MAX * 2 ))s"
+  log "   ❌ Copilot still stalled after dismiss+retry"
   return 1
+}
+
+# Interactive stall menu — shown when TTY and Copilot hasn't responded
+_stall_menu() {
+  echo "" >&2
+  log "   ⚠️  Copilot hasn't responded after ${WAIT_MAX}s"
+
+  local choice
+  choice=$(_ui_arrow_menu \
+    "Wait again  (another ${WAIT_MAX}s)" \
+    "Check now  (single poll, then keep waiting)" \
+    "Dismiss & re-request  (restart Copilot review)" \
+    "Stop the cycle  (exit)")
+
+  case "$choice" in
+    0)  # Wait again
+      log "   ⏳ Waiting another ${WAIT_MAX}s..."
+      local elapsed3=0 interval=15
+      while [[ $elapsed3 -lt $WAIT_MAX ]]; do
+        [[ "$(copilot_is_pending)" == "false" ]] && { ui_wait_clear; return 0; }
+        ui_wait_tick "$elapsed3" "$WAIT_MAX" "Copilot reviewing (extended wait)"
+        local sleep_time3=$(( interval < (WAIT_MAX - elapsed3) ? interval : (WAIT_MAX - elapsed3) ))
+        sleep "$sleep_time3"
+        elapsed3=$(( elapsed3 + sleep_time3 ))
+      done
+      ui_wait_clear
+      # Recurse once — offer the menu again
+      if [[ "$(copilot_is_pending)" == "false" ]]; then
+        log "   ✓ Review arrived — continuing"
+        return 0
+      fi
+      _stall_menu
+      return $?
+      ;;
+    1)  # Check now
+      ui_wait_clear
+      if [[ "$(copilot_is_pending)" == "false" ]]; then
+        log "   ✓ Review found — continuing"
+        return 0
+      fi
+      log "   Still pending — resuming wait..."
+      local elapsed4=0 interval=15
+      while [[ $elapsed4 -lt $WAIT_MAX ]]; do
+        [[ "$(copilot_is_pending)" == "false" ]] && { ui_wait_clear; return 0; }
+        ui_wait_tick "$elapsed4" "$WAIT_MAX" "Copilot reviewing"
+        local sleep_time4=$(( interval < (WAIT_MAX - elapsed4) ? interval : (WAIT_MAX - elapsed4) ))
+        sleep "$sleep_time4"
+        elapsed4=$(( elapsed4 + sleep_time4 ))
+      done
+      ui_wait_clear
+      if [[ "$(copilot_is_pending)" == "false" ]]; then return 0; fi
+      _stall_menu
+      return $?
+      ;;
+    2)  # Dismiss & re-request
+      log "   🔄 Dismissing and re-requesting Copilot review..."
+      _dismiss_and_rerequst
+      return $?
+      ;;
+    3)  # Stop
+      log "   🛑 Cycle stopped by user."
+      return 1
+      ;;
+  esac
 }
 
 # ─── Startup ──────────────────────────────────────────────────────────────────
