@@ -301,13 +301,13 @@ _ui_arrow_menu() {
   _ui_draw_menu
 
   while true; do
-    # Read one key sequence
+    # Read one key sequence from the controlling terminal.
     local key
-    IFS= read -r -s -n1 key <&2 2>/dev/null || key=""
+    IFS= read -r -s -n1 key </dev/tty 2>/dev/null || key=""
 
     if [[ "$key" == $'\x1b' ]]; then
       local seq
-      IFS= read -r -s -n2 seq <&2 2>/dev/null || seq=""
+      IFS= read -r -s -n2 seq </dev/tty 2>/dev/null || seq=""
       key="${key}${seq}"
     fi
 

@@ -19,7 +19,7 @@ pr-review/
 ├── pr-review-opencode.sh   # Recommended runner for opencode + GitHub Copilot
 ├── pr-review-reflect.sh    # Reflection agent — extracts rules, pushes to main
 └── .claude/
-    └── settings.local.json # Pre-authorized tool permissions for Claude Code sessions
+    └── settings.local.json # (user-created) pre-authorized tool permissions for Claude Code
 ```
 
 ---
@@ -309,9 +309,20 @@ Lightweight cron-compatible poller. Add to crontab:
 
 ## `.claude/settings.local.json`
 
-Pre-configured tool permissions for Claude Code sessions running inside the
-review loop. Kept in `pr-review/.claude/` so Claude Code picks it up
-automatically when invoked from that directory.
+Not committed to this repo — create it yourself at `pr-review/.claude/settings.local.json`.
+Pre-configure tool permissions so Claude Code sessions running inside the review loop
+don't prompt for approval on every shell command. Claude Code picks it up automatically
+when invoked from the `pr-review/` directory.
+
+Example:
+
+```json
+{
+  "permissions": {
+    "allow": ["Bash", "Read", "Write", "Edit"]
+  }
+}
+```
 
 ---
 
