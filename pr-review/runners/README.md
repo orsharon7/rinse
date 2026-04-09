@@ -1,8 +1,26 @@
-# pr-review / claude
+# pr-review / runners
 
-Automated Copilot PR review loop driven by **Claude Code CLI** (`claude`).
+Automated Copilot PR review loops. Pick a runner based on which AI CLI you have set up:
 
-Two versions — both fix Copilot comments in a loop until the PR is approved or returns 0 comments.
+| Runner | CLI used | When to use |
+|--------|----------|-------------|
+| `pr-review-opencode.sh` | `opencode` | You have opencode authenticated with GitHub Copilot — no API key needed |
+| `pr-review-claude-v2.sh` | `claude` (Claude Code) | You have the Claude Code CLI and a direct Anthropic API key |
+| `pr-review-claude.sh` | `claude` (Claude Code) | Legacy v1 — use v2 instead |
+
+Each runner fixes Copilot comments in a loop until the PR is approved or returns 0 comments, then presents an interactive merge menu.
+
+### Terminal UI (`pr-review-ui.sh`)
+
+Sourced automatically by both `pr-review-opencode.sh` and `pr-review-claude-v2.sh`. Do not run it directly.
+
+When stdout is a TTY it provides:
+- Colored, severity-coded log lines
+- Animated progress bar while waiting for Copilot to review
+- Bold section headers per iteration
+- Arrow-key menu on success: merge, branch cleanup, open PR in browser
+
+Disable with `NO_COLOR=1` or `--no-interactive` (useful in CI or when piping output).
 
 ---
 
@@ -10,31 +28,35 @@ Two versions — both fix Copilot comments in a loop until the PR is approved or
 
 **`pr-review-reflect.sh`** — Runs in parallel with each fix cycle. Reads Copilot review comments, extracts generalizable coding rules, and permanently updates `AGENTS.md` + `CLAUDE.md` in the project repo. Both files are loaded automatically by AI coding agents on every future session, so each cycle produces fewer comments.
 
+**Rules are pushed to `main`, not the PR branch** — using a `git worktree` so the reflection commit never appears in the PR diff. This prevents Copilot from re-reviewing the rule files and avoids an infinite review loop.
+
 Enable it with `--reflect` on any runner:
 
 ```bash
-./pr-review-opencode.sh 1 --repo orsharon7/repo --cwd /path/to/repo --reflect
+./pr-review-opencode.sh 1 --repo owner/repo --cwd /path/to/repo --reflect
 ```
 
 Or run standalone:
 
 ```bash
-./pr-review-reflect.sh 1 --repo orsharon7/repo --cwd /path/to/repo --review-id 4077186198
+./pr-review-reflect.sh 1 --repo owner/repo --cwd /path/to/repo --review-id 4077186198
 ```
 
 **How it works:**
 1. Runs in background while the fix agent is working
-2. Analyzes Copilot comments → identifies patterns → writes rules
-3. Updates the `<!-- BEGIN:COPILOT-RULES --> ... <!-- END:COPILOT-RULES -->` section in both `AGENTS.md` and `CLAUDE.md`  
-4. Commits and pushes the updated rules to the repo
-5. Next fix iteration: both agents load the updated rules automatically → fewer issues → fewer review cycles
+2. Creates a temporary `git worktree` checked out on `main`
+3. Analyzes Copilot comments → identifies patterns → writes rules into the worktree (not the PR branch)
+4. Script commits and pushes updated `AGENTS.md` / `CLAUDE.md` directly to `main`
+5. Worktree is cleaned up automatically
+6. Next fix iteration: both agents load the updated rules from `main` automatically → fewer issues → fewer review cycles
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--model <provider/model>` | same as runner | AI model for reflection |
 | `--agent <opencode\|claude>` | `opencode` | Which CLI to use |
+| `--main-branch <branch>` | `main` | Branch to push rules to |
 | `--review-id <id>` | latest Copilot review | Specific review to analyse |
-| `--dry-run` | — | Print prompt, don't run |
+| `--dry-run` | — | Print prompt and worktree path, don't run |
 
 ---
 
@@ -58,15 +80,24 @@ Or run standalone:
 | `--cwd <path>` | current dir | Local repo path |
 | `--model <model-id>` | `claude-sonnet-4-6` | Claude model |
 | `--wait-max <seconds>` | `300` | Max wait per Copilot review |
+| `--reflect` | — | Enable reflection agent after each fix iteration |
+| `--reflect-model <model>` | same as `--model` | Model for reflection agent |
+| `--reflect-main-branch <branch>` | `main` | Branch reflection rules are pushed to |
 | `--dry-run` | — | Print startup state and exit |
 
 ### Example
 
 ```bash
 ./pr-review-claude-v2.sh 1 \
-  --repo orsharon7/stu-msft-agent-platform \
+  --repo owner/repo \
   --cwd "/path/to/repo" \
   --model claude-sonnet-4-6
+
+# With reflection (pushes rules to main after each fix cycle)
+./pr-review-claude-v2.sh 1 \
+  --repo owner/repo \
+  --cwd "/path/to/repo" \
+  --reflect
 ```
 
 ### How it works
@@ -127,14 +158,23 @@ Configured to use the GitHub Copilot OAuth credential from `~/.local/share/openc
 | `--cwd <path>` | current dir | Local repo path |
 | `--model <provider/model>` | `github-copilot/claude-sonnet-4.6` | opencode model string |
 | `--wait-max <seconds>` | `300` | Max wait per Copilot review |
+| `--reflect` | — | Enable reflection agent after each fix iteration |
+| `--reflect-model <model>` | same as `--model` | Model for reflection agent |
+| `--reflect-main-branch <branch>` | `main` | Branch reflection rules are pushed to |
 | `--dry-run` | — | Print startup state and exit |
 
 ### Example
 
 ```bash
 ./pr-review-opencode.sh 1 \
-  --repo orsharon7/stu-msft-agent-platform \
+  --repo owner/repo \
   --cwd "/path/to/repo"
+
+# With reflection (pushes rules to main after each fix cycle)
+./pr-review-opencode.sh 1 \
+  --repo owner/repo \
+  --cwd "/path/to/repo" \
+  --reflect
 
 # Different model
 ./pr-review-opencode.sh 1 --model github-copilot/claude-sonnet-4.5 --cwd "/path/to/repo"
@@ -151,10 +191,25 @@ Available GitHub Copilot models: `github-copilot/claude-sonnet-4`, `github-copil
 - `gh` CLI v2.88+ authenticated (`gh --version`)
 - `jq`
 
-## Log file
+## Log files
 
-All output streams to `~/.pr-review-claude.log`.
+| File | Written by |
+|------|-----------|
+| `~/.pr-review-claude.log` | `pr-review-claude-v2.sh`, `pr-review-claude.sh` |
+| `~/.pr-review-opencode.log` | `pr-review-opencode.sh` |
+| `~/.pr-review-reflect.log` | `pr-review-reflect.sh` |
 
-## `.claude/settings.local.json`
+## Terminal UI
+
+When stdout is a TTY the runners display:
+
+- Colored, severity-coded log lines
+- Animated progress bar while waiting for Copilot to finish reviewing
+- Bold section headers for each iteration
+- An interactive arrow-key menu on success (merge, cleanup, open PR)
+
+Set `NO_COLOR=1` or pass `--no-interactive` to disable interactive features (useful in CI or when piping output).
+
+## `pr-review/.claude/settings.local.json`
 
 Pre-configured tool permissions for Claude Code sessions running inside the loop.

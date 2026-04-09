@@ -1,6 +1,6 @@
 # tools
 
-CLI tools built by Luli 🦞 for OrSh.
+CLI automation tools for GitHub Copilot PR review workflows.
 
 ## Tools
 

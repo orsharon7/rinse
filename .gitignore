@@ -1,3 +1,8 @@
-# Machine-local dotnet-suggest sentinel files
-system-commandline-sentinel-files/
-system-commandline-sentinel-files/
+# State files written by pr-review runners
+/tmp/pr-review-state/
+
+# Local settings overrides
+.claude/settings.local.json
+
+# macOS
+.DS_Store

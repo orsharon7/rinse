@@ -51,7 +51,7 @@ CLI tool for managing GitHub Copilot PR review cycles. Designed for AI agents an
 ./pr-review.sh 42 clear-state
 
 # Cross-repo
-./pr-review.sh 2 status --repo orsharon7/gsc-solar-monitor
+./pr-review.sh 2 status --repo owner/another-repo
 ```
 
 All output is JSON. Logs go to stderr.
@@ -64,25 +64,44 @@ The core tool exposes primitives. Runners wrap it in an automated loop.
 
 | Runner | File | Agent | Mode |
 |--------|------|-------|------|
-| [Claude Code](./claude/) | `claude/pr-review-claude.sh` | `claude` CLI | Foreground loop |
-| Daemon | `pr-review-daemon.sh` | OpenClaw | Background daemon |
-| Cron | `pr-review-cron.sh` | OpenClaw | Cron job |
+| [Claude Code](./runners/) | `runners/pr-review-claude-v2.sh` | `claude` CLI | Foreground loop |
+| [opencode](./runners/) | `runners/pr-review-opencode.sh` | `opencode` CLI | Foreground loop |
+| Daemon | `pr-review-daemon.sh` | any | Background daemon |
+| Cron | `pr-review-cron.sh` | any | Cron job |
 
 ### Claude Code runner (recommended)
 
 Drives `claude --print` in a loop until Copilot approves or returns 0 comments.
 
 ```bash
-./claude/pr-review-claude.sh 42 \
-  --repo orsharon7/gsc-solar-monitor \
-  --cwd ~/dev/gsc-solar-monitor
+./runners/pr-review-claude-v2.sh 42 \
+  --repo owner/my-repo \
+  --cwd ~/dev/my-repo
 ```
 
-See [`claude/README.md`](./claude/README.md) for full docs.
+### Reflection agent
+
+Add `--reflect` to any runner to enable the reflection agent. After each fix iteration it:
+
+1. Creates a temporary `git worktree` on `main` (not the PR branch)
+2. Extracts generalizable coding rules from Copilot's comments
+3. Writes them into `AGENTS.md` + `CLAUDE.md` in the worktree
+4. Commits and pushes directly to `main` — never touches the PR branch
+
+This prevents an infinite loop (Copilot won't re-review rule files on `main`) while making the rules available to the fix agent on every subsequent iteration.
+
+```bash
+./runners/pr-review-opencode.sh 42 \
+  --repo owner/my-repo \
+  --cwd ~/dev/my-repo \
+  --reflect
+```
+
+See [`runners/README.md`](./runners/README.md) for full docs.
 
 ### Daemon runner
 
-Persistent background process. Polls watched PRs every N seconds and fires OpenClaw system events.
+Persistent background process. Polls watched PRs every N seconds and fires a configurable event/notification.
 
 ```bash
 # Start
@@ -97,7 +116,7 @@ Persistent background process. Polls watched PRs every N seconds and fires OpenC
 
 ### Cron runner
 
-Lightweight poller for cron. Fires OpenClaw events + Telegram notifications.
+Lightweight poller for cron. Logs review events and can be extended with webhooks or notifications.
 
 ```
 */2 * * * * /path/to/pr-review-cron.sh
