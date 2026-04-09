@@ -445,6 +445,7 @@ _ui_reflect_bar() {
   # Truncate to terminal width, padding with spaces to overwrite previous content
   local prefix=" ◎ reflect │ "
   local available=$(( cols - ${#prefix} - 1 ))
+  [[ $available -lt 0 ]] && available=0
   [[ ${#msg} -gt $available ]] && msg="${msg:0:$available}"
   local line="${prefix}${msg}"
   # Pad to full width
