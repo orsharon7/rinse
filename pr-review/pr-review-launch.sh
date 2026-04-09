@@ -184,6 +184,11 @@ _detect_open_prs() {
     || echo ""
 }
 
+_detect_default_branch() {
+  local repo="$1"
+  gh repo view "$repo" --json defaultBranchRef -q '.defaultBranchRef.name' 2>/dev/null || echo "main"
+}
+
 # ─── Summary box ─────────────────────────────────────────────────────────────
 
 _summary_box() {
@@ -280,6 +285,10 @@ main() {
     exit 1
   fi
 
+  # Detect default branch for this repo (used as reflect-branch default in step 6b)
+  local detected_default_branch
+  detected_default_branch=$(_detect_default_branch "$repo")
+
   # ── Step 2: PR number ───────────────────────────────────────────────────────
   _ui_print "\n${C_DIM}  Step 2 of 7${C_RESET}"
 
@@ -344,10 +353,10 @@ main() {
     reflect=$(_field_toggle "Enable reflection agent?  (extracts coding rules → pushes to main)" "false")
   fi
 
-  local reflect_branch="main"
+  local reflect_branch="$detected_default_branch"
   if [[ "$reflect" == "true" ]]; then
     _ui_print "\n${C_DIM}  Step 6b of 7${C_RESET}"
-    reflect_branch=$(_field_text "Branch to push reflection rules to" "main")
+    reflect_branch=$(_field_text "Branch to push reflection rules to" "$detected_default_branch")
   fi
 
   # ── Step 7: Advanced options ─────────────────────────────────────────────────
