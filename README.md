@@ -27,7 +27,7 @@ Stdout is JSON; logs/progress go to stderr. See [pr-review/README.md](./pr-revie
 
 ### Runners
 
-Runners wrap the core tool in an automated fix loop. Available runners:
+Runners provide automated PR review/fix loops. Some integrate with the core `pr-review.sh` workflow, while others are standalone scripts. Available runners:
 
 | Runner | Script | Agent | Model | Mode/Iterations |
 |--------|--------|-------|-------|-----------------|
@@ -62,7 +62,7 @@ See [pr-review/claude/README.md](./pr-review/claude/README.md) for all runner op
 
 - `gh` CLI v2.88+ authenticated
 - `claude` CLI (for Claude runners)
-- `opencode` v1.3+ with GitHub Copilot OAuth (for opencode runner)
+- `opencode` CLI with GitHub Copilot OAuth (for opencode runner)
 - `jq`
 
 ## License
