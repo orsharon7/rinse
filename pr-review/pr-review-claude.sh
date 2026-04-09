@@ -28,7 +28,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PR_REVIEW="${SCRIPT_DIR}/../pr-review.sh"
+PR_REVIEW="${SCRIPT_DIR}/pr-review.sh"
 
 # ─── Arg parsing ──────────────────────────────────────────────────────────────
 
