@@ -6,6 +6,38 @@ Two versions — both fix Copilot comments in a loop until the PR is approved or
 
 ---
 
+## Reflection agent
+
+**`pr-review-reflect.sh`** — Runs in parallel with each fix cycle. Reads Copilot review comments, extracts generalizable coding rules, and permanently updates `AGENTS.md` + `CLAUDE.md` in the project repo. Both files are loaded automatically by AI coding agents on every future session, so each cycle produces fewer comments.
+
+Enable it with `--reflect` on any runner:
+
+```bash
+./pr-review-opencode.sh 1 --repo orsharon7/repo --cwd /path/to/repo --reflect
+```
+
+Or run standalone:
+
+```bash
+./pr-review-reflect.sh 1 --repo orsharon7/repo --cwd /path/to/repo --review-id 4077186198
+```
+
+**How it works:**
+1. Runs in background while the fix agent is working
+2. Analyzes Copilot comments → identifies patterns → writes rules
+3. Updates the `<!-- BEGIN:COPILOT-RULES --> ... <!-- END:COPILOT-RULES -->` section in both `AGENTS.md` and `CLAUDE.md`  
+4. Commits and pushes the updated rules to the repo
+5. Next fix iteration: both agents load the updated rules automatically → fewer issues → fewer review cycles
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--model <provider/model>` | same as runner | AI model for reflection |
+| `--agent <opencode\|claude>` | `opencode` | Which CLI to use |
+| `--review-id <id>` | latest Copilot review | Specific review to analyse |
+| `--dry-run` | — | Print prompt, don't run |
+
+---
+
 ## v2 — Recommended
 
 **`pr-review-claude-v2.sh`** — Standalone, unlimited iterations, model-agnostic.

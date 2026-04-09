@@ -12,6 +12,8 @@
 #   --cwd   <path>                Local repo path (default: current directory)
 #   --model <provider/model>      opencode model string (default: github-copilot/claude-sonnet-4.6)
 #   --wait-max <seconds>          Max seconds to wait per Copilot review (default: 300)
+#   --reflect                     After each fix, run reflection agent to update AGENTS.md + CLAUDE.md
+#   --reflect-model <model>       Model for reflection agent (default: same as --model)
 #   --dry-run                     Print startup state and exit without running opencode
 #
 # Requirements:
@@ -47,12 +49,17 @@ CWD="$(pwd)"
 MODEL="github-copilot/claude-sonnet-4.6"
 WAIT_MAX=300
 DRY_RUN=false
+REFLECT=false
+REFLECT_MODEL=""
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --repo)      REPO="$2";      shift 2 ;;
-    --cwd)       CWD="$2";       shift 2 ;;
-    --model)     MODEL="$2";     shift 2 ;;
+    --repo)           REPO="$2";           shift 2 ;;
+    --cwd)            CWD="$2";            shift 2 ;;
+    --model)          MODEL="$2";          shift 2 ;;
+    --reflect)        REFLECT=true;        shift ;;
+    --reflect-model)  REFLECT_MODEL="$2";  shift 2 ;;
     --wait-max)  WAIT_MAX="$2";  shift 2 ;;
     --dry-run)   DRY_RUN=true;   shift ;;
     *) >&2 echo "Unknown arg: $1"; exit 1 ;;
@@ -308,6 +315,22 @@ Each comment has: id, path (file), line, body (the review text), in_reply_to_id 
 - If a comment is already fixed in the current code, still reply to confirm it
 PROMPT_EOF
 
+  # Launch reflection agent in background BEFORE fix agent so rules update
+  # while Copilot re-reviews (zero wait cost). Reflect uses same comments.
+  reflect_pid=""
+  if [[ "$REFLECT" == true ]]; then
+    reflect_model="${REFLECT_MODEL:-$MODEL}"
+    log "🔍 Launching reflection agent in background (model: ${reflect_model})..."
+    export REFLECT_COMMENTS_JSON="$comments_json"
+    bash "${SCRIPT_DIR}/pr-review-reflect.sh" "$PR_NUMBER" \
+      --repo "$REPO" --cwd "$CWD" \
+      --review-id "$rid" \
+      --model "$reflect_model" \
+      --agent opencode \
+      >> "$LOGFILE" 2>&1 &
+    reflect_pid=$!
+  fi
+
   oc_exit=0
   opencode run \
     --model "$MODEL" \
@@ -316,7 +339,13 @@ PROMPT_EOF
 
   if [[ $oc_exit -ne 0 ]]; then
     log "❌ opencode exited with code ${oc_exit} — aborting"
+    [[ -n "$reflect_pid" ]] && kill "$reflect_pid" 2>/dev/null || true
     exit 1
+  fi
+
+  # Wait for reflection to finish (it should complete well before next Copilot review)
+  if [[ -n "$reflect_pid" ]]; then
+    wait "$reflect_pid" && log "✓ Reflection complete" || log "⚠️  Reflection exited non-zero (non-fatal)"
   fi
 
   echo "$rid" > "$STATE_FILE"
