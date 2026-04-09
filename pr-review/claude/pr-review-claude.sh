@@ -99,13 +99,18 @@ case "$startup_state" in
   new_review)
     review_id_startup=$(echo "$startup_status" | jq -r '.review_id')
     cc_startup=$(echo "$startup_status" | jq -r '.comment_count')
-    log "   State: Existing review ${review_id_startup} with ${cc_startup} comment(s)"
+    log "   State: Existing review ${review_id_startup} with ${cc_startup} unresolved comment(s)"
     if [[ ! -f "$STATE_FILE" ]]; then
-      # No state file: seed it with the current review ID so cycle treats it as
-      # already-seen and requests a fresh Copilot review instead of re-processing it.
-      mkdir -p "$STATE_DIR"
-      echo "$review_id_startup" > "$STATE_FILE"
-      log "   Seeded state file → cycle will request a fresh Copilot review"
+      if [[ "$cc_startup" -gt 0 ]]; then
+        # Unresolved comments exist — let the loop pick them up and fix them.
+        # Do NOT seed the state file; cycle will return this review for Claude to process.
+        log "   No state file + unresolved comments → will fix existing review first"
+      else
+        # No comments (already clean) — seed so cycle requests a fresh review.
+        mkdir -p "$STATE_DIR"
+        echo "$review_id_startup" > "$STATE_FILE"
+        log "   No state file + 0 comments → seeded, cycle will request a fresh review"
+      fi
     else
       saved=$(cat "$STATE_FILE")
       if [[ "$saved" == "$review_id_startup" ]]; then

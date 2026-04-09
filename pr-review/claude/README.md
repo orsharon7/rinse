@@ -2,55 +2,93 @@
 
 Automated Copilot PR review loop driven by **Claude Code CLI** (`claude`).
 
-Runs `claude --print` in a loop to fix Copilot comments until the PR is approved or returns 0 comments.
+Two versions — both fix Copilot comments in a loop until the PR is approved or returns 0 comments.
 
-## Usage
+---
+
+## v2 — Recommended
+
+**`pr-review-claude-v2.sh`** — Standalone, unlimited iterations, model-agnostic.
+
+- Uses `gh pr edit --add-reviewer @copilot` (official gh CLI v2.88+)
+- No hard iteration cap — runs until Copilot is satisfied
+- `--model` parameter (default: `claude-sonnet-4-6`)
+- Correctly handles existing unresolved reviews on startup
+- No dependency on `pr-review.sh`
 
 ```bash
-./pr-review-claude.sh <pr_number> [options]
+./pr-review-claude-v2.sh <pr_number> [options]
 ```
-
-### Options
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--repo <owner/repo>` | auto-detect | GitHub repo |
 | `--cwd <path>` | current dir | Local repo path |
-| `--max-iter <n>` | 10 | Max fix iterations before giving up |
-| `--wait-max <seconds>` | 300 | Max seconds to wait per Copilot review |
+| `--model <model-id>` | `claude-sonnet-4-6` | Claude model |
+| `--wait-max <seconds>` | `300` | Max wait per Copilot review |
+| `--dry-run` | — | Print startup state and exit |
 
 ### Example
 
 ```bash
-./pr-review-claude.sh 42 \
-  --repo orsharon7/gsc-solar-monitor \
-  --cwd ~/dev/gsc-solar-monitor
+./pr-review-claude-v2.sh 1 \
+  --repo orsharon7/stu-msft-agent-platform \
+  --cwd "/path/to/repo" \
+  --model claude-sonnet-4-6
 ```
 
-## How it works
+### How it works
 
 Each iteration:
 
-1. **`cycle`** — waits for Copilot to finish reviewing (auto-requests if needed, handles stalls)
-2. **Exit check** — `approved` / `clean` (0 comments) → done; `merged` / `closed` → stop
-3. **`claude --print`** — fixes all comments, pushes, re-requests Copilot review, replies to each comment
-4. **State save** — writes the review ID to `/tmp/pr-review-state/pr-<N>-last-review` so the next cycle knows to request a fresh review
-5. Repeat
+1. Check if Copilot review is pending — if not, request one via `gh pr edit --add-reviewer @copilot` (fallback: direct API)
+2. Wait for Copilot to finish (up to `--wait-max` seconds, with stall recovery via dismiss+re-request)
+3. Read the review — if `APPROVED` or 0 comments → exit success
+4. `claude --print --model <model>` — fixes all comments, commits, pushes, requests new review, replies
+5. Save last-known review ID → repeat
 
 ### Startup behaviour
 
-On first run (no state file), the script checks the current PR state and seeds the state file so `cycle` correctly requests a fresh Copilot review rather than re-processing an already-seen review.
+On startup, checks current PR state and handles all cases:
+
+| State | Action |
+|-------|--------|
+| No reviews yet | Requests first Copilot review |
+| Review pending | Waits for it |
+| Existing review with unresolved comments | Fixes them immediately |
+| Existing review with 0 comments / already seen | Requests a fresh review |
+| Already approved | Exits successfully |
+| Merged / closed | Exits |
+
+---
+
+## v1
+
+**`pr-review-claude.sh`** — Relies on `pr-review.sh` for GitHub operations. Max iterations configurable.
+
+```bash
+./pr-review-claude.sh <pr_number> [options]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--repo <owner/repo>` | auto-detect | GitHub repo |
+| `--cwd <path>` | current dir | Local repo path |
+| `--max-iter <n>` | `10` | Max fix iterations |
+| `--wait-max <seconds>` | `300` | Max wait per Copilot review |
+
+---
 
 ## Requirements
 
 - `claude` CLI in PATH (`claude --version`)
-- `gh` CLI authenticated
-- `pr-review.sh` in parent directory (`../pr-review.sh`)
+- `gh` CLI v2.88+ authenticated (`gh --version`)
+- `jq`
 
 ## Log file
 
-All output is streamed to `~/.pr-review-claude.log`.
+All output streams to `~/.pr-review-claude.log`.
 
 ## `.claude/settings.local.json`
 
-Pre-configured tool permissions for the Claude Code session that runs inside the loop.
+Pre-configured tool permissions for Claude Code sessions running inside the loop.
