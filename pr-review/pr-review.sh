@@ -472,7 +472,7 @@ cmd_push() {
   if [[ -n $(git status --porcelain 2>/dev/null) ]]; then
     local msg="${COMMIT_MSG:-fix: address Copilot review comments}"
     git add -A
-    git -c user.email="ors@gscapital.co.il" -c user.name="Or Sharon" commit -m "$msg"
+    git commit -m "$msg"
     >&2 echo "Committed: ${msg}"
   else
     >&2 echo "No uncommitted changes"
