@@ -9,6 +9,7 @@ agent in a loop to fix Copilot review comments until the PR is approved.
 
 ```
 pr-review/
+├── pr-review-launch.sh     # Interactive TUI launcher — start here
 ├── pr-review.sh            # Core primitives (JSON API wrapper around gh + GitHub REST)
 ├── pr-review-daemon.sh     # Background daemon — polls watched PRs continuously
 ├── pr-review-cron.sh       # Cron-compatible poller
@@ -25,23 +26,34 @@ pr-review/
 
 ## Quick start
 
-### opencode (GitHub Copilot — no API key required)
+### Interactive launcher (recommended)
 
 ```bash
 cd pr-review
+./pr-review-launch.sh
+```
+
+A step-by-step wizard walks you through every option — repository, PR number,
+runner, model, reflection, wait timeout — shows a confirmation summary, then
+hands off to the selected runner. All log output flows in the same terminal.
+
+You can also pre-fill the PR number and skip straight to the wizard:
+
+```bash
+./pr-review-launch.sh 42
+./pr-review-launch.sh 42 --repo owner/repo --cwd ~/dev/my-repo
+```
+
+### Direct runner invocation
+
+```bash
+# opencode (GitHub Copilot — no API key required)
 ./pr-review-opencode.sh <pr_number> --repo owner/repo --cwd /path/to/local/repo
-```
 
-### Claude Code (direct Anthropic API key)
-
-```bash
-cd pr-review
+# Claude Code (direct Anthropic API key)
 ./pr-review-claude-v2.sh <pr_number> --repo owner/repo --cwd /path/to/local/repo
-```
 
-### With reflection agent (improves rules after each cycle)
-
-```bash
+# With reflection agent (improves rules after each cycle)
 ./pr-review-opencode.sh <pr_number> --repo owner/repo --cwd /path/to/local/repo --reflect
 ```
 
