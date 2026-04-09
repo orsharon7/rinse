@@ -22,8 +22,8 @@
 #   - pr-review.sh in same directory
 #
 # Example:
-#   ./pr-review-claude.sh 42 --repo orsharon7/gsc-solar-monitor \
-#     --cwd ~/dev/gsc-solar-monitor --max-iter 5
+#   ./pr-review-claude.sh 42 --repo owner/repo \
+#     --cwd ~/dev/my-repo --max-iter 5
 #
 set -euo pipefail
 
