@@ -187,6 +187,11 @@ ui_wait_tick() {
     return
   fi
 
+  # Guard against division-by-zero if max is 0 or non-numeric
+  if ! [[ "$max" =~ ^[0-9]+$ ]] || [[ "$max" -lt 1 ]]; then
+    max=1
+  fi
+
   local bar_width=30
   local filled=$(( elapsed * bar_width / max ))
   [[ $filled -gt $bar_width ]] && filled=$bar_width
@@ -369,7 +374,7 @@ _ui_numbered_menu() {
 _ui_do_merge_only() {
   local pr="$1" repo="$2"
   log "🔀 Merging PR #${pr}..."
-  if gh pr merge "$pr" --repo "$repo" --merge --delete-branch=false; then
+  if gh pr merge "$pr" --repo "$repo" --merge; then
     log "✅ PR #${pr} merged."
   else
     log "❌ Merge failed — check gh output above."
