@@ -337,9 +337,9 @@ main() {
   # ── Step 5: Model (optional override) ───────────────────────────────────────
   _ui_print "\n${C_DIM}  Step 5 of 7${C_RESET}"
   local model
-  model=$(_field_text "Model override  (leave blank for default)" "$default_model")
-  # Normalize: if user typed the default back, treat as no override vs actual default
-  # We'll always pass it — runners accept it fine.
+  model=$(_field_text "Model override  (leave blank for default)" "")
+  # Empty means no override; later command construction should only add --model
+  # when the user explicitly entered a non-empty value.
 
   # ── Step 6: Reflection ──────────────────────────────────────────────────────
   _ui_print "\n${C_DIM}  Step 6 of 7${C_RESET}"
