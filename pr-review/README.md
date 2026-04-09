@@ -2,7 +2,7 @@
 
 CLI tool for managing GitHub Copilot PR review cycles. Designed for AI agents and automation, but works great for humans too.
 
-## Usage
+## Core tool
 
 ```bash
 ./pr-review.sh <pr_number> <subcommand> [options]
@@ -18,8 +18,8 @@ CLI tool for managing GitHub Copilot PR review cycles. Designed for AI agents an
 | `reply-all` | Batch reply from JSON stdin |
 | `request` | Request Copilot review |
 | `push` | Commit + push + request review |
-| `cycle` | Wait for review → return comments (agent loop) |
-| `clear-state` | Delete the local state file for this PR (reset last-known) |
+| `cycle` | Wait for review → return comments (agent loop primitive) |
+| `clear-state` | Reset last-known review ID for this PR |
 | `watch` | Add a PR to the watch list (async polling) |
 | `unwatch` | Remove a PR from the watch list |
 | `poll-all` | Check all watched PRs, output results, auto-retry errors |
@@ -41,17 +41,14 @@ CLI tool for managing GitHub Copilot PR review cycles. Designed for AI agents an
 # Wait for review (blocks up to 300s)
 ./pr-review.sh 42 status --wait 300
 
-# Get comments
+# Get comments from latest review
 ./pr-review.sh 42 comments
 
-# Full agent loop cycle
+# Full agent loop cycle (blocks, auto-requests if needed)
 ./pr-review.sh 42 cycle --wait 300
 
 # Reset state (forces next cycle to treat any review as new)
 ./pr-review.sh 42 clear-state
-
-# Suppress emoji output (useful for CI / log parsers)
-./pr-review.sh 42 cycle --wait 300 --no-color
 
 # Cross-repo
 ./pr-review.sh 2 status --repo orsharon7/gsc-solar-monitor
@@ -59,4 +56,49 @@ CLI tool for managing GitHub Copilot PR review cycles. Designed for AI agents an
 
 All output is JSON. Logs go to stderr.
 
-See header comments in `pr-review.sh` for full documentation.
+---
+
+## Runners
+
+The core tool exposes primitives. Runners wrap it in an automated loop.
+
+| Runner | File | Agent | Mode |
+|--------|------|-------|------|
+| [Claude Code](./claude/) | `claude/pr-review-claude.sh` | `claude` CLI | Foreground loop |
+| Daemon | `pr-review-daemon.sh` | OpenClaw | Background daemon |
+| Cron | `pr-review-cron.sh` | OpenClaw | Cron job |
+
+### Claude Code runner (recommended)
+
+Drives `claude --print` in a loop until Copilot approves or returns 0 comments.
+
+```bash
+./claude/pr-review-claude.sh 42 \
+  --repo orsharon7/gsc-solar-monitor \
+  --cwd ~/dev/gsc-solar-monitor
+```
+
+See [`claude/README.md`](./claude/README.md) for full docs.
+
+### Daemon runner
+
+Persistent background process. Polls watched PRs every N seconds and fires OpenClaw system events.
+
+```bash
+# Start
+./pr-review-daemon.sh
+
+# Stop
+./pr-review-daemon.sh --stop
+
+# Status
+./pr-review-daemon.sh --status
+```
+
+### Cron runner
+
+Lightweight poller for cron. Fires OpenClaw events + Telegram notifications.
+
+```
+*/2 * * * * /path/to/pr-review-cron.sh
+```
