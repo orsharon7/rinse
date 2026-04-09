@@ -1,0 +1,328 @@
+#!/usr/bin/env bash
+# pr-review-opencode.sh — Autonomous Copilot PR review fix loop using opencode
+#
+# Identical flow to pr-review-claude-v2.sh but uses `opencode run` instead of
+# `claude --print`. Model provider is GitHub Copilot (configured in ~/.config/opencode/).
+#
+# Usage:
+#   ./pr-review-opencode.sh <pr_number> [options]
+#
+# Options:
+#   --repo  <owner/repo>          Override repo detection (default: auto-detect from --cwd)
+#   --cwd   <path>                Local repo path (default: current directory)
+#   --model <provider/model>      opencode model string (default: github-copilot/claude-sonnet-4.6)
+#   --wait-max <seconds>          Max seconds to wait per Copilot review (default: 300)
+#   --dry-run                     Print startup state and exit without running opencode
+#
+# Requirements:
+#   - opencode CLI in PATH (opencode --version)
+#   - opencode authenticated with GitHub Copilot (opencode providers)
+#   - gh CLI v2.88+ authenticated
+#   - jq
+#
+# Example:
+#   ./pr-review-opencode.sh 1 \
+#     --repo orsharon7/stu-msft-agent-platform \
+#     --cwd "/path/to/repo"
+#
+set -euo pipefail
+
+# ─── Constants ────────────────────────────────────────────────────────────────
+
+STATE_DIR="/tmp/pr-review-state"
+LOGFILE="${HOME}/.pr-review-opencode.log"
+
+# ─── Args ─────────────────────────────────────────────────────────────────────
+
+if [[ $# -lt 1 || "$1" == "--help" || "$1" == "-h" ]]; then
+  head -30 "$0" | grep '^#' | sed 's/^# \?//'
+  exit 0
+fi
+
+PR_NUMBER="${1}"
+shift
+
+REPO=""
+CWD="$(pwd)"
+MODEL="github-copilot/claude-sonnet-4.6"
+WAIT_MAX=300
+DRY_RUN=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repo)      REPO="$2";      shift 2 ;;
+    --cwd)       CWD="$2";       shift 2 ;;
+    --model)     MODEL="$2";     shift 2 ;;
+    --wait-max)  WAIT_MAX="$2";  shift 2 ;;
+    --dry-run)   DRY_RUN=true;   shift ;;
+    *) >&2 echo "Unknown arg: $1"; exit 1 ;;
+  esac
+done
+
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+
+log() {
+  local ts
+  ts=$(date '+%Y-%m-%d %H:%M:%S')
+  echo "[$ts] $*" | tee -a "$LOGFILE"
+}
+
+if [[ -z "$REPO" ]]; then
+  REPO=$(cd "$CWD" && gh repo view --json nameWithOwner -q '.nameWithOwner' 2>/dev/null || echo "")
+  if [[ -z "$REPO" ]]; then
+    >&2 echo "Could not detect repo. Use --repo owner/repo or run from inside a git repo."
+    exit 1
+  fi
+fi
+
+STATE_FILE="${STATE_DIR}/pr-${PR_NUMBER}-last-review"
+
+# ─── GitHub helpers ───────────────────────────────────────────────────────────
+
+copilot_is_pending() {
+  gh api "repos/${REPO}/pulls/${PR_NUMBER}" \
+    --jq '[.requested_reviewers[] | select(.login | test("copilot"; "i"))] | length > 0' \
+    2>/dev/null || echo "false"
+}
+
+get_latest_copilot_review() {
+  gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/reviews?per_page=100" \
+    --jq '[.[] | select(.user.login | test("copilot"; "i")) | {id: .id, state: .state, submitted_at: .submitted_at}]' \
+    2>/dev/null | jq -s 'add | sort_by(.submitted_at) | last // empty'
+}
+
+get_review_comments() {
+  local rid="$1"
+  gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/reviews/${rid}/comments" \
+    --jq '[.[] | {id: .id, path: .path, line: .original_line, body: .body, in_reply_to_id: .in_reply_to_id}]' \
+    2>/dev/null | jq '[.[] | select(.in_reply_to_id == null)]'
+}
+
+request_copilot_review() {
+  if gh pr edit "$PR_NUMBER" --repo "$REPO" --add-reviewer "@copilot" 2>/dev/null; then
+    log "   📨 Copilot review requested via gh pr edit --add-reviewer @copilot"
+    return 0
+  fi
+  if gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
+    -X POST --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null 2>&1; then
+    log "   📨 Copilot review requested via API (fallback)"
+    return 0
+  fi
+  log "   ⚠️  Failed to request Copilot review"
+  return 1
+}
+
+wait_for_review() {
+  local elapsed=0 interval=15
+  while [[ $elapsed -lt $WAIT_MAX ]]; do
+    [[ "$(copilot_is_pending)" == "false" ]] && return 0
+    log "   ⏳ Copilot reviewing... (${elapsed}s / ${WAIT_MAX}s)"
+    local sleep_time=$(( interval < (WAIT_MAX - elapsed) ? interval : (WAIT_MAX - elapsed) ))
+    sleep "$sleep_time"
+    elapsed=$(( elapsed + sleep_time ))
+  done
+
+  log "   ⚠️  Stalled after ${WAIT_MAX}s — dismissing and re-requesting..."
+  gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
+    -X DELETE --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null 2>&1 || true
+  sleep 2
+  request_copilot_review || true
+  sleep 5
+
+  local elapsed2=0
+  while [[ $elapsed2 -lt $WAIT_MAX ]]; do
+    [[ "$(copilot_is_pending)" == "false" ]] && return 0
+    log "   ⏳ Copilot reviewing (retry)... (${elapsed2}s / ${WAIT_MAX}s)"
+    local sleep_time2=$(( interval < (WAIT_MAX - elapsed2) ? interval : (WAIT_MAX - elapsed2) ))
+    sleep "$sleep_time2"
+    elapsed2=$(( elapsed2 + sleep_time2 ))
+  done
+
+  log "   ❌ Copilot still stalled after $(( WAIT_MAX * 2 ))s"
+  return 1
+}
+
+# ─── Startup ──────────────────────────────────────────────────────────────────
+
+log "🚀 opencode PR review loop — ${REPO}#${PR_NUMBER}"
+log "   Local path:  ${CWD}"
+log "   Model:       ${MODEL}"
+log "   Wait max:    ${WAIT_MAX}s   (unlimited iterations)"
+log "   Log file:    ${LOGFILE}"
+
+pr_json=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" 2>/dev/null)
+pr_state=$(echo "$pr_json" | jq -r '.state')
+merged_at=$(echo "$pr_json" | jq -r '.merged_at // ""')
+
+if [[ "$pr_state" == "closed" && -n "$merged_at" ]]; then
+  log "🎉 PR already merged — nothing to do."; exit 0
+elif [[ "$pr_state" == "closed" ]]; then
+  log "📕 PR closed (not merged) — nothing to do."; exit 1
+fi
+
+log "🔍 Checking existing reviews..."
+mkdir -p "$STATE_DIR"
+
+latest=$(get_latest_copilot_review)
+pending=$(copilot_is_pending)
+
+if [[ "$pending" == "true" ]]; then
+  log "   Copilot review is currently in progress — will wait for it"
+elif [[ -z "$latest" ]]; then
+  log "   No Copilot reviews yet — will request the first one"
+  rm -f "$STATE_FILE"
+else
+  rid=$(echo "$latest" | jq -r '.id')
+  rstate=$(echo "$latest" | jq -r '.state')
+  rat=$(echo "$latest" | jq -r '.submitted_at')
+
+  if [[ "$rstate" == "APPROVED" ]]; then
+    log "✅ PR already APPROVED by Copilot — nothing to do."; exit 0
+  fi
+
+  comments=$(get_review_comments "$rid")
+  comment_count=$(echo "$comments" | jq 'length')
+  saved=$(cat "$STATE_FILE" 2>/dev/null || echo "")
+
+  if [[ "$comment_count" -gt 0 && "$saved" != "$rid" ]]; then
+    log "   Existing review ${rid} (${rat}) has ${comment_count} unresolved comment(s)"
+    log "   → Will fix these before requesting a new review"
+    rm -f "$STATE_FILE"
+  elif [[ "$comment_count" -eq 0 ]]; then
+    log "   Existing review ${rid} has 0 comments — will request fresh review"
+    echo "$rid" > "$STATE_FILE"
+  else
+    log "   Existing review ${rid} already seen — will request fresh review"
+  fi
+fi
+
+[[ "$DRY_RUN" == true ]] && { log "[DRY RUN] Exiting."; exit 0; }
+echo ""
+
+# ─── Main loop ────────────────────────────────────────────────────────────────
+
+iter=0
+
+while true; do
+  iter=$(( iter + 1 ))
+  log "━━━ Iteration ${iter} ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  # ── Step 1: Request review if needed ──────────────────────────────────────
+
+  pending=$(copilot_is_pending)
+  latest=$(get_latest_copilot_review)
+  saved=$(cat "$STATE_FILE" 2>/dev/null || echo "")
+  rid=""
+  [[ -n "$latest" ]] && rid=$(echo "$latest" | jq -r '.id')
+
+  if [[ "$pending" == "false" && ( -z "$rid" || "$rid" == "$saved" ) ]]; then
+    log "📨 Requesting Copilot review..."
+    request_copilot_review
+    sleep 3
+  fi
+
+  # ── Step 2: Wait for review ───────────────────────────────────────────────
+
+  log "⏳ Waiting for Copilot to finish reviewing (up to ${WAIT_MAX}s)..."
+  if ! wait_for_review; then
+    log "❌ Timed out waiting for Copilot — aborting"
+    exit 1
+  fi
+
+  # ── Step 3: Read result ───────────────────────────────────────────────────
+
+  latest=$(get_latest_copilot_review)
+  [[ -z "$latest" ]] && { log "⚠️  No review found — retrying"; sleep 10; continue; }
+
+  rid=$(echo "$latest" | jq -r '.id')
+  rstate=$(echo "$latest" | jq -r '.state')
+
+  pr_state=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.state' 2>/dev/null || echo "open")
+  merged_at=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.merged_at // ""' 2>/dev/null || echo "")
+  if [[ "$pr_state" == "closed" ]]; then
+    [[ -n "$merged_at" ]] && log "🎉 PR merged!" || log "📕 PR closed."
+    exit 0
+  fi
+
+  if [[ "$rstate" == "APPROVED" ]]; then
+    log "✅ Copilot APPROVED PR #${PR_NUMBER}! Ready to merge."
+    echo "$rid" > "$STATE_FILE"; exit 0
+  fi
+
+  comments=$(get_review_comments "$rid")
+  comment_count=$(echo "$comments" | jq 'length')
+
+  if [[ "$comment_count" -eq 0 ]]; then
+    log "✅ Clean review — 0 comments. PR #${PR_NUMBER} is ready to merge."
+    echo "$rid" > "$STATE_FILE"; exit 0
+  fi
+
+  log "💬 ${comment_count} comment(s) in review ${rid} — invoking opencode (${MODEL})..."
+
+  # ── Step 4: Build prompt and invoke opencode ──────────────────────────────
+
+  comments_json=$(echo "$comments" | jq '.')
+
+  read -r -d '' PROMPT << PROMPT_EOF || true
+You are fixing GitHub Copilot code review comments on PR #${PR_NUMBER} in ${REPO}.
+
+Local repo directory: ${CWD}
+Review ID: ${rid}
+Total top-level comments: ${comment_count}
+
+## Review comments (JSON):
+\`\`\`json
+${comments_json}
+\`\`\`
+
+Each comment has: id, path (file), line, body (the review text), in_reply_to_id (null = top-level).
+
+## Your task
+
+1. For each top-level comment (in_reply_to_id == null):
+   a. Read \`${CWD}/<path>\`
+   b. Fix the issue at/around the given line
+   c. Make the minimal targeted change only
+
+2. Commit and push all fixes at once:
+   \`\`\`bash
+   cd "${CWD}" && git add -A && git commit -m "fix: address Copilot review comments" && git push
+   \`\`\`
+   (Skip commit/push if there are genuinely no code changes needed.)
+
+3. Request a new Copilot review:
+   \`\`\`bash
+   gh pr edit ${PR_NUMBER} --repo ${REPO} --add-reviewer @copilot
+   \`\`\`
+
+4. Reply to every top-level comment:
+   \`\`\`bash
+   gh api repos/${REPO}/pulls/${PR_NUMBER}/comments/<id>/replies -X POST -f body="Fixed: <description> ✅"
+   \`\`\`
+
+## Rules
+- Fix all comments before committing (one commit for all fixes)
+- Only change what each comment asks — no refactoring beyond the comment scope
+- Always request a new Copilot review after pushing (step 3)
+- Reply to every top-level comment (step 4)
+- If a comment is already fixed in the current code, still reply to confirm it
+PROMPT_EOF
+
+  oc_exit=0
+  opencode run \
+    --model "$MODEL" \
+    --dir "$CWD" \
+    "$PROMPT" 2>&1 | tee -a "$LOGFILE" || oc_exit=$?
+
+  if [[ $oc_exit -ne 0 ]]; then
+    log "❌ opencode exited with code ${oc_exit} — aborting"
+    exit 1
+  fi
+
+  echo "$rid" > "$STATE_FILE"
+  log "💾 Saved last-known review ID: ${rid}"
+
+  log "✓ Iteration ${iter} complete — waiting for next Copilot review..."
+  echo ""
+  sleep 5
+done

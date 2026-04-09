@@ -79,9 +79,43 @@ On startup, checks current PR state and handles all cases:
 
 ---
 
+## opencode runner
+
+**`pr-review-opencode.sh`** — Same flow as v2 but uses `opencode run` with GitHub Copilot as the model provider.
+
+Configured to use the GitHub Copilot OAuth credential from `~/.local/share/opencode/auth.json`.
+
+```bash
+./pr-review-opencode.sh <pr_number> [options]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--repo <owner/repo>` | auto-detect | GitHub repo |
+| `--cwd <path>` | current dir | Local repo path |
+| `--model <provider/model>` | `github-copilot/claude-sonnet-4.6` | opencode model string |
+| `--wait-max <seconds>` | `300` | Max wait per Copilot review |
+| `--dry-run` | — | Print startup state and exit |
+
+### Example
+
+```bash
+./pr-review-opencode.sh 1 \
+  --repo orsharon7/stu-msft-agent-platform \
+  --cwd "/path/to/repo"
+
+# Different model
+./pr-review-opencode.sh 1 --model github-copilot/claude-sonnet-4.5 --cwd "/path/to/repo"
+```
+
+Available GitHub Copilot models: `github-copilot/claude-sonnet-4`, `github-copilot/claude-sonnet-4.5`, `github-copilot/claude-sonnet-4.6`
+
+---
+
 ## Requirements
 
-- `claude` CLI in PATH (`claude --version`)
+- `claude` CLI in PATH — for v1/v2 (`claude --version`)
+- `opencode` CLI in PATH — for opencode runner (`opencode --version`)
 - `gh` CLI v2.88+ authenticated (`gh --version`)
 - `jq`
 
