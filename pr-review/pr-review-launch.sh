@@ -179,7 +179,9 @@ _detect_cwd() {
 }
 
 _detect_open_prs() {
-  gh pr list --json number,title,headRefName --limit 10 2>/dev/null \
+  local repo="${1:-$(_detect_repo)}"
+
+  gh pr list --repo "$repo" --json number,title,headRefName --limit 10 2>/dev/null \
     | jq -r '.[] | "#\(.number)  \(.headRefName)  — \(.title | .[0:50])"' 2>/dev/null \
     || echo ""
 }
@@ -294,7 +296,7 @@ main() {
 
   # Show open PRs as context if we can
   local open_prs
-  open_prs=$(_detect_open_prs)
+  open_prs=$(_detect_open_prs "$repo")
   if [[ -n "$open_prs" ]]; then
     echo "" >&2
     _ui_print "${C_DIM}  Open PRs:${C_RESET}"

@@ -244,6 +244,14 @@ ui_merge_menu() {
   local repo="$2"
   local cwd="$3"
 
+  ui_success_banner "$pr" "$repo"
+
+  # In non-interactive mode skip the menu entirely to avoid blocking on /dev/tty
+  if [[ "$_UI_TTY" != true ]]; then
+    _ui_print "${C_MUTED}  (Non-interactive mode — skipping merge menu.)${C_RESET}"
+    return 0
+  fi
+
   # Detect current local branch
   local local_branch
   local_branch=$(git -C "$cwd" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
@@ -253,8 +261,6 @@ ui_merge_menu() {
   default_branch=$(git -C "$cwd" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null \
     | sed 's|refs/remotes/origin/||' || echo "main")
 
-  ui_success_banner "$pr" "$repo"
-
   local options=(
     "Merge PR + delete remote branch + delete local branch → ${default_branch}"
     "Merge PR only"
@@ -263,11 +269,7 @@ ui_merge_menu() {
   )
 
   local choice
-  if [[ "$_UI_TTY" == true ]]; then
-    choice=$(_ui_arrow_menu "${options[@]}")
-  else
-    choice=$(_ui_numbered_menu "${options[@]}")
-  fi
+  choice=$(_ui_arrow_menu "${options[@]}")
 
   case "$choice" in
     0) _ui_do_full_cleanup "$pr" "$repo" "$cwd" "$local_branch" "$default_branch" ;;
@@ -385,7 +387,7 @@ _ui_do_full_cleanup() {
   local pr="$1" repo="$2" cwd="$3" local_branch="$4" default_branch="$5"
 
   log "🔀 Merging PR #${pr} (with remote branch deletion)..."
-  if ! gh pr merge "$pr" --repo "$repo" --merge; then
+  if ! gh pr merge "$pr" --repo "$repo" --merge --delete-branch; then
     log "❌ Merge failed — aborting cleanup."
     return 1
   fi
@@ -453,7 +455,7 @@ _ui_reflect_goto_bar() {
   # Move cursor to the last terminal row
   local rows
   rows=$(tput lines 2>/dev/null || echo 24)
-  tput cup $(( rows - 1 )) 0 2>/dev/null || printf "\033[%d;0H" "$rows"
+  tput cup $(( rows - 1 )) 0 2>/dev/null || printf "\033[%d;1H" "$rows"
 }
 
 ui_reflect_start() {
@@ -463,11 +465,11 @@ ui_reflect_start() {
   # Reserve bottom row by printing a blank line if we're not already at the bottom
   printf "\n" >&2
 
-  # Draw initial bar
+  # Save cursor position, draw initial bar, then restore cursor so log continues
+  tput sc 2>/dev/null || printf "\033[s" >&2
   _ui_reflect_goto_bar >&2
   printf "%b" "${C_DIM}$(_ui_reflect_bar "starting…")${C_RESET}" >&2
-  # Restore cursor to wherever the log was
-  tput cup 0 0 2>/dev/null; tput cup $(( $(tput lines) - 2 )) 0 2>/dev/null || true
+  tput rc 2>/dev/null || printf "\033[u" >&2
 
   # Background poller: tail logfile, rewrite bar with latest [reflect] line
   (
@@ -480,10 +482,10 @@ ui_reflect_start() {
       [[ -z "$latest" ]] && latest="running…"
       if [[ "$latest" != "$last" ]]; then
         last="$latest"
+        tput sc 2>/dev/null || printf "\033[s" >&2
         _ui_reflect_goto_bar >&2
         printf "%b" "${C_DIM}$(_ui_reflect_bar "$latest")${C_RESET}" >&2
-        # Move cursor back up so log output continues above the bar
-        tput cup $(( $(tput lines 2>/dev/null || echo 24) - 2 )) 0 2>/dev/null || true
+        tput rc 2>/dev/null || printf "\033[u" >&2
       fi
     done
   ) &
