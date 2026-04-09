@@ -24,7 +24,7 @@
 #
 # Example:
 #   ./pr-review-opencode.sh 1 \
-#     --repo orsharon7/stu-msft-agent-platform \
+#     --repo owner/repo \
 #     --cwd "/path/to/repo"
 #
 set -euo pipefail
@@ -33,6 +33,12 @@ set -euo pipefail
 
 STATE_DIR="/tmp/pr-review-state"
 LOGFILE="${HOME}/.pr-review-opencode.log"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# ─── UI ───────────────────────────────────────────────────────────────────────
+
+# shellcheck source=pr-review-ui.sh
+source "${SCRIPT_DIR}/pr-review-ui.sh"
 
 # ─── Args ─────────────────────────────────────────────────────────────────────
 
@@ -51,28 +57,26 @@ WAIT_MAX=300
 DRY_RUN=false
 REFLECT=false
 REFLECT_MODEL=""
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REFLECT_MAIN_BRANCH="main"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --repo)           REPO="$2";           shift 2 ;;
-    --cwd)            CWD="$2";            shift 2 ;;
-    --model)          MODEL="$2";          shift 2 ;;
-    --reflect)        REFLECT=true;        shift ;;
-    --reflect-model)  REFLECT_MODEL="$2";  shift 2 ;;
-    --wait-max)  WAIT_MAX="$2";  shift 2 ;;
-    --dry-run)   DRY_RUN=true;   shift ;;
+    --repo)                REPO="$2";                shift 2 ;;
+    --cwd)                 CWD="$2";                 shift 2 ;;
+    --model)               MODEL="$2";               shift 2 ;;
+    --reflect)             REFLECT=true;             shift ;;
+    --reflect-model)       REFLECT_MODEL="$2";       shift 2 ;;
+    --reflect-main-branch) REFLECT_MAIN_BRANCH="$2"; shift 2 ;;
+    --wait-max)            WAIT_MAX="$2";            shift 2 ;;
+    --no-interactive)      export PR_REVIEW_NO_INTERACTIVE=true; shift ;;
+    --dry-run)             DRY_RUN=true;             shift ;;
     *) >&2 echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-log() {
-  local ts
-  ts=$(date '+%Y-%m-%d %H:%M:%S')
-  echo "[$ts] $*" | tee -a "$LOGFILE"
-}
+# log() is provided by pr-review-ui.sh (sourced above)
 
 if [[ -z "$REPO" ]]; then
   REPO=$(cd "$CWD" && gh repo view --json nameWithOwner -q '.nameWithOwner' 2>/dev/null || echo "")
@@ -121,13 +125,15 @@ request_copilot_review() {
 
 wait_for_review() {
   local elapsed=0 interval=15
+  log "⏳ Waiting for Copilot to finish reviewing (up to ${WAIT_MAX}s)..."
   while [[ $elapsed -lt $WAIT_MAX ]]; do
-    [[ "$(copilot_is_pending)" == "false" ]] && return 0
-    log "   ⏳ Copilot reviewing... (${elapsed}s / ${WAIT_MAX}s)"
+    [[ "$(copilot_is_pending)" == "false" ]] && { ui_wait_clear; return 0; }
+    ui_wait_tick "$elapsed" "$WAIT_MAX" "Copilot reviewing"
     local sleep_time=$(( interval < (WAIT_MAX - elapsed) ? interval : (WAIT_MAX - elapsed) ))
     sleep "$sleep_time"
     elapsed=$(( elapsed + sleep_time ))
   done
+  ui_wait_clear
 
   log "   ⚠️  Stalled after ${WAIT_MAX}s — dismissing and re-requesting..."
   gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
@@ -138,12 +144,13 @@ wait_for_review() {
 
   local elapsed2=0
   while [[ $elapsed2 -lt $WAIT_MAX ]]; do
-    [[ "$(copilot_is_pending)" == "false" ]] && return 0
-    log "   ⏳ Copilot reviewing (retry)... (${elapsed2}s / ${WAIT_MAX}s)"
+    [[ "$(copilot_is_pending)" == "false" ]] && { ui_wait_clear; return 0; }
+    ui_wait_tick "$elapsed2" "$WAIT_MAX" "Copilot reviewing (retry)"
     local sleep_time2=$(( interval < (WAIT_MAX - elapsed2) ? interval : (WAIT_MAX - elapsed2) ))
     sleep "$sleep_time2"
     elapsed2=$(( elapsed2 + sleep_time2 ))
   done
+  ui_wait_clear
 
   log "   ❌ Copilot still stalled after $(( WAIT_MAX * 2 ))s"
   return 1
@@ -151,7 +158,9 @@ wait_for_review() {
 
 # ─── Startup ──────────────────────────────────────────────────────────────────
 
-log "🚀 opencode PR review loop — ${REPO}#${PR_NUMBER}"
+ui_header "opencode PR review loop  ·  ${REPO}#${PR_NUMBER}"
+log "🚀 Starting opencode PR review loop"
+log "   Repo:        ${REPO}#${PR_NUMBER}"
 log "   Local path:  ${CWD}"
 log "   Model:       ${MODEL}"
 log "   Wait max:    ${WAIT_MAX}s   (unlimited iterations)"
@@ -212,7 +221,7 @@ iter=0
 
 while true; do
   iter=$(( iter + 1 ))
-  log "━━━ Iteration ${iter} ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  ui_iter_header "$iter"
 
   # ── Step 1: Request review if needed ──────────────────────────────────────
 
@@ -230,7 +239,6 @@ while true; do
 
   # ── Step 2: Wait for review ───────────────────────────────────────────────
 
-  log "⏳ Waiting for Copilot to finish reviewing (up to ${WAIT_MAX}s)..."
   if ! wait_for_review; then
     log "❌ Timed out waiting for Copilot — aborting"
     exit 1
@@ -253,7 +261,9 @@ while true; do
 
   if [[ "$rstate" == "APPROVED" ]]; then
     log "✅ Copilot APPROVED PR #${PR_NUMBER}! Ready to merge."
-    echo "$rid" > "$STATE_FILE"; exit 0
+    echo "$rid" > "$STATE_FILE"
+    ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
+    exit 0
   fi
 
   comments=$(get_review_comments "$rid")
@@ -261,7 +271,9 @@ while true; do
 
   if [[ "$comment_count" -eq 0 ]]; then
     log "✅ Clean review — 0 comments. PR #${PR_NUMBER} is ready to merge."
-    echo "$rid" > "$STATE_FILE"; exit 0
+    echo "$rid" > "$STATE_FILE"
+    ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
+    exit 0
   fi
 
   log "💬 ${comment_count} comment(s) in review ${rid} — invoking opencode (${MODEL})..."
@@ -320,11 +332,12 @@ PROMPT_EOF
   reflect_pid=""
   if [[ "$REFLECT" == true ]]; then
     reflect_model="${REFLECT_MODEL:-$MODEL}"
-    log "🔍 Launching reflection agent in background (model: ${reflect_model})..."
+    log "🔍 Launching reflection agent in background (model: ${reflect_model}, target branch: ${REFLECT_MAIN_BRANCH})..."
     export REFLECT_COMMENTS_JSON="$comments_json"
     bash "${SCRIPT_DIR}/pr-review-reflect.sh" "$PR_NUMBER" \
       --repo "$REPO" --cwd "$CWD" \
       --review-id "$rid" \
+      --main-branch "$REFLECT_MAIN_BRANCH" \
       --model "$reflect_model" \
       --agent opencode \
       >> "$LOGFILE" 2>&1 &
