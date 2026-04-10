@@ -14,6 +14,9 @@
 #   ...auto-maintained rules...
 #   <!-- END:COPILOT-RULES -->
 #
+# The reflection is committed and pushed directly to main (not the PR branch)
+# using a git worktree, so it never triggers another Copilot review cycle.
+#
 # Usage (standalone):
 #   ./pr-review-reflect.sh <pr_number> --repo <owner/repo> --cwd <path> [options]
 #
@@ -21,12 +24,13 @@
 #   REFLECT_COMMENTS_JSON="..." ./pr-review-reflect.sh <pr_number> ...
 #
 # Options:
-#   --repo  <owner/repo>         GitHub repo
-#   --cwd   <path>               Local repo path (where AGENTS.md / CLAUDE.md live)
-#   --review-id <id>             Specific review ID to analyse (default: latest Copilot review)
-#   --model <provider/model>     AI model for reflection (default: github-copilot/claude-sonnet-4.6)
-#   --agent <claude|opencode>    Which CLI to use (default: opencode)
-#   --dry-run                    Print prompt without running agent
+#   --repo         <owner/repo>      GitHub repo
+#   --cwd          <path>            Local repo path (PR branch working tree)
+#   --main-branch  <branch>          Branch to push rules to (default: main)
+#   --review-id    <id>              Specific review ID to analyse (default: latest Copilot review)
+#   --model        <provider/model>  AI model for reflection (default: github-copilot/claude-sonnet-4.6)
+#   --agent        <claude|opencode> Which CLI to use (default: opencode)
+#   --dry-run                        Print prompt without running agent
 #
 set -euo pipefail
 
@@ -48,6 +52,7 @@ PR_NUMBER="$1"; shift
 
 REPO=""
 CWD="$(pwd)"
+MAIN_BRANCH="main"
 REVIEW_ID=""
 MODEL="github-copilot/claude-sonnet-4.6"
 AGENT_CLI="opencode"
@@ -55,12 +60,13 @@ DRY_RUN=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --repo)       REPO="$2";       shift 2 ;;
-    --cwd)        CWD="$2";        shift 2 ;;
-    --review-id)  REVIEW_ID="$2";  shift 2 ;;
-    --model)      MODEL="$2";      shift 2 ;;
-    --agent)      AGENT_CLI="$2";  shift 2 ;;
-    --dry-run)    DRY_RUN=true;    shift ;;
+    --repo)          REPO="$2";          shift 2 ;;
+    --cwd)           CWD="$2";           shift 2 ;;
+    --main-branch)   MAIN_BRANCH="$2";   shift 2 ;;
+    --review-id)     REVIEW_ID="$2";     shift 2 ;;
+    --model)         MODEL="$2";         shift 2 ;;
+    --agent)         AGENT_CLI="$2";     shift 2 ;;
+    --dry-run)       DRY_RUN=true;       shift ;;
     *) >&2 echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -98,10 +104,32 @@ fi
 
 log "Reflecting on ${comment_count} comment(s) for ${REPO}#${PR_NUMBER}..."
 
-# ─── Ensure rule files exist ──────────────────────────────────────────────────
+# ─── Set up git worktree on main ─────────────────────────────────────────────
+#
+# We write AGENTS.md / CLAUDE.md into a worktree checked out on $MAIN_BRANCH,
+# not into $CWD (the PR branch). This means:
+#   • The reflection commit never lands on the PR branch
+#   • Copilot won't re-review the rule files → no infinite loop
+#   • Rules are available on main immediately, before the PR merges
 
-AGENTS_FILE="${CWD}/AGENTS.md"
-CLAUDE_FILE="${CWD}/CLAUDE.md"
+WORKTREE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/pr-reflect-worktree.XXXXXX")
+
+cleanup_worktree() {
+  log "Cleaning up worktree at ${WORKTREE_DIR}..."
+  git -C "$CWD" worktree remove --force "$WORKTREE_DIR" 2>/dev/null || true
+  rm -rf "$WORKTREE_DIR"
+}
+trap cleanup_worktree EXIT
+
+log "Fetching ${MAIN_BRANCH} and creating worktree at ${WORKTREE_DIR}..."
+git -C "$CWD" fetch origin "$MAIN_BRANCH" 2>&1 | tee -a "$LOGFILE"
+git -C "$CWD" worktree add "$WORKTREE_DIR" "origin/${MAIN_BRANCH}" 2>&1 | tee -a "$LOGFILE"
+
+# Point rule files at the worktree (main), not the PR branch
+AGENTS_FILE="${WORKTREE_DIR}/AGENTS.md"
+CLAUDE_FILE="${WORKTREE_DIR}/CLAUDE.md"
+
+# ─── Ensure rule files exist ──────────────────────────────────────────────────
 
 for f in "$AGENTS_FILE" "$CLAUDE_FILE"; do
   if [[ ! -f "$f" ]]; then
@@ -177,22 +205,19 @@ The section format must be exactly:
 <!-- END:COPILOT-RULES -->
 \`\`\`
 
-5. After updating both files, commit and push:
-\`\`\`bash
-cd "${CWD}" && git add AGENTS.md CLAUDE.md && git commit -m "chore: update AI coding rules from Copilot review #${PR_NUMBER}" && git push
-\`\`\`
-
 ## Rules for this task
 - Only write rules that are generalizable beyond this PR — skip one-off fixes
 - Keep rules concise (one line each)
 - Group under clear category headers
 - Preserve all existing file content outside the markers
-- If no genuinely new rules can be extracted, do not commit
+- If no genuinely new rules can be extracted, make no changes
+- Do NOT run any git commands — the script will handle committing and pushing
 PROMPT_EOF
 
 # ─── Run agent ────────────────────────────────────────────────────────────────
 
 if [[ "$DRY_RUN" == true ]]; then
+  log "[DRY RUN] Worktree: ${WORKTREE_DIR} (branch: ${MAIN_BRANCH})"
   log "[DRY RUN] Prompt:"
   echo "$PROMPT"
   exit 0
@@ -201,12 +226,12 @@ fi
 case "$AGENT_CLI" in
   opencode)
     oc_exit=0
-    opencode run --model "$MODEL" --dir "$CWD" "$PROMPT" 2>&1 | tee -a "$LOGFILE" || oc_exit=$?
+    opencode run --model "$MODEL" --dir "$WORKTREE_DIR" "$PROMPT" 2>&1 | tee -a "$LOGFILE" || oc_exit=$?
     [[ $oc_exit -ne 0 ]] && { log "⚠️  opencode exited ${oc_exit}"; exit 1; }
     ;;
   claude)
     cl_exit=0
-    (cd "$CWD" && claude --print --dangerously-skip-permissions --model "$MODEL" "$PROMPT") \
+    (cd "$WORKTREE_DIR" && claude --print --dangerously-skip-permissions --model "$MODEL" "$PROMPT") \
       2>&1 | tee -a "$LOGFILE" || cl_exit=$?
     [[ $cl_exit -ne 0 ]] && { log "⚠️  claude exited ${cl_exit}"; exit 1; }
     ;;
@@ -214,4 +239,25 @@ case "$AGENT_CLI" in
     >&2 echo "Unknown --agent: $AGENT_CLI (use 'opencode' or 'claude')"; exit 1 ;;
 esac
 
-log "✓ Reflection complete — AGENTS.md and CLAUDE.md updated"
+# ─── Commit and push from worktree to main ────────────────────────────────────
+#
+# The agent only edits files — the script owns git operations.
+# This runs in the worktree (main branch), completely isolated from the PR branch.
+
+changed=$(git -C "$WORKTREE_DIR" status --porcelain AGENTS.md CLAUDE.md)
+if [[ -z "$changed" ]]; then
+  log "No changes to AGENTS.md or CLAUDE.md — nothing to commit"
+  exit 0
+fi
+
+log "Committing updated rules to ${MAIN_BRANCH}..."
+git -C "$WORKTREE_DIR" add AGENTS.md CLAUDE.md
+
+# Count new rule lines added (lines starting with "- " inside the COPILOT-RULES block)
+rules_added=$(git -C "$WORKTREE_DIR" diff --cached AGENTS.md CLAUDE.md \
+  | grep '^+' | grep -v '^+++' | grep -c '^\+- ' 2>/dev/null || echo "0")
+
+git -C "$WORKTREE_DIR" commit -m "chore: update AI coding rules from Copilot review #${PR_NUMBER} [skip ci]"
+git -C "$WORKTREE_DIR" push origin "HEAD:${MAIN_BRANCH}"
+
+log "✓ Reflection complete — +${rules_added} rule(s) pushed to ${MAIN_BRANCH}"

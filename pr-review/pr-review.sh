@@ -471,8 +471,27 @@ cmd_push() {
   # Check for uncommitted changes
   if [[ -n $(git status --porcelain 2>/dev/null) ]]; then
     local msg="${COMMIT_MSG:-fix: address Copilot review comments}"
+
+    # Preflight: ensure git identity is configured (fails cleanly in CI/containers)
+    local git_name git_email author_name author_email committer_name committer_email
+    git_name=$(git config user.name 2>/dev/null || echo "")
+    git_email=$(git config user.email 2>/dev/null || echo "")
+    author_name="${GIT_AUTHOR_NAME:-$git_name}"
+    author_email="${GIT_AUTHOR_EMAIL:-$git_email}"
+    committer_name="${GIT_COMMITTER_NAME:-$author_name}"
+    committer_email="${GIT_COMMITTER_EMAIL:-$author_email}"
+    if [[ -z "$author_name" || -z "$author_email" || -z "$committer_name" || -z "$committer_email" ]]; then
+      >&2 echo "Error: git identity not configured."
+      >&2 echo "Set them globally:  git config --global user.name 'Your Name'"
+      >&2 echo "                    git config --global user.email 'you@example.com'"
+      >&2 echo "Or via env vars:    GIT_AUTHOR_NAME / GIT_AUTHOR_EMAIL"
+      >&2 echo "                    GIT_COMMITTER_NAME / GIT_COMMITTER_EMAIL"
+      echo '{"status":"error","message":"git identity not configured"}' | tr -d '\000'
+      exit 1
+    fi
+
     git add -A
-    git -c user.email="ors@gscapital.co.il" -c user.name="Or Sharon" commit -m "$msg"
+    git commit -m "$msg"
     >&2 echo "Committed: ${msg}"
   else
     >&2 echo "No uncommitted changes"

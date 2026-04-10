@@ -2,11 +2,11 @@
 # pr-review-daemon.sh — Persistent PR review watcher
 #
 # Runs continuously, polls watched PRs every POLL_INTERVAL seconds.
-# When a new review is detected, fires an OpenClaw system event
+# When a new review is detected, fires a system event / notification
 # with the review details — letting the agent handle fixes.
 #
 # This replaces the cron → isolated agent → sub-agent chain.
-# The script does the dumb work (polling GitHub), OpenClaw does the smart work (fixing code).
+# The script does the dumb work (polling GitHub), the agent does the smart work (fixing code).
 #
 # Usage:
 #   ./pr-review-daemon.sh                    # foreground
@@ -14,10 +14,9 @@
 #   ./pr-review-daemon.sh --once             # single poll (for testing)
 #
 # Environment:
-#   POLL_INTERVAL   — seconds between polls (default: 300 = 5 min)
-#   WATCH_FILE      — path to watch list JSON (default: ~/.pr-review-watches.json)
+#   POLL_INTERVAL    — seconds between polls (default: 300 = 5 min)
+#   WATCH_FILE       — path to watch list JSON (default: ~/.pr-review-watches.json)
 #   PR_REVIEW_SCRIPT — path to pr-review.sh (default: sibling file)
-#   OPENCLAW_TOKEN  — gateway token (optional, for auth)
 #
 set -euo pipefail
 
@@ -30,11 +29,10 @@ PIDFILE="${HOME}/.pr-review-daemon.pid"
 LOGFILE="${HOME}/.pr-review-daemon.log"
 
 # Repo path mapping (repo → local path)
-# Using a function instead of associative array to avoid bash slash issues
+# Add entries here for repos you work with locally, or leave empty to use --cwd auto-detection.
 get_repo_path() {
   case "$1" in
-    "orsharon7/gsc-solar-monitor") echo "/Users/orsharon/Downloads/General OrSh/GSC/dev/gsc-solar-monitor/" ;;
-    "orsharon7/gsc-website") echo "/Users/orsharon/Downloads/General OrSh/GSC/dev/gsc-website/" ;;
+    # "owner/repo-name") echo "/path/to/local/repo/" ;;
     *) echo "" ;;
   esac
 }
@@ -92,22 +90,13 @@ log() {
   echo "[$ts] $*" >> "$LOGFILE"
 }
 
-# ─── Fire OpenClaw event ─────────────────────────────────────────────────────
+# ─── Fire event ──────────────────────────────────────────────────────────────
 
 fire_event() {
   local text="$1"
-  log "🔔 Firing OpenClaw event..."
-
-  local token_arg=""
-  if [[ -n "${OPENCLAW_TOKEN:-}" ]]; then
-    token_arg="--token $OPENCLAW_TOKEN"
-  fi
-
-  # Use openclaw CLI to send system event
-  openclaw system event --text "$text" --mode now $token_arg 2>&1 | tee -a "$LOGFILE" || {
-    log "⚠️  Failed to fire OpenClaw event"
-    return 1
-  }
+  log "🔔 Event: ${text}"
+  # Hook: add your own notification mechanism here (Slack, webhook, etc.)
+  # Example: curl -s -X POST "$WEBHOOK_URL" -d "{\"text\":\"${text}\"}"
 }
 
 # ─── Build agent task for a review ────────────────────────────────────────────

@@ -24,7 +24,7 @@
 #
 # Example:
 #   ./pr-review-opencode.sh 1 \
-#     --repo orsharon7/stu-msft-agent-platform \
+#     --repo owner/repo \
 #     --cwd "/path/to/repo"
 #
 set -euo pipefail
@@ -33,6 +33,12 @@ set -euo pipefail
 
 STATE_DIR="/tmp/pr-review-state"
 LOGFILE="${HOME}/.pr-review-opencode.log"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# ─── UI ───────────────────────────────────────────────────────────────────────
+
+# shellcheck source=pr-review-ui.sh
+source "${SCRIPT_DIR}/pr-review-ui.sh"
 
 # ─── Args ─────────────────────────────────────────────────────────────────────
 
@@ -51,28 +57,26 @@ WAIT_MAX=300
 DRY_RUN=false
 REFLECT=false
 REFLECT_MODEL=""
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REFLECT_MAIN_BRANCH="main"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --repo)           REPO="$2";           shift 2 ;;
-    --cwd)            CWD="$2";            shift 2 ;;
-    --model)          MODEL="$2";          shift 2 ;;
-    --reflect)        REFLECT=true;        shift ;;
-    --reflect-model)  REFLECT_MODEL="$2";  shift 2 ;;
-    --wait-max)  WAIT_MAX="$2";  shift 2 ;;
-    --dry-run)   DRY_RUN=true;   shift ;;
+    --repo)                REPO="$2";                shift 2 ;;
+    --cwd)                 CWD="$2";                 shift 2 ;;
+    --model)               MODEL="$2";               shift 2 ;;
+    --reflect)             REFLECT=true;             shift ;;
+    --reflect-model)       REFLECT_MODEL="$2";       shift 2 ;;
+    --reflect-main-branch) REFLECT_MAIN_BRANCH="$2"; shift 2 ;;
+    --wait-max)            WAIT_MAX="$2";            shift 2 ;;
+    --no-interactive)      export PR_REVIEW_NO_INTERACTIVE=true; shift ;;
+    --dry-run)             DRY_RUN=true;             shift ;;
     *) >&2 echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-log() {
-  local ts
-  ts=$(date '+%Y-%m-%d %H:%M:%S')
-  echo "[$ts] $*" | tee -a "$LOGFILE"
-}
+# log() is provided by pr-review-ui.sh (sourced above)
 
 if [[ -z "$REPO" ]]; then
   REPO=$(cd "$CWD" && gh repo view --json nameWithOwner -q '.nameWithOwner' 2>/dev/null || echo "")
@@ -121,37 +125,123 @@ request_copilot_review() {
 
 wait_for_review() {
   local elapsed=0 interval=15
+  log "⏳ Waiting for Copilot to finish reviewing (up to ${WAIT_MAX}s)..."
   while [[ $elapsed -lt $WAIT_MAX ]]; do
-    [[ "$(copilot_is_pending)" == "false" ]] && return 0
-    log "   ⏳ Copilot reviewing... (${elapsed}s / ${WAIT_MAX}s)"
+    [[ "$(copilot_is_pending)" == "false" ]] && { ui_wait_clear; return 0; }
+    ui_wait_tick "$elapsed" "$WAIT_MAX" "Copilot reviewing"
     local sleep_time=$(( interval < (WAIT_MAX - elapsed) ? interval : (WAIT_MAX - elapsed) ))
     sleep "$sleep_time"
     elapsed=$(( elapsed + sleep_time ))
   done
+  ui_wait_clear
 
-  log "   ⚠️  Stalled after ${WAIT_MAX}s — dismissing and re-requesting..."
+  # Grace check: review may have arrived in the last poll window — check before acting
+  if [[ "$(copilot_is_pending)" == "false" ]]; then
+    log "   ✓ Review arrived just before timeout — continuing"
+    return 0
+  fi
+
+  # Stall confirmed — ask user what to do (interactive) or auto-dismiss (non-interactive)
+  if [[ "$_UI_TTY" == true ]]; then
+    _stall_menu
+    return $?
+  else
+    log "   ⚠️  Stalled after ${WAIT_MAX}s — dismissing and re-requesting (non-interactive)..."
+    _dismiss_and_rerequst
+    return $?
+  fi
+}
+
+# Called when Copilot is confirmed stalled: dismiss + re-request + wait once more
+_dismiss_and_rerequst() {
   gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
     -X DELETE --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null 2>&1 || true
   sleep 2
   request_copilot_review || true
   sleep 5
 
-  local elapsed2=0
+  local elapsed2=0 interval=15
   while [[ $elapsed2 -lt $WAIT_MAX ]]; do
-    [[ "$(copilot_is_pending)" == "false" ]] && return 0
-    log "   ⏳ Copilot reviewing (retry)... (${elapsed2}s / ${WAIT_MAX}s)"
+    [[ "$(copilot_is_pending)" == "false" ]] && { ui_wait_clear; return 0; }
+    ui_wait_tick "$elapsed2" "$WAIT_MAX" "Copilot reviewing (retry)"
     local sleep_time2=$(( interval < (WAIT_MAX - elapsed2) ? interval : (WAIT_MAX - elapsed2) ))
     sleep "$sleep_time2"
     elapsed2=$(( elapsed2 + sleep_time2 ))
   done
-
-  log "   ❌ Copilot still stalled after $(( WAIT_MAX * 2 ))s"
+  ui_wait_clear
+  log "   ❌ Copilot still stalled after dismiss+retry"
   return 1
+}
+
+# Interactive stall menu — shown when TTY and Copilot hasn't responded
+_stall_menu() {
+  echo "" >&2
+  log "   ⚠️  Copilot hasn't responded after ${WAIT_MAX}s"
+
+  local choice
+  choice=$(_ui_arrow_menu \
+    "Wait again  (another ${WAIT_MAX}s)" \
+    "Check now  (single poll, then keep waiting)" \
+    "Dismiss & re-request  (restart Copilot review)" \
+    "Stop the cycle  (exit)")
+
+  case "$choice" in
+    0)  # Wait again
+      log "   ⏳ Waiting another ${WAIT_MAX}s..."
+      local elapsed3=0 interval=15
+      while [[ $elapsed3 -lt $WAIT_MAX ]]; do
+        [[ "$(copilot_is_pending)" == "false" ]] && { ui_wait_clear; return 0; }
+        ui_wait_tick "$elapsed3" "$WAIT_MAX" "Copilot reviewing (extended wait)"
+        local sleep_time3=$(( interval < (WAIT_MAX - elapsed3) ? interval : (WAIT_MAX - elapsed3) ))
+        sleep "$sleep_time3"
+        elapsed3=$(( elapsed3 + sleep_time3 ))
+      done
+      ui_wait_clear
+      # Recurse once — offer the menu again
+      if [[ "$(copilot_is_pending)" == "false" ]]; then
+        log "   ✓ Review arrived — continuing"
+        return 0
+      fi
+      _stall_menu
+      return $?
+      ;;
+    1)  # Check now
+      ui_wait_clear
+      if [[ "$(copilot_is_pending)" == "false" ]]; then
+        log "   ✓ Review found — continuing"
+        return 0
+      fi
+      log "   Still pending — resuming wait..."
+      local elapsed4=0 interval=15
+      while [[ $elapsed4 -lt $WAIT_MAX ]]; do
+        [[ "$(copilot_is_pending)" == "false" ]] && { ui_wait_clear; return 0; }
+        ui_wait_tick "$elapsed4" "$WAIT_MAX" "Copilot reviewing"
+        local sleep_time4=$(( interval < (WAIT_MAX - elapsed4) ? interval : (WAIT_MAX - elapsed4) ))
+        sleep "$sleep_time4"
+        elapsed4=$(( elapsed4 + sleep_time4 ))
+      done
+      ui_wait_clear
+      if [[ "$(copilot_is_pending)" == "false" ]]; then return 0; fi
+      _stall_menu
+      return $?
+      ;;
+    2)  # Dismiss & re-request
+      log "   🔄 Dismissing and re-requesting Copilot review..."
+      _dismiss_and_rerequst
+      return $?
+      ;;
+    3)  # Stop
+      log "   🛑 Cycle stopped by user."
+      return 1
+      ;;
+  esac
 }
 
 # ─── Startup ──────────────────────────────────────────────────────────────────
 
-log "🚀 opencode PR review loop — ${REPO}#${PR_NUMBER}"
+ui_header "opencode PR review loop  ·  ${REPO}#${PR_NUMBER}"
+log "🚀 Starting opencode PR review loop"
+log "   Repo:        ${REPO}#${PR_NUMBER}"
 log "   Local path:  ${CWD}"
 log "   Model:       ${MODEL}"
 log "   Wait max:    ${WAIT_MAX}s   (unlimited iterations)"
@@ -212,7 +302,7 @@ iter=0
 
 while true; do
   iter=$(( iter + 1 ))
-  log "━━━ Iteration ${iter} ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  ui_iter_header "$iter"
 
   # ── Step 1: Request review if needed ──────────────────────────────────────
 
@@ -230,7 +320,6 @@ while true; do
 
   # ── Step 2: Wait for review ───────────────────────────────────────────────
 
-  log "⏳ Waiting for Copilot to finish reviewing (up to ${WAIT_MAX}s)..."
   if ! wait_for_review; then
     log "❌ Timed out waiting for Copilot — aborting"
     exit 1
@@ -253,7 +342,9 @@ while true; do
 
   if [[ "$rstate" == "APPROVED" ]]; then
     log "✅ Copilot APPROVED PR #${PR_NUMBER}! Ready to merge."
-    echo "$rid" > "$STATE_FILE"; exit 0
+    echo "$rid" > "$STATE_FILE"
+    ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
+    exit 0
   fi
 
   comments=$(get_review_comments "$rid")
@@ -261,7 +352,9 @@ while true; do
 
   if [[ "$comment_count" -eq 0 ]]; then
     log "✅ Clean review — 0 comments. PR #${PR_NUMBER} is ready to merge."
-    echo "$rid" > "$STATE_FILE"; exit 0
+    echo "$rid" > "$STATE_FILE"
+    ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
+    exit 0
   fi
 
   log "💬 ${comment_count} comment(s) in review ${rid} — invoking opencode (${MODEL})..."
@@ -320,15 +413,17 @@ PROMPT_EOF
   reflect_pid=""
   if [[ "$REFLECT" == true ]]; then
     reflect_model="${REFLECT_MODEL:-$MODEL}"
-    log "🔍 Launching reflection agent in background (model: ${reflect_model})..."
+    log "🔍 Launching reflection agent in background (model: ${reflect_model}, target branch: ${REFLECT_MAIN_BRANCH})..."
     export REFLECT_COMMENTS_JSON="$comments_json"
     bash "${SCRIPT_DIR}/pr-review-reflect.sh" "$PR_NUMBER" \
       --repo "$REPO" --cwd "$CWD" \
       --review-id "$rid" \
+      --main-branch "$REFLECT_MAIN_BRANCH" \
       --model "$reflect_model" \
       --agent opencode \
       >> "$LOGFILE" 2>&1 &
     reflect_pid=$!
+    ui_reflect_start "$LOGFILE"
   fi
 
   oc_exit=0
@@ -339,13 +434,16 @@ PROMPT_EOF
 
   if [[ $oc_exit -ne 0 ]]; then
     log "❌ opencode exited with code ${oc_exit} — aborting"
-    [[ -n "$reflect_pid" ]] && kill "$reflect_pid" 2>/dev/null || true
+    if [[ -n "$reflect_pid" ]]; then
+      kill "$reflect_pid" 2>/dev/null || true
+      ui_reflect_done "$LOGFILE"
+    fi
     exit 1
   fi
 
   # Wait for reflection to finish (it should complete well before next Copilot review)
   if [[ -n "$reflect_pid" ]]; then
-    wait "$reflect_pid" && log "✓ Reflection complete" || log "⚠️  Reflection exited non-zero (non-fatal)"
+    wait "$reflect_pid" && ui_reflect_done "$LOGFILE" || { ui_reflect_done "$LOGFILE"; log "⚠️  Reflection exited non-zero (non-fatal)"; }
   fi
 
   echo "$rid" > "$STATE_FILE"
