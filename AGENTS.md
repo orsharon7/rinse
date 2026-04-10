@@ -18,6 +18,7 @@ Project instructions for AI coding agents.
 - Always use `grep -E` (ERE) for patterns with alternation; never rely on `\|` in BRE, which is non-portable across BSD/macOS and GNU grep.
 - Never use `local` outside of a function body; it is invalid in bash at top-level scope and will abort scripts running under `set -e`.
 - Always verify that arithmetic expansions have balanced parentheses (`$(( ... ))`); an extra `)` is a syntax error that prevents the script from being sourced.
+- When generating a wrapper script via heredoc, embed resolved absolute paths directly into the heredoc rather than post-processing with `sed`; `sed` operates on the literal heredoc text and cannot resolve shell variables that were in scope when the heredoc was written.
 
 ### Environment & CI Portability
 - When performing git operations that require user identity, add a preflight check for `user.name`/`user.email` with a clear error message, or accept identity overrides via environment variables.
@@ -39,6 +40,7 @@ Project instructions for AI coding agents.
 - When a layout conditionally hides a panel based on available width, the render path must also skip or empty that panel; keep layout-guard logic and render-guard logic in sync.
 - Never subtract a panel's width from a layout calculation when that panel is hidden; make width computations conditional on panel visibility.
 - When a helper function's return value has a documented semantic (e.g. inner/content width vs. total/outer width), callers must apply any necessary adjustment (e.g. adding border/padding) at the call site rather than conflating the two semantics; document the convention in the function's comment.
+- When routing log or output lines to a conditional UI panel (e.g. a side panel that may be hidden on narrow terminals or before the first layout message), guard the routing on whether the panel is actually visible; never silently discard output that has no other render path.
 
 ### Go: Error Handling & Safety
 - Never call `os.Exit()` inside a UI framework lifecycle (e.g. Bubble Tea); return errors up to `main()` and quit gracefully so the terminal state (alt-screen, cursor) is restored.
