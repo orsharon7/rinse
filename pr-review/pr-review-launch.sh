@@ -64,13 +64,13 @@ _w() { tput cols 2>/dev/null || echo 80; }
 # Print a horizontal rule the full terminal width
 _rule() {
   local w; w=$(_w)
-  gum style --foreground "$C_SURFACE" "$(printf '─%.0s' $(seq 1 "$w"))"
+  printf '\033[2m%*s\033[0m\n' "$w" '' | tr ' ' '─'
 }
 
 # Render the banner — big title + subtitle
 _banner() {
   local w; w=$(_w)
-  local inner=$(( w - 6 ))
+  local inner=$(( w - 4 ))
   [[ $inner -lt 20 ]] && inner=20
 
   gum style \
@@ -93,7 +93,7 @@ _banner() {
 _summary() {
   [[ $# -eq 0 ]] && return
   local w; w=$(_w)
-  local inner=$(( w - 6 ))
+  local inner=$(( w - 4 ))
   [[ $inner -lt 20 ]] && inner=20
 
   local rows=""
@@ -160,7 +160,7 @@ main() {
   local direction=1    # +1 forward, -1 back
 
   while true; do
-    clear
+    printf '\033[H\033[J'
     echo ""
     _banner
     echo ""
@@ -415,7 +415,7 @@ main() {
       # ── 8: Review & confirm ───────────────────────────────────────────────
       8)
         local w; w=$(_w)
-        local inner=$(( w - 6 ))
+        local inner=$(( w - 4 ))
         [[ $inner -lt 20 ]] && inner=20
 
         # Full summary
@@ -492,10 +492,10 @@ main() {
   [[ "$dry_run" == "true" ]] && cmd+=("--dry-run")
 
   # ── Launch banner ──────────────────────────────────────────────────────────
-  clear
+  printf '\033[H\033[J'
   echo ""
   local w; w=$(_w)
-  local inner=$(( w - 6 ))
+  local inner=$(( w - 4 ))
   [[ $inner -lt 20 ]] && inner=20
 
   gum style \
