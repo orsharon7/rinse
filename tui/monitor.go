@@ -618,10 +618,13 @@ func (m channelMonitor) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		// q/ctrl+c already handled in base; no extra poll needed.
 	case logLineMsg:
-		// Keep draining; base already appended the line.
+		// Got a line — immediately queue the next poll to drain fast.
 		cmds = append(cmds, m.poll())
-	case nil:
-		// Poll timeout — re-poll so we don't stall.
+	case runnerDoneMsg:
+		// Runner finished — no more polling needed.
+	default:
+		// Covers: nil (poll timeout), tickMsg, spinner.TickMsg, WindowSizeMsg.
+		// Always re-poll so we never stop draining the channel.
 		cmds = append(cmds, m.poll())
 	}
 
