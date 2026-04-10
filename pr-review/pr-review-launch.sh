@@ -31,15 +31,14 @@ fi
 source "${SCRIPT_DIR}/pr-review-ui.sh"
 
 # ─── Palette (Catppuccin Macchiato) ───────────────────────────────────────────
-C_MAUVE="183"     # soft purple — primary accent
-C_LAVENDER="147"  # light blue-purple — secondary
-C_TEAL="116"      # teal — success / active
-C_RED="210"       # soft red — error
-C_YELLOW="222"    # yellow — warning
-C_SURFACE="238"   # dark grey — borders / muted
-C_OVERLAY="245"   # mid grey — subtitles / hints
-C_TEXT="255"      # near-white — body text
-C_SUBTEXT="249"   # light grey — secondary values
+C_MAUVE="183"
+C_LAVENDER="147"
+C_TEAL="116"
+C_RED="210"
+C_YELLOW="222"
+C_SURFACE="238"
+C_OVERLAY="245"
+C_TEXT="255"
 
 export GUM_CHOOSE_CURSOR_FOREGROUND="$C_MAUVE"
 export GUM_CHOOSE_SELECTED_FOREGROUND="$C_MAUVE"
@@ -47,60 +46,80 @@ export GUM_CHOOSE_HEADER_FOREGROUND="$C_OVERLAY"
 export GUM_CHOOSE_CURSOR="❯ "
 export GUM_CHOOSE_UNSELECTED_PREFIX="  "
 export GUM_INPUT_CURSOR_FOREGROUND="$C_MAUVE"
-export GUM_INPUT_PROMPT_FOREGROUND="$C_SURFACE"
+export GUM_INPUT_PROMPT_FOREGROUND="$C_MAUVE"
 export GUM_CONFIRM_PROMPT_FOREGROUND="$C_MAUVE"
 
-# ─── Helpers ──────────────────────────────────────────────────────────────────
+# ─── Terminal helpers ──────────────────────────────────────────────────────────
 
-_ac()     { gum style --foreground "$C_MAUVE"   "$@"; }
-_lav()    { gum style --foreground "$C_LAVENDER" "$@"; }
-_muted()  { gum style --foreground "$C_OVERLAY"  "$@"; }
-_teal()   { gum style --foreground "$C_TEAL"     "$@"; }
-_err()    { gum style --foreground "$C_RED"      "$@"; }
-_bold()   { gum style --bold                     "$@"; }
+_w()    { tput cols  2>/dev/null || echo 80; }
+_h()    { tput lines 2>/dev/null || echo 24; }
 
-_w() { tput cols 2>/dev/null || echo 80; }
+# Hide/show cursor
+_cur_hide() { printf '\033[?25l'; }
+_cur_show() { printf '\033[?25h'; }
 
-# Print a horizontal rule the full terminal width
+# Move cursor to row R (1-based), col 1
+_goto()  { printf '\033[%d;1H' "$1"; }
+
+# Erase from current cursor position to end of screen
+_erase_down() { printf '\033[J'; }
+
+# Enter / leave alternate screen (no scrollback pollution)
+_altscreen_on()  { tput smcup 2>/dev/null || true; }
+_altscreen_off() { tput rmcup 2>/dev/null || true; }
+
+# Cleanup on exit
+_cleanup() {
+  _cur_show
+  _altscreen_off
+}
+trap _cleanup EXIT INT TERM
+
+# ─── Drawing helpers ──────────────────────────────────────────────────────────
+
+# A full-width horizontal rule using box-drawing chars
 _rule() {
   local w; w=$(_w)
-  printf '\033[2m%*s\033[0m\n' "$w" '' | tr ' ' '─'
+  printf '\033[38;5;%smm%s\033[0m\n' "$C_SURFACE" "$(printf '─%.0s' $(seq 1 "$w"))"
 }
 
-# Render the banner — big title + subtitle
-_banner() {
+# The static banner — rendered once into variable BANNER_LINES
+# We store it as a string and print it at row 1 each repaint.
+_make_banner() {
   local w; w=$(_w)
+  # inner = full width minus 4 (border 2 each side)
   local inner=$(( w - 4 ))
-  [[ $inner -lt 20 ]] && inner=20
+  [[ $inner -lt 30 ]] && inner=30
 
-  gum style \
+  # Build banner text
+  local title
+  title=$(gum style \
     --border double \
     --border-foreground "$C_MAUVE" \
     --align center \
     --width "$inner" \
-    --padding "1 3" \
+    --padding "1 4" \
     --bold \
     --foreground "$C_MAUVE" \
     "pr-review" \
     "" \
-    "$(gum style --foreground "$C_OVERLAY" --italic "Copilot PR Review Automation")"
+    "$(gum style --foreground "$C_OVERLAY" --italic "Copilot PR Review Automation")")
+  printf '%s\n' "$title"
 }
 
-# Render already-filled fields as a summary table above the current prompt.
-# Args: parallel arrays via nameref (bash 4.3+) — pass filled_keys and filled_vals as
-# space-separated strings (simpler and portable).
-#   _summary "KEY1" "VAL1" "KEY2" "VAL2" ...
+# Print the summary box of already-answered fields.
+# Args: key val key val ...
 _summary() {
   [[ $# -eq 0 ]] && return
   local w; w=$(_w)
   local inner=$(( w - 4 ))
-  [[ $inner -lt 20 ]] && inner=20
+  [[ $inner -lt 30 ]] && inner=30
 
   local rows=""
   while [[ $# -ge 2 ]]; do
     local k="$1" v="$2"; shift 2
-    rows+="$(printf '  %s  %s\n' \
-      "$(gum style --foreground "$C_OVERLAY"  "$(printf '%-18s' "$k")")" \
+    rows+="$(printf '%s  %s\n' \
+      "$(gum style --foreground "$C_OVERLAY"  "$(printf '%-16s' "$k")")" \
       "$(gum style --foreground "$C_LAVENDER" --bold "$v")")"$'\n'
   done
 
@@ -108,34 +127,60 @@ _summary() {
     --border normal \
     --border-foreground "$C_SURFACE" \
     --width "$inner" \
-    --padding "0 1" \
+    --padding "0 2" \
     "${rows%$'\n'}"
 }
 
-# Prompt header — shown above each gum input/choose
-_step_header() {
+# Step label line
+_step_label() {
   local n="$1" total="$2" label="$3"
-  printf '\n'
   gum style \
     --foreground "$C_MAUVE" --bold \
-    "  step ${n}/${total}  $(gum style --foreground "$C_OVERLAY" "·")  ${label}"
-  printf '\n'
+    "  [$n/$total]  $(gum style --foreground "$C_OVERLAY" "$label")"
 }
+
+# ─── Full repaint ─────────────────────────────────────────────────────────────
+# Repaints the screen: banner (static) + summary (dynamic) + step label.
+# After this returns, cursor is positioned right below the step label,
+# ready for the gum input/choose prompt.
+# Args: step total label [summary key val key val ...]
+_repaint() {
+  local step="$1" total="$2" label="$3"; shift 3
+  local sum_args=("$@")
+
+  _cur_hide
+  _goto 1
+  _erase_down
+
+  echo ""
+  _make_banner
+  echo ""
+
+  if [[ ${#sum_args[@]} -gt 0 ]]; then
+    _summary "${sum_args[@]}"
+    echo ""
+  fi
+
+  _step_label "$step" "$total" "$label"
+  echo ""
+
+  _cur_show
+}
+
+# ─── Data helpers ─────────────────────────────────────────────────────────────
 
 _detect_repo()           { gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || echo ""; }
 _detect_cwd()            { pwd; }
 _detect_default_branch() { gh repo view "$1" --json defaultBranchRef -q '.defaultBranchRef.name' 2>/dev/null || echo "main"; }
 
-# Returns lines like:  "#42  branch-name  — PR title"
 _detect_open_prs() {
   gh pr list --repo "$1" --json number,title,headRefName --limit 15 \
-    --jq '.[] | "#\(.number)  \(.headRefName | .[0:30])  — \(.title | .[0:50])"' 2>/dev/null || true
+    --jq '.[] | "#\(.number)  \(.headRefName | .[0:28])  — \(.title | .[0:48])"' 2>/dev/null || true
 }
 
-# ─── Wizard state ─────────────────────────────────────────────────────────────
+# ─── Wizard ───────────────────────────────────────────────────────────────────
 
 main() {
-  # Parse pre-filled CLI args
   local arg_pr="" arg_repo="" arg_cwd=""
   if [[ $# -ge 1 && "$1" =~ ^[0-9]+$ ]]; then arg_pr="$1"; shift; fi
   while [[ $# -gt 0 ]]; do
@@ -146,7 +191,6 @@ main() {
     esac
   done
 
-  # Wizard fields
   local repo="" pr="" cwd="" runner_label="" runner_script="" default_model=""
   local model="" reflect="false" reflect_branch="" wait_max="300" dry_run="false"
 
@@ -154,83 +198,70 @@ main() {
   local detected_cwd="${arg_cwd:-$(_detect_cwd)}"
   local detected_default_branch="main"
 
-  # Step loop — we walk forward/backward through steps 1..N
-  local STEPS=8        # total logical steps (some are conditional)
-  local step=1         # current step
-  local direction=1    # +1 forward, -1 back
+  local TOTAL=7
+  local step=1
+
+  _altscreen_on
 
   while true; do
-    printf '\033[H\033[J'
-    echo ""
-    _banner
-    echo ""
 
-    # ── Render summary of already-answered fields ──────────────────────────────
-    local sum_args=()
-    [[ -n "$repo"         ]] && sum_args+=("repository"  "$repo")
-    [[ -n "$pr"           ]] && sum_args+=("PR"           "#${pr}")
-    [[ -n "$cwd"          ]] && sum_args+=("local path"   "$cwd")
-    [[ -n "$runner_label" ]] && sum_args+=("runner"       "$runner_label")
-    [[ -n "$model"        ]] && sum_args+=("model"        "$model")
-    [[ "$reflect" == "true" ]] && sum_args+=("reflection" "on → ${reflect_branch}")
-    [[ "$reflect" == "false" && $step -gt 6 ]] && sum_args+=("reflection" "off")
+    # Build summary args from fields filled so far
+    local sum=()
+    [[ -n "$repo"         ]] && sum+=("repository"  "$repo")
+    [[ -n "$pr"           ]] && sum+=("PR"           "#${pr}")
+    [[ -n "$cwd"          ]] && sum+=("path"         "$cwd")
+    [[ -n "$runner_label" ]] && sum+=("runner"       "$runner_label")
+    [[ -n "$model"        ]] && sum+=("model"        "$model")
+    [[ "$reflect" == "true"  ]] && sum+=("reflection" "on → ${reflect_branch}")
+    [[ "$reflect" == "false" && $step -gt 6 ]] && sum+=("reflection" "off")
 
-    if [[ ${#sum_args[@]} -gt 0 ]]; then
-      _summary "${sum_args[@]}"
-      echo ""
-    fi
-
-    # ── Step dispatcher ────────────────────────────────────────────────────────
     case "$step" in
 
-      # ── 1: Repository ─────────────────────────────────────────────────────
+      # ── 1: Repository ───────────────────────────────────────────────────────
       1)
-        _step_header 1 7 "repository"
-        _muted "  Which GitHub repo? (owner/repo)"
+        _repaint 1 $TOTAL "repository" "${sum[@]}"
+        gum style --foreground "$C_OVERLAY" "  GitHub repo in owner/repo format"
         echo ""
         local new_repo
         new_repo=$(gum input \
           --placeholder "owner/repo" \
           --value "${repo:-$detected_repo}" \
           --prompt "  ❯ " \
-          --prompt.foreground "$C_MAUVE" \
-          --width 60) || { _err "  Cancelled."; exit 0; }
+          --width 60) || { _altscreen_off; _cur_show; exit 0; }
 
         if [[ -z "$new_repo" ]]; then
-          _err "  Repository is required."; sleep 1; continue
+          gum style --foreground "$C_RED" "  repository is required"; sleep 1; continue
         fi
         repo="$new_repo"
-        # Kick off branch detection in background; we'll use it in reflect step
         detected_default_branch=$(_detect_default_branch "$repo")
         step=$(( step + 1 ))
         ;;
 
-      # ── 2: PR picker ──────────────────────────────────────────────────────
+      # ── 2: PR picker ────────────────────────────────────────────────────────
       2)
-        _step_header 2 7 "pull request"
-        _muted "  Fetching open PRs for ${repo}…"
-        echo ""
+        _repaint 2 $TOTAL "pull request" "${sum[@]}"
+        gum style --foreground "$C_OVERLAY" "  Fetching open PRs…"
 
         local open_prs_raw
         open_prs_raw=$(_detect_open_prs "$repo")
 
+        # Erase the "fetching" line by going back up one line
+        printf '\033[1A\033[2K'
+
         if [[ -z "$open_prs_raw" ]]; then
-          # No open PRs — fall back to typed input
-          _muted "  (no open PRs found — enter number manually)"
+          gum style --foreground "$C_OVERLAY" "  No open PRs found — enter number manually"
           echo ""
           local new_pr
           new_pr=$(gum input \
             --placeholder "42" \
             --value "${pr:-$arg_pr}" \
             --prompt "  ❯ " \
-            --prompt.foreground "$C_MAUVE" \
             --width 20) || { step=$(( step - 1 )); continue; }
           if [[ -z "$new_pr" || ! "$new_pr" =~ ^[0-9]+$ ]]; then
-            _err "  Must be a positive integer."; sleep 1; continue
+            gum style --foreground "$C_RED" "  must be a positive integer"; sleep 1; continue
           fi
           pr="$new_pr"
         else
-          # Build a choose list — prepend "↩ back" and optionally current val
           local -a pr_options=()
           [[ -n "$pr" ]] && pr_options+=("keep  #${pr}  (current)")
           while IFS= read -r line; do
@@ -241,10 +272,8 @@ main() {
           local chosen
           chosen=$(printf '%s\n' "${pr_options[@]}" | gum choose \
             --height 12 \
-            --header "  Select a PR  (↑/↓ to navigate, enter to select)" \
+            --header "  ↑/↓ navigate · enter select · esc go back" \
             --header.foreground "$C_OVERLAY" \
-            --cursor.foreground "$C_MAUVE" \
-            --selected.foreground "$C_MAUVE" \
             --cursor "❯ ") || { step=$(( step - 1 )); continue; }
 
           if [[ "$chosen" == "✏  type a number manually" ]]; then
@@ -254,37 +283,35 @@ main() {
               --placeholder "42" \
               --value "${pr:-$arg_pr}" \
               --prompt "  ❯ " \
-              --prompt.foreground "$C_MAUVE" \
               --width 20) || { step=$(( step - 1 )); continue; }
             if [[ -z "$new_pr" || ! "$new_pr" =~ ^[0-9]+$ ]]; then
-              _err "  Must be a positive integer."; sleep 1; continue
+              gum style --foreground "$C_RED" "  must be a positive integer"; sleep 1; continue
             fi
             pr="$new_pr"
           elif [[ "$chosen" == keep* ]]; then
-            : # keep existing pr
+            : # keep existing
           else
-            # Extract the number from "#42  branch  — title"
-            pr=$(echo "$chosen" | grep -oE '^#[0-9]+' | tr -d '#')
+            pr=$(printf '%s' "$chosen" | grep -oE '^#[0-9]+' | tr -d '#')
           fi
         fi
         step=$(( step + 1 ))
         ;;
 
-      # ── 3: Local path ─────────────────────────────────────────────────────
+      # ── 3: Local path ───────────────────────────────────────────────────────
       3)
-        _step_header 3 7 "local clone path"
-        _muted "  Absolute path to your local checkout of ${repo}"
+        _repaint 3 $TOTAL "local clone path" "${sum[@]}"
+        gum style --foreground "$C_OVERLAY" "  Absolute path to your local checkout"
         echo ""
         local new_cwd
         new_cwd=$(gum input \
           --placeholder "/path/to/repo" \
           --value "${cwd:-$detected_cwd}" \
           --prompt "  ❯ " \
-          --prompt.foreground "$C_MAUVE" \
-          --width 80) || { step=$(( step - 1 )); continue; }
+          --width $(( $(_w) - 6 ))) || { step=$(( step - 1 )); continue; }
         [[ -z "$new_cwd" ]] && new_cwd="${cwd:-$detected_cwd}"
         if [[ ! -d "$new_cwd" ]]; then
-          gum style --foreground "$C_YELLOW" "  ⚠  Directory not found — continue anyway? (it may be created later)"
+          echo ""
+          gum style --foreground "$C_YELLOW" "  ⚠  directory not found — continue anyway?"
           if ! gum confirm "" --affirmative "Continue" --negative "Re-enter" --default=false; then
             continue
           fi
@@ -293,22 +320,19 @@ main() {
         step=$(( step + 1 ))
         ;;
 
-      # ── 4: Runner ─────────────────────────────────────────────────────────
+      # ── 4: Runner ───────────────────────────────────────────────────────────
       4)
-        _step_header 4 7 "runner"
-        _muted "  Which AI agent should drive the review loop?"
+        _repaint 4 $TOTAL "runner" "${sum[@]}"
+        gum style --foreground "$C_OVERLAY" "  Which AI agent drives the review loop?"
         echo ""
-        local runner_options=(
-          "opencode   — GitHub Copilot, no API key needed  ✦"
-          "claude v2  — Claude Code, requires Anthropic key"
-          "claude v1  — legacy claude runner"
-        )
         local runner_chosen
-        runner_chosen=$(printf '%s\n' "${runner_options[@]}" | gum choose \
-          --height 6 \
-          --cursor.foreground "$C_MAUVE" \
-          --selected.foreground "$C_MAUVE" \
-          --cursor "❯ ") || { step=$(( step - 1 )); continue; }
+        runner_chosen=$(printf '%s\n' \
+          "opencode   — GitHub Copilot · no API key needed  ✦" \
+          "claude v2  — Claude Code · requires Anthropic key" \
+          "claude v1  — legacy runner" \
+          | gum choose \
+            --height 6 \
+            --cursor "❯ ") || { step=$(( step - 1 )); continue; }
 
         case "$runner_chosen" in
           opencode*)
@@ -330,112 +354,77 @@ main() {
         step=$(( step + 1 ))
         ;;
 
-      # ── 5: Model ──────────────────────────────────────────────────────────
+      # ── 5: Model ────────────────────────────────────────────────────────────
       5)
-        _step_header 5 7 "model"
-        _muted "  Leave blank to use the runner default: $(gum style --foreground "$C_LAVENDER" "${default_model:-n/a}")"
+        _repaint 5 $TOTAL "model" "${sum[@]}"
+        gum style --foreground "$C_OVERLAY" \
+          "  Leave blank for default: $(gum style --foreground "$C_LAVENDER" "${default_model:-n/a}")"
         echo ""
         local new_model
         new_model=$(gum input \
           --placeholder "${default_model}" \
           --value "${model}" \
           --prompt "  ❯ " \
-          --prompt.foreground "$C_MAUVE" \
           --width 60) || { step=$(( step - 1 )); continue; }
-        model="$new_model"   # empty = use default
+        model="$new_model"
         step=$(( step + 1 ))
         ;;
 
-      # ── 6: Reflection ─────────────────────────────────────────────────────
+      # ── 6: Reflection ───────────────────────────────────────────────────────
       6)
         if [[ "$runner_label" == "claude v1" ]]; then
-          # Skip reflection for legacy runner
-          reflect="false"
-          step=$(( step + 1 ))
-          continue
+          reflect="false"; step=$(( step + 1 )); continue
         fi
-        _step_header 6 7 "reflection agent"
-        _muted "  Extracts coding rules from Copilot comments and pushes them to ${detected_default_branch}."
+        _repaint 6 $TOTAL "reflection agent" "${sum[@]}"
+        gum style --foreground "$C_OVERLAY" \
+          "  Extracts coding rules from Copilot comments → pushes to ${detected_default_branch}"
         echo ""
         if gum confirm "Enable reflection?" \
           --affirmative "Yes, enable" \
           --negative "No, skip" \
-          --default=false \
-          --prompt.foreground "$C_MAUVE"; then
+          --default=false; then
           reflect="true"
           echo ""
-          _muted "  Branch to push reflection rules to:"
+          gum style --foreground "$C_OVERLAY" "  Branch to push rules to:"
           echo ""
           local new_rb
           new_rb=$(gum input \
             --placeholder "$detected_default_branch" \
             --value "${reflect_branch:-$detected_default_branch}" \
             --prompt "  ❯ " \
-            --prompt.foreground "$C_MAUVE" \
             --width 40) || { reflect="false"; step=$(( step - 1 )); continue; }
           [[ -z "$new_rb" ]] && new_rb="$detected_default_branch"
           reflect_branch="$new_rb"
         else
-          reflect="false"
-          reflect_branch=""
+          reflect="false"; reflect_branch=""
         fi
         step=$(( step + 1 ))
         ;;
 
-      # ── 7: Advanced / dry-run ─────────────────────────────────────────────
+      # ── 7: Confirm & launch ─────────────────────────────────────────────────
       7)
-        _step_header 7 7 "advanced options"
-        echo ""
-        local new_wait
-        new_wait=$(gum input \
-          --placeholder "300" \
-          --value "${wait_max}" \
-          --prompt "  Max wait per Copilot review (seconds) ❯ " \
-          --prompt.foreground "$C_OVERLAY" \
-          --width 20) || { step=$(( step - 1 )); continue; }
-        if [[ -z "$new_wait" || ! "$new_wait" =~ ^[0-9]+$ || "$new_wait" -lt 1 ]]; then
-          new_wait=300
-        fi
-        wait_max="$new_wait"
+        _repaint 7 $TOTAL "review & launch" "${sum[@]}"
 
-        echo ""
-        if gum confirm "Enable dry run?  (print command only, do not execute)" \
-          --affirmative "Yes" \
-          --negative "No" \
-          --default=false \
-          --prompt.foreground "$C_OVERLAY"; then
-          dry_run="true"
-        else
-          dry_run="false"
-        fi
-
-        step=$(( step + 1 ))
-        ;;
-
-      # ── 8: Review & confirm ───────────────────────────────────────────────
-      8)
+        # Full settings table
         local w; w=$(_w)
         local inner=$(( w - 4 ))
-        [[ $inner -lt 20 ]] && inner=20
+        [[ $inner -lt 30 ]] && inner=30
 
-        # Full summary
-        local final_rows=()
-        final_rows+=("PR"            "#${pr}")
-        final_rows+=("repository"    "$repo")
-        final_rows+=("local path"    "$cwd")
-        final_rows+=("runner"        "$runner_label")
-        final_rows+=("model"         "${model:-${default_model} (default)}")
-        final_rows+=("reflection"    "$( [[ "$reflect" == "true" ]] && echo "on → ${reflect_branch}" || echo "off" )")
-        final_rows+=("wait max"      "${wait_max}s")
-        [[ "$dry_run" == "true" ]] && final_rows+=("dry run" "yes")
-
-        local summary_body=""
+        local final_body=""
+        local -a final_rows=(
+          "PR"         "#${pr}"
+          "repository" "$repo"
+          "path"       "$cwd"
+          "runner"     "$runner_label"
+          "model"      "${model:-${default_model} (default)}"
+          "reflection" "$( [[ "$reflect" == "true" ]] && echo "on → ${reflect_branch}" || echo "off" )"
+          "wait max"   "${wait_max}s"
+        )
         local i=0
         while [[ $i -lt ${#final_rows[@]} ]]; do
-          local fk="${final_rows[$i]}"
-          local fv="${final_rows[$((i+1))]}"
-          summary_body+="$(printf '  %s  %s\n' \
-            "$(gum style --foreground "$C_OVERLAY"  "$(printf '%-16s' "$fk")")" \
+          local fk="${final_rows[$i]}" fv="${final_rows[$((i+1))]}"
+          final_body+="$(printf '%s  %s\n' \
+            "$(gum style --foreground "$C_OVERLAY"  "$(printf '%-14s' "$fk")")" \
             "$(gum style --foreground "$C_LAVENDER" --bold "$fv")")"$'\n'
           i=$(( i + 2 ))
         done
@@ -445,73 +434,62 @@ main() {
           --border-foreground "$C_MAUVE" \
           --width "$inner" \
           --padding "1 2" \
-          "$(gum style --bold --foreground "$C_TEXT" "  Review your settings")" \
+          "$(gum style --bold --foreground "$C_TEXT" "settings")" \
           "" \
-          "${summary_body%$'\n'}"
+          "${final_body%$'\n'}"
 
         echo ""
 
         local action
         action=$(printf '%s\n' \
           "🚀  Launch" \
-          "✏   Edit settings  (go back)" \
+          "✏   Edit  (go back one step)" \
           "✗   Abort" \
           | gum choose \
             --height 5 \
-            --cursor.foreground "$C_MAUVE" \
-            --selected.foreground "$C_MAUVE" \
-            --cursor "❯ ") || { _muted "  Aborted."; exit 0; }
+            --cursor "❯ ") || { _altscreen_off; _cur_show; exit 0; }
 
         case "$action" in
-          *Launch*)
-            break
-            ;;
-          *"Edit settings"*)
-            step=$(( step - 1 ))
-            continue
-            ;;
-          *Abort*)
-            echo ""
-            _muted "  Aborted."
-            exit 0
-            ;;
+          *Launch*)  break ;;
+          *Edit*)    step=$(( step - 1 )); continue ;;
+          *Abort*)   _altscreen_off; _cur_show; exit 0 ;;
         esac
         ;;
 
       *)
-        # Should never happen
         break
         ;;
     esac
   done
 
-  # ── Build command ──────────────────────────────────────────────────────────
+  # ── Build & exec ──────────────────────────────────────────────────────────
   local cmd=("$runner_script" "$pr" "--repo" "$repo" "--cwd" "$cwd" "--wait-max" "$wait_max")
   [[ -n "$model" ]] && cmd+=("--model" "$model")
   [[ "$reflect" == "true" ]] && cmd+=("--reflect" "--reflect-main-branch" "$reflect_branch")
   [[ "$dry_run" == "true" ]] && cmd+=("--dry-run")
 
-  # ── Launch banner ──────────────────────────────────────────────────────────
-  printf '\033[H\033[J'
-  echo ""
+  # Leave alternate screen before handing off to runner (it scrolls normally)
+  _altscreen_off
+  _cur_show
+
   local w; w=$(_w)
   local inner=$(( w - 4 ))
-  [[ $inner -lt 20 ]] && inner=20
+  [[ $inner -lt 30 ]] && inner=30
 
+  echo ""
   gum style \
     --border double \
     --border-foreground "$C_TEAL" \
     --align center \
     --width "$inner" \
-    --padding "1 3" \
-    "$(gum style --bold --foreground "$C_TEAL"    "launching pr-review")" \
+    --padding "1 4" \
+    "$(gum style --bold --foreground "$C_TEAL" "launching pr-review")" \
     "" \
     "$(gum style --foreground "$C_LAVENDER" "PR #${pr}  ·  ${repo}  ·  ${runner_label}")"
-
   echo ""
 
   if [[ "$dry_run" == "true" ]]; then
-    gum style --foreground "$C_YELLOW" "  dry run — command that would be executed:"
+    gum style --foreground "$C_YELLOW" "  dry run — command:"
     echo ""
     gum style --foreground "$C_OVERLAY" "  ${cmd[*]}"
     exit 0
