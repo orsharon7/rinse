@@ -822,29 +822,12 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Print launch banner then exec the runner
-	fmt.Println()
+	// Hand off to the cycle monitor TUI
 	r := runners[fm.runnerIdx]
 	rName := r.label[:strings.Index(r.label, " —")]
-	w := 80
-	fmt.Println(styleLaunchBox.Width(w - 4).Render(
-		styleTeal.Render("launching pr-review") + "\n\n" +
-			styleMuted.Render(fmt.Sprintf("PR #%s  ·  %s  ·  %s", fm.prNum, fm.repo, rName)),
-	))
-	fmt.Println()
 
-	// Exec the runner script
-	binary := fm.finalCmd[0]
-	args := fm.finalCmd[1:]
-	cmd := exec.Command(binary, args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			os.Exit(exitErr.ExitCode())
-		}
-		fmt.Fprintln(os.Stderr, err)
+	if err := RunMonitor(fm.prNum, fm.repo, rName, fm.modelOverride, fm.finalCmd); err != nil {
+		fmt.Fprintln(os.Stderr, "monitor error:", err)
 		os.Exit(1)
 	}
 }
