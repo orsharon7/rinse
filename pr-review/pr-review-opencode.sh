@@ -14,6 +14,7 @@
 #   --wait-max <seconds>          Max seconds to wait per Copilot review (default: 300)
 #   --reflect                     After each fix, run reflection agent to update AGENTS.md + CLAUDE.md
 #   --reflect-model <model>       Model for reflection agent (default: same as --model)
+#   --reflect-optimize            After auto-merge, run an optimize pass to consolidate rules
 #   --dry-run                     Print startup state and exit without running opencode
 #
 # Requirements:
@@ -58,6 +59,7 @@ DRY_RUN=false
 REFLECT=false
 REFLECT_MODEL=""
 REFLECT_MAIN_BRANCH="main"
+REFLECT_OPTIMIZE=false
 AUTO_MERGE=false
 
 while [[ $# -gt 0 ]]; do
@@ -68,6 +70,7 @@ while [[ $# -gt 0 ]]; do
     --reflect)             REFLECT=true;             shift ;;
     --reflect-model)       REFLECT_MODEL="$2";       shift 2 ;;
     --reflect-main-branch) REFLECT_MAIN_BRANCH="$2"; shift 2 ;;
+    --reflect-optimize)    REFLECT_OPTIMIZE=true;    shift ;;
     --wait-max)            WAIT_MAX="$2";            shift 2 ;;
     --no-interactive)      export PR_REVIEW_NO_INTERACTIVE=true; shift ;;
     --auto-merge)          AUTO_MERGE=true; shift ;;
@@ -79,6 +82,21 @@ done
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 # log() is provided by pr-review-ui.sh (sourced above)
+
+# Run the end-of-cycle reflection optimize pass (consolidate/deduplicate rules).
+# Called after auto-merge when --reflect-optimize is set.
+run_reflect_optimize() {
+  local reflect_model="${REFLECT_MODEL:-$MODEL}"
+  log "🔧 Running reflection optimize pass (model: ${reflect_model}, target branch: ${REFLECT_MAIN_BRANCH})..."
+  bash "${SCRIPT_DIR}/pr-review-reflect-optimize.sh" "$PR_NUMBER" \
+    --repo "$REPO" --cwd "$CWD" \
+    --main-branch "$REFLECT_MAIN_BRANCH" \
+    --model "$reflect_model" \
+    --agent opencode \
+    >> "$LOGFILE" 2>&1 \
+    && log "✓ Reflection optimize pass complete" \
+    || log "⚠️  Reflection optimize pass exited non-zero (non-fatal)"
+}
 
 if [[ -z "$REPO" ]]; then
   REPO=$(cd "$CWD" && gh repo view --json nameWithOwner -q '.nameWithOwner' 2>/dev/null || echo "")
@@ -355,6 +373,7 @@ while true; do
         git -C "$CWD" branch -d "$local_branch" 2>/dev/null || true
       fi
       log "✅ Merged, remote branch deleted, local branch deleted."
+      [[ "$REFLECT_OPTIMIZE" == true ]] && run_reflect_optimize
     else
       ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
     fi
@@ -377,6 +396,7 @@ while true; do
         git -C "$CWD" branch -d "$local_branch" 2>/dev/null || true
       fi
       log "✅ Merged, remote branch deleted, local branch deleted."
+      [[ "$REFLECT_OPTIMIZE" == true ]] && run_reflect_optimize
     else
       ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
     fi
