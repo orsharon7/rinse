@@ -590,22 +590,33 @@ func (m monitorModel) executePostCycleAction(choice int) (tea.Model, tea.Cmd) {
 	switch choice {
 	case 0: // Full cleanup: merge + delete remote branch + checkout default branch
 		return m, func() tea.Msg {
-			out, err := runShell("gh", "pr", "merge", pr, "--repo", repo, "--squash", "--delete-branch")
+			out, err := runShell("gh", "pr", "merge", pr, "--repo", repo, "--merge", "--delete-branch")
 			if err != nil {
 				return actionDoneMsg{output: out, err: err}
 			}
-			// Checkout default branch and delete local feature branch.
-			localBranch, _ := runShell("git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD")
+			// Detect local branch; only attempt checkout+delete when detection succeeds.
+			localBranch, revErr := runShell("git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD")
+			if revErr != nil {
+				return actionDoneMsg{output: "✅ Merged, remote branch deleted. (local branch cleanup skipped: " + strings.TrimSpace(localBranch) + ")"}
+			}
 			localBranch = strings.TrimSpace(localBranch)
-			if localBranch != "" && localBranch != defaultBr {
-				_, _ = runShell("git", "-C", cwd, "checkout", defaultBr)
-				_, _ = runShell("git", "-C", cwd, "branch", "-d", localBranch)
+			if localBranch == "" || localBranch == defaultBr {
+				return actionDoneMsg{output: "✅ Merged, remote branch deleted."}
+			}
+			if _, coErr := runShell("git", "-C", cwd, "checkout", defaultBr); coErr != nil {
+				return actionDoneMsg{output: "✅ Merged, remote branch deleted. (checkout " + defaultBr + " failed: " + coErr.Error() + ")"}
+			}
+			if _, delErr := runShell("git", "-C", cwd, "branch", "-d", localBranch); delErr != nil {
+				// Fall back to force-delete (-D) like the bash implementation.
+				if _, delErrF := runShell("git", "-C", cwd, "branch", "-D", localBranch); delErrF != nil {
+					return actionDoneMsg{output: "✅ Merged, remote branch deleted. (local branch delete failed: " + delErrF.Error() + ")"}
+				}
 			}
 			return actionDoneMsg{output: "✅ Merged, remote branch deleted, local branch deleted."}
 		}
 	case 1: // Merge PR only
 		return m, func() tea.Msg {
-			out, err := runShell("gh", "pr", "merge", pr, "--repo", repo, "--squash")
+			out, err := runShell("gh", "pr", "merge", pr, "--repo", repo, "--merge")
 			return actionDoneMsg{output: out, err: err}
 		}
 	case 2: // Open in browser
