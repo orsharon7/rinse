@@ -243,6 +243,12 @@ ui_reflect_log() {
 ui_merge_menu() {
   local pr="$1" repo="$2" cwd="$3"
 
+  # When running under the TUI (non-interactive mode), skip the bash menu entirely.
+  # The TUI presents its own Bubble Tea post-cycle menu after the runner exits.
+  if [[ "${PR_REVIEW_NO_INTERACTIVE:-}" == "true" ]]; then
+    return 0
+  fi
+
   local local_branch default_branch
   local_branch=$(git -C "$cwd" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
   default_branch=$(git -C "$cwd" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null \

@@ -991,7 +991,12 @@ func main() {
 		rName = r.label
 	}
 
-	if err := RunMonitor(fm.prNum, fm.repo, rName, fm.modelOverride, fm.prTitle, fm.finalCmd); err != nil {
+	// Always run the runner in non-interactive mode so it does not attempt to
+	// show a bash menu after the cycle ends. The TUI itself presents the
+	// post-cycle Bubble Tea menu instead.
+	runnerCmd := append(fm.finalCmd, "--no-interactive")
+
+	if err := RunMonitor(fm.prNum, fm.repo, rName, fm.modelOverride, fm.prTitle, fm.path, runnerCmd); err != nil {
 		fmt.Fprintln(os.Stderr, "monitor error:", err)
 		os.Exit(1)
 	}
