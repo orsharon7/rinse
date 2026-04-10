@@ -141,7 +141,7 @@ type postCycleOption struct {
 // The CWD and default branch are filled in at runtime.
 func buildPostCycleOptions(defaultBranch string) []postCycleOption {
 	return []postCycleOption{
-		{label: "Merge PR + delete remote branch + checkout → " + defaultBranch},
+		{label: "Merge PR + delete remote & local branch + checkout → " + defaultBranch},
 		{label: "Merge PR only"},
 		{label: "Open PR in browser"},
 		{label: "Do nothing (exit)"},
@@ -573,8 +573,9 @@ func (m monitorModel) handlePostCycleKey(key string) (tea.Model, tea.Cmd) {
 	case "enter":
 		return m.executePostCycleAction(m.postCycleCursor)
 	case "esc":
-		// Dismiss menu — just exit; user can press q to fully quit.
-		return m, tea.Quit
+		// Dismiss menu — return to the completed log view; press q to fully quit.
+		m.showPostCycleMenu = false
+		return m, nil
 	}
 	return m, nil
 }
@@ -800,7 +801,7 @@ func (m monitorModel) renderPostCycleMenu() string {
 		BorderForeground(teal).
 		Padding(1, 4)
 
-	title := styleTeal.Render("✅  PR approved — what would you like to do?")
+	title := styleTeal.Render("✅  PR ready to merge — what would you like to do?")
 
 	var lines []string
 	for i, opt := range m.postCycleOptions {
