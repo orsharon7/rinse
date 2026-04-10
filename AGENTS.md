@@ -19,6 +19,7 @@ Project instructions for AI coding agents.
 - Never use `local` outside of a function body; it is invalid in bash at top-level scope and will abort scripts running under `set -e`.
 - Always verify that arithmetic expansions have balanced parentheses (`$(( ... ))`); an extra `)` is a syntax error that prevents the script from being sourced.
 - When generating a wrapper script via heredoc, embed resolved absolute paths directly into the heredoc rather than post-processing with `sed`; `sed` operates on the literal heredoc text and cannot resolve shell variables that were in scope when the heredoc was written.
+- When a function accepts a status/ok argument (e.g. `true`, `false`, `skip`), all output paths — including non-interactive or fallback branches — must reflect that status visually; never silently discard a failure or skip signal by printing the same icon/prefix unconditionally.
 
 ### Environment & CI Portability
 - When performing git operations that require user identity, add a preflight check for `user.name`/`user.email` with a clear error message, or accept identity overrides via environment variables.
@@ -48,6 +49,7 @@ Project instructions for AI coding agents.
 - When a UI component supports multiple interaction modes (e.g. text input vs. picker), scope input routing and focus gating to the currently active mode; never treat a component as input-active unconditionally when it may be in a non-input mode.
 - Keep in-code comments that document layout constants (e.g. "reserves N rows") in sync with the actual constant value and any external documentation; divergence between the constant, its comment, and docs causes silent layout bugs.
 - When defaulting a layout dimension (e.g. terminal width), apply the fallback only when the value is uninitialized (`<= 0`), never when it is a legitimately small positive value; substituting a larger fixed constant for a real small dimension causes overflow/wrapping on narrow terminals.
+- Always clamp computed widget dimensions (e.g. `totalW - 2`, `w - 4`) to a minimum of 0 before passing them to a rendering library (e.g. lipgloss `Width()`); terminal resize events can produce legitimately small sizes that make the subtraction negative, causing rendering glitches or panics.
 
 ### Go: Performance
 - Never accumulate strings with `+=` in a loop or hot path; use `strings.Builder` (or an equivalent append-only buffer) for incremental string construction to avoid O(n²) copying behavior.
