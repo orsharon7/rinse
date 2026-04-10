@@ -58,6 +58,7 @@ DRY_RUN=false
 REFLECT=false
 REFLECT_MODEL=""
 REFLECT_MAIN_BRANCH="main"
+AUTO_MERGE=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -69,6 +70,7 @@ while [[ $# -gt 0 ]]; do
     --reflect-main-branch) REFLECT_MAIN_BRANCH="$2"; shift 2 ;;
     --wait-max)            WAIT_MAX="$2";            shift 2 ;;
     --no-interactive)      export PR_REVIEW_NO_INTERACTIVE=true; shift ;;
+    --auto-merge)          AUTO_MERGE=true; shift ;;
     --dry-run)             DRY_RUN=true;             shift ;;
     *) >&2 echo "Unknown arg: $1"; exit 1 ;;
   esac
@@ -343,7 +345,19 @@ while true; do
   if [[ "$rstate" == "APPROVED" ]]; then
     log "✅ Copilot APPROVED PR #${PR_NUMBER}! Ready to merge."
     echo "$rid" > "$STATE_FILE"
-    ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
+    if [[ "$AUTO_MERGE" == true ]]; then
+      log "🔀 Auto-merging and deleting branch..."
+      local_branch=$(git -C "$CWD" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+      base_branch=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.base.ref' 2>/dev/null || echo "main")
+      gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch
+      if [[ -n "$local_branch" && "$local_branch" != "$base_branch" ]]; then
+        git -C "$CWD" checkout "$base_branch" 2>/dev/null || true
+        git -C "$CWD" branch -d "$local_branch" 2>/dev/null || true
+      fi
+      log "✅ Merged, remote branch deleted, local branch deleted."
+    else
+      ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
+    fi
     exit 0
   fi
 
@@ -353,7 +367,19 @@ while true; do
   if [[ "$comment_count" -eq 0 ]]; then
     log "✅ Clean review — 0 comments. PR #${PR_NUMBER} is ready to merge."
     echo "$rid" > "$STATE_FILE"
-    ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
+    if [[ "$AUTO_MERGE" == true ]]; then
+      log "🔀 Auto-merging and deleting branch..."
+      local_branch=$(git -C "$CWD" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+      base_branch=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.base.ref' 2>/dev/null || echo "main")
+      gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch
+      if [[ -n "$local_branch" && "$local_branch" != "$base_branch" ]]; then
+        git -C "$CWD" checkout "$base_branch" 2>/dev/null || true
+        git -C "$CWD" branch -d "$local_branch" 2>/dev/null || true
+      fi
+      log "✅ Merged, remote branch deleted, local branch deleted."
+    else
+      ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
+    fi
     exit 0
   fi
 
@@ -423,10 +449,11 @@ PROMPT_EOF
       --agent opencode \
       >> "$LOGFILE" 2>&1 &
     reflect_pid=$!
+    ui_reflect_start "$LOGFILE"
   fi
 
   oc_exit=0
-  (cd "$CWD" && opencode run --model "$MODEL" "$PROMPT") \
+  (cd "$CWD" && opencode run --model "$MODEL" --dangerously-skip-permissions "$PROMPT") \
     2>&1 | tee -a "$LOGFILE" || oc_exit=$?
 
   if [[ $oc_exit -ne 0 ]]; then
@@ -441,7 +468,6 @@ PROMPT_EOF
   # Wait for reflection to finish (it should complete well before next Copilot review)
   if [[ -n "$reflect_pid" ]]; then
     if wait "$reflect_pid"; then
-      # Parse result from logfile
       reflect_summary=$(grep '\[reflect\].*Reflection complete\|No changes\|No top-level' "$LOGFILE" 2>/dev/null | tail -1 | sed 's/^.*\[reflect\] //' || echo "done")
       ui_reflect_log "$reflect_summary"
     else
