@@ -801,7 +801,11 @@ func (m model) renderSummary(w int) string {
 	for _, r := range rows {
 		lines = append(lines, styleKey.Render(r.k)+"  "+styleVal.Render(r.v))
 	}
-	return styleSummaryBox.Width(w-4).Render(strings.Join(lines, "\n")) + "\n"
+	summaryWidth := w - 4
+	if summaryWidth < 0 {
+		summaryWidth = 0
+	}
+	return styleSummaryBox.Width(summaryWidth).Render(strings.Join(lines, "\n")) + "\n"
 }
 
 func (m model) renderStep(w int) string {
@@ -920,7 +924,11 @@ func (m model) renderStep(w int) string {
 		for _, r := range rows {
 			lines = append(lines, styleKey.Render(r.k)+"  "+styleVal.Render(r.v))
 		}
-		box := styleConfirmBox.Width(w - 4).Render(
+		boxWidth := w - 4
+		if boxWidth < 0 {
+			boxWidth = 0
+		}
+		box := styleConfirmBox.Width(boxWidth).Render(
 			styleTeal.Render("settings") + "\n\n" +
 				strings.Join(lines, "\n"),
 		)

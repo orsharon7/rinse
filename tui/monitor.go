@@ -554,7 +554,12 @@ func (m monitorModel) View() string {
 			styleHeaderLabel.Render(`"`)
 	}
 
-	header := styleHeader.Width(totalW - 2).Render(
+	headerWidth := totalW - 2
+	if headerWidth < 0 {
+		headerWidth = 0
+	}
+
+	header := styleHeader.Width(headerWidth).Render(
 		styleHeaderLabel.Render("pr") + " " + styleHeaderVal.Render("#"+m.pr) + titlePart +
 			"  " + styleHeaderLabel.Render("repo") + " " + styleHeaderVal.Render(m.repo) +
 			"  " + styleHeaderLabel.Render("runner") + " " + styleHeaderVal.Render(m.runner) +
@@ -599,7 +604,11 @@ func (m monitorModel) View() string {
 	}
 	keys := styleMuted.Render("  q=quit  ↑↓/jk=scroll  s=save  ?=help")
 
-	statusBar := styleStatusBar.Width(totalW - 2).Render(phaseStr + scrollHint + keys)
+	statusBarWidth := totalW - 2
+	if statusBarWidth < 0 {
+		statusBarWidth = 0
+	}
+	statusBar := styleStatusBar.Width(statusBarWidth).Render(phaseStr + scrollHint + keys)
 
 	return header + "\n" + breadcrumb + "\n" + body + "\n" + statusBar
 }

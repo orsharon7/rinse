@@ -225,7 +225,12 @@ ui_reflect_log() {
     prefix=$(gum style --foreground "$prefix_color" "${icon} reflect │")
     printf "%s %s\n" "$prefix" "$msg"
   else
-    printf "%b\n" "${_D}◎ reflect │ ${msg}${_R}"
+    local icon="◎"
+    case "$ok" in
+      false) icon="✗" ;;
+      skip)  icon="○" ;;
+    esac
+    printf "%b\n" "${_D}${icon} reflect │ ${msg}${_R}"
   fi
 
   [[ -n "${LOGFILE:-}" ]] && echo "[$(ui_ts_full)] [reflect] $msg" >> "$LOGFILE"
