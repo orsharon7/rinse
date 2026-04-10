@@ -28,6 +28,7 @@ Project instructions for AI coding agents.
 - Keep README directory trees and file references in sync with actual repository contents; if a path is user-created at runtime, document it as such rather than listing it as a committed file.
 - Ensure log messages, menu text, and UI labels exactly match the behavior the code actually performs; never describe a side effect (e.g. "with remote branch deletion") unless the corresponding flag or call is present in the implementation.
 - When a README section references a project artifact (e.g. a LICENSE file, a config file, a script), ensure that artifact actually exists in the repository; remove or update the section whenever the artifact is added, renamed, or deleted.
+- Keep installer/script documented prerequisites (e.g. minimum tool versions) in sync with what the module manifest (e.g. `go.mod`, `package.json`) actually declares; never let the two diverge silently.
 
 ### CLI & User Input
 - When a parameter is optional (e.g. "leave blank for default"), default its prompt to an empty string and only include the corresponding flag/argument in the command when the user explicitly provides a non-empty value; never use a non-empty default that silently pins a value the user intended to omit.
@@ -37,11 +38,15 @@ Project instructions for AI coding agents.
 - When trimming a known separator character from a string, account for all visual and encoding variants of that character (e.g. ASCII `|` and box-drawing `│`) to avoid leaving stray leading characters.
 - When a layout conditionally hides a panel based on available width, the render path must also skip or empty that panel; keep layout-guard logic and render-guard logic in sync.
 - Never subtract a panel's width from a layout calculation when that panel is hidden; make width computations conditional on panel visibility.
+- When a helper function's return value has a documented semantic (e.g. inner/content width vs. total/outer width), callers must apply any necessary adjustment (e.g. adding border/padding) at the call site rather than conflating the two semantics; document the convention in the function's comment.
 
 ### Go: Error Handling & Safety
 - Never call `os.Exit()` inside a UI framework lifecycle (e.g. Bubble Tea); return errors up to `main()` and quit gracefully so the terminal state (alt-screen, cursor) is restored.
 - Always guard `strings.Index()` results against `-1` before using them as slice bounds; prefer `strings.Cut()` which returns a `found` boolean and eliminates the panic risk.
 - Always check and handle `scanner.Err()` after a `bufio.Scanner` loop exits; ignoring it can silently stall pipe reads and deadlock child processes.
+
+### Go: Concurrency & Channels
+- When a producer signals completion via a separate done channel, always drain all data channels fully before acting on the done signal; never let a `select` race cause buffered output to be silently dropped.
 
 ### Go: File Paths & Unicode
 - Use `filepath.Dir()` and `filepath.Join()` for portable path derivation; never use string trimming of binary names to compute parent directories.
