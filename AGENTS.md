@@ -43,6 +43,7 @@ Project instructions for AI coding agents.
 - When routing log or output lines to a conditional UI panel (e.g. a side panel that may be hidden on narrow terminals or before the first layout message), guard the routing on whether the panel is actually visible; never silently discard output that has no other render path.
 - When a UI component supports multiple interaction modes (e.g. text input vs. picker), scope input routing and focus gating to the currently active mode; never treat a component as input-active unconditionally when it may be in a non-input mode.
 - Keep in-code comments that document layout constants (e.g. "reserves N rows") in sync with the actual constant value and any external documentation; divergence between the constant, its comment, and docs causes silent layout bugs.
+- When defaulting a layout dimension (e.g. terminal width), apply the fallback only when the value is uninitialized (`<= 0`), never when it is a legitimately small positive value; substituting a larger fixed constant for a real small dimension causes overflow/wrapping on narrow terminals.
 
 ### Go: Performance
 - Never accumulate strings with `+=` in a loop or hot path; use `strings.Builder` (or an equivalent append-only buffer) for incremental string construction to avoid O(n²) copying behavior.
@@ -61,6 +62,9 @@ Project instructions for AI coding agents.
 
 ### Go Module Hygiene
 - Run `go mod tidy` before committing Go module changes; packages imported directly in source must not be annotated `// indirect` in `go.mod`.
+
+### Go: Build & Linker
+- When using `-X pkg.Symbol=value` in LDFLAGS, ensure the named symbol is actually declared as a `var` in the target package; an injected symbol with no corresponding variable causes a link-time "symbol not found" failure.
 
 <!-- END:COPILOT-RULES -->
 
