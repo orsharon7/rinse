@@ -197,10 +197,16 @@ func (m monitorModel) logWidth() int {
 		return 80
 	}
 	w := m.width - (reflectPanelWidth + 3) // 3 = border(1) + padding(2)
-	if w < 40 {
-		w = m.width // terminal too narrow — drop panel
+	if w < 1 {
+		w = 1
 	}
 	return w
+}
+
+// showReflectPanel reports whether the terminal is wide enough to display
+// both the main log and the reflect panel side by side.
+func (m monitorModel) showReflectPanel() bool {
+	return m.width > (reflectPanelWidth+3)+40
 }
 
 // logHeight returns viewport height.
@@ -262,8 +268,8 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		raw := string(msg)
 		plain := stripANSI(raw)
 
-		// Route [reflect]-tagged lines to the side panel; keep rest in main log.
-		if strings.Contains(plain, "[reflect]") {
+		// Route [reflect]-tagged lines and ◎ reflect │ status lines to the side panel.
+		if strings.Contains(plain, "[reflect]") || strings.Contains(plain, "◎ reflect") {
 			entry := extractReflectEntry(plain)
 			m.reflectLines = append(m.reflectLines, entry)
 		} else {
@@ -319,7 +325,7 @@ func inferPhase(plain string, current phase) phase {
 		return phaseError
 
 	// Reflection runs alongside fixing — treat as its own phase.
-	case strings.Contains(plain, "[reflect]"):
+	case strings.Contains(plain, "[reflect]") || strings.Contains(plain, "◎ reflect"):
 		return phaseReflecting
 
 	// Active fix phase: agent is being invoked.
@@ -355,8 +361,10 @@ func extractReflectEntry(plain string) string {
 	}
 	if idx := strings.Index(plain, "◎ reflect"); idx >= 0 {
 		msg := strings.TrimSpace(plain[idx+len("◎ reflect"):])
-		msg = strings.TrimPrefix(msg, "|")
-		return strings.TrimSpace(msg)
+		if strings.HasPrefix(msg, "|") || strings.HasPrefix(msg, "│") {
+			msg = strings.TrimSpace(msg[1:])
+		}
+		return msg
 	}
 	return plain
 }
@@ -369,7 +377,11 @@ func (m monitorModel) View() string {
 		totalW = 80
 	}
 
+	showPanel := m.showReflectPanel()
 	logW := m.logWidth()
+	if !showPanel {
+		logW = totalW
+	}
 	logH := m.logHeight()
 
 	// ── Header (full width) ───────────────────────────────────────────────────
@@ -392,11 +404,15 @@ func (m monitorModel) View() string {
 	m.viewport.Height = logH
 	logView := m.viewport.View()
 
-	// ── Reflect panel ─────────────────────────────────────────────────────────
-	reflectView := m.renderReflectPanel(logH)
-
-	// Join log + panel side by side, line by line.
-	body := lipgloss.JoinHorizontal(lipgloss.Top, logView, reflectView)
+	// ── Reflect panel (only when terminal is wide enough) ─────────────────────
+	var body string
+	if showPanel {
+		reflectView := m.renderReflectPanel(logH)
+		// Join log + panel side by side, line by line.
+		body = lipgloss.JoinHorizontal(lipgloss.Top, logView, reflectView)
+	} else {
+		body = logView
+	}
 
 	// ── Status bar (full width) ───────────────────────────────────────────────
 	var phaseStr string

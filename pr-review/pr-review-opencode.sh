@@ -468,7 +468,7 @@ PROMPT_EOF
   # Wait for reflection to finish (it should complete well before next Copilot review)
   if [[ -n "$reflect_pid" ]]; then
     if wait "$reflect_pid"; then
-      reflect_summary=$(grep '\[reflect\].*Reflection complete\|No changes\|No top-level' "$LOGFILE" 2>/dev/null | tail -1 | sed 's/^.*\[reflect\] //' || echo "done")
+      reflect_summary=$(grep -E '\[reflect\].*(Reflection complete|No changes|No top-level)' "$LOGFILE" 2>/dev/null | tail -1 | sed 's/^.*\[reflect\] //' || echo "done")
       ui_reflect_log "$reflect_summary"
     else
       ui_reflect_log "exited non-zero — check ~/.pr-review-reflect.log" false

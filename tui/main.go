@@ -559,6 +559,17 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m model) buildCmd() []string {
 	scriptDir := os.Getenv("PR_REVIEW_SCRIPT_DIR")
+	if scriptDir == "" {
+		// Fallback: assume scripts live next to the binary
+		exe, err := os.Executable()
+		if err == nil {
+			scriptDir = strings.TrimSuffix(exe, "/pr-review-tui")
+		}
+	}
+	if scriptDir == "" {
+		fmt.Fprintln(os.Stderr, "error: PR_REVIEW_SCRIPT_DIR is not set and could not detect script directory")
+		os.Exit(1)
+	}
 	r := runners[m.runnerIdx]
 	script := scriptDir + "/" + r.script
 

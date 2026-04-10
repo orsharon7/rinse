@@ -374,7 +374,7 @@ _ui_numbered_menu() {
 _ui_do_merge_only() {
   local pr="$1" repo="$2"
   log "🔀 Merging PR #${pr}..."
-  if gh pr merge "$pr" --repo "$repo" --merge --delete-branch=false; then
+  if gh pr merge "$pr" --repo "$repo" --merge; then
     log "✅ PR #${pr} merged."
   else
     log "❌ Merge failed — check gh output above."
@@ -384,7 +384,7 @@ _ui_do_merge_only() {
 _ui_do_full_cleanup() {
   local pr="$1" repo="$2" cwd="$3" local_branch="$4" default_branch="$5"
   log "🔀 Merging PR #${pr} (with remote branch deletion)..."
-  if ! gh pr merge "$pr" --repo "$repo" --merge; then
+  if ! gh pr merge "$pr" --repo "$repo" --merge --delete-branch; then
     log "❌ Merge failed — aborting cleanup."
     return 1
   fi
