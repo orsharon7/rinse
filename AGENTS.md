@@ -24,6 +24,7 @@ Project instructions for AI coding agents.
 - When performing git operations that require user identity, add a preflight check for `user.name`/`user.email` with a clear error message, or accept identity overrides via environment variables.
 - When a preflight check supports multiple configuration sources (config file, environment variables), check all advertised sources and keep the error message exactly in sync with what is actually checked.
 - Always validate required environment variables before using them to construct paths or commands; return a clear error rather than silently producing an invalid path.
+- When validating git identity for commit operations, check both author identity (`GIT_AUTHOR_NAME`/`GIT_AUTHOR_EMAIL`) and committer identity (`GIT_COMMITTER_NAME`/`GIT_COMMITTER_EMAIL`); a preflight that checks only one role can pass while `git commit` still fails.
 
 ### Documentation Integrity
 - Keep README directory trees and file references in sync with actual repository contents; if a path is user-created at runtime, document it as such rather than listing it as a committed file.
@@ -33,6 +34,9 @@ Project instructions for AI coding agents.
 
 ### CLI & User Input
 - When a parameter is optional (e.g. "leave blank for default"), default its prompt to an empty string and only include the corresponding flag/argument in the command when the user explicitly provides a non-empty value; never use a non-empty default that silently pins a value the user intended to omit.
+
+### Installers & Packaging
+- When an installer generates a wrapper script or binary that references helper files by absolute path, either install those files alongside the binary or clearly document that the source repository must remain present at the original path; never silently produce a wrapper that breaks if the repo is moved or deleted.
 
 ### TUI & Layout
 - When multiple log or output formats represent the same logical event, use a single shared predicate for all detection (routing, phase inference, string extraction); never duplicate format-detection logic across callsites.
@@ -52,6 +56,7 @@ Project instructions for AI coding agents.
 - Never call `os.Exit()` inside a UI framework lifecycle (e.g. Bubble Tea); return errors up to `main()` and quit gracefully so the terminal state (alt-screen, cursor) is restored.
 - Always guard `strings.Index()` results against `-1` before using them as slice bounds; prefer `strings.Cut()` which returns a `found` boolean and eliminates the panic risk.
 - Always check and handle `scanner.Err()` after a `bufio.Scanner` loop exits; ignoring it can silently stall pipe reads and deadlock child processes.
+- Never embed non-copy-safe types (e.g. `strings.Builder`, `sync.Mutex`) by value in structs that are copied frequently (e.g. Bubble Tea models passed by value through `Update`); store them behind a pointer or use a copy-safe alternative to avoid runtime panics.
 
 ### Go: Concurrency & Channels
 - When a producer signals completion via a separate done channel, always drain all data channels fully before acting on the done signal; never let a `select` race cause buffered output to be silently dropped.
