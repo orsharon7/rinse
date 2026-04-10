@@ -410,10 +410,17 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		raw := string(msg)
 		plain := stripANSI(raw)
 
-		// Route [reflect]-tagged lines to the side panel.
+		// Route [reflect]-tagged lines to the side panel when it is visible.
+		// When the panel is hidden (narrow terminal or before first WindowSizeMsg),
+		// also send them to the main log so they remain visible.
 		if strings.Contains(plain, "[reflect]") || strings.Contains(plain, "◎ reflect") {
 			entry := extractReflectEntry(plain)
 			m.reflectLines = append(m.reflectLines, entry)
+			if !m.showReflectPanel() {
+				// Panel is hidden — keep reflect lines visible in the main log too.
+				m.lines = append(m.lines, raw)
+				m.renderedLog += colorLine(raw) + "\n"
+			}
 		} else {
 			m.lines = append(m.lines, raw)
 			// Append only the new line to the cached rendered buffer (O(1) per line).

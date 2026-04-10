@@ -70,14 +70,10 @@ if [[ ! -f "$WRAPPER" ]]; then
   cat > "$WRAPPER" <<WRAPPER_EOF
 #!/usr/bin/env bash
 # pr-review — thin wrapper that sets PR_REVIEW_SCRIPT_DIR and launches the TUI
-SCRIPT_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
 export PR_REVIEW_SCRIPT_DIR="$SCRIPT_DIR/pr-review"
 exec "$INSTALL_DIR/$BINARY" "\$@"
 WRAPPER_EOF
   chmod +x "$WRAPPER"
-  # Rewrite SCRIPT_DIR to the actual repo scripts path
-  REPO_SCRIPTS="$SCRIPT_DIR/pr-review"
-  sed -i.bak "s|$SCRIPT_DIR/pr-review|$REPO_SCRIPTS|g" "$WRAPPER" && rm -f "$WRAPPER.bak"
   echo "Wrapper    → $WRAPPER"
 fi
 
