@@ -46,7 +46,7 @@ var (
 	stylePhaseDone    = lipgloss.NewStyle().Foreground(teal).Bold(true)
 	stylePhaseErr     = lipgloss.NewStyle().Foreground(red).Bold(true)
 
-	// Log line colours — bright on dark background.
+	// Log line colours.
 	styleLogInfo  = lipgloss.NewStyle().Foreground(text)
 	styleLogDebug = lipgloss.NewStyle().Foreground(subtext)
 	styleLogWarn  = lipgloss.NewStyle().Foreground(yellow)
@@ -124,17 +124,17 @@ func (p phase) Style() lipgloss.Style {
 type logLineMsg string
 type runnerDoneMsg struct{ exitCode int }
 type tickMsg time.Time
+type clearStatusMsg struct{}
 
 // ── Monitor model ─────────────────────────────────────────────────────────────
 
-const reflectPanelWidth = 32 // visible chars (excluding border)
-
 type monitorModel struct {
 	// config
-	pr     string
-	repo   string
-	runner string
-	model  string
+	pr      string
+	repo    string
+	runner  string
+	model   string
+	prTitle string
 
 	// state
 	width        int
@@ -146,9 +146,11 @@ type monitorModel struct {
 	reflectLines []string // lines tagged [reflect]
 
 	// sub-components
-	viewport viewport.Model
-	spinner  spinner.Model
-	atBottom bool
+	viewport  viewport.Model
+	spinner   spinner.Model
+	atBottom  bool
+	showHelp  bool
+	statusMsg string
 
 	// runner process (only used in base model for q-quit)
 	cmd      *exec.Cmd
@@ -156,7 +158,7 @@ type monitorModel struct {
 	done     bool
 }
 
-func newMonitorModel(pr, repo, runnerName, modelName string, cmd *exec.Cmd) monitorModel {
+func newMonitorModel(pr, repo, runnerName, modelName, prTitle string, cmd *exec.Cmd) monitorModel {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(mauve)
@@ -169,6 +171,7 @@ func newMonitorModel(pr, repo, runnerName, modelName string, cmd *exec.Cmd) moni
 		repo:     repo,
 		runner:   runnerName,
 		model:    modelName,
+		prTitle:  prTitle,
 		phase:    phaseStarting,
 		started:  time.Now(),
 		spinner:  sp,
@@ -190,33 +193,142 @@ func tick() tea.Cmd {
 
 // ── Layout helpers ────────────────────────────────────────────────────────────
 
+// reflectPanelWidth returns the inner content width of the reflect panel,
+// proportional to the terminal width (28%, clamped 35–55).
+func (m monitorModel) reflectPanelWidth() int {
+	w := m.width * 28 / 100
+	if w < 35 {
+		w = 35
+	}
+	if w > 55 {
+		w = 55
+	}
+	return w
+}
+
 // logWidth returns the width available to the main log viewport.
-// Reflect panel: reflectPanelWidth + 2 (border char + padding) = 34 cols.
 func (m monitorModel) logWidth() int {
 	if m.width <= 0 {
 		return 80
 	}
-	w := m.width - (reflectPanelWidth + 3) // 3 = border(1) + padding(2)
+	rpw := m.reflectPanelWidth()
+	w := m.width - (rpw + 3) // 3 = border(1) + padding(2)
 	if w < 1 {
 		w = 1
 	}
 	return w
 }
 
-// showReflectPanel reports whether the terminal is wide enough to display
-// both the main log and the reflect panel side by side.
+// showReflectPanel reports whether the terminal is wide enough for the split view.
 func (m monitorModel) showReflectPanel() bool {
-	return m.width > (reflectPanelWidth+3)+40
+	return m.width > 90
 }
 
 // logHeight returns viewport height.
-// Reserved: header content(1) + header border(1) + statusbar border(1) + statusbar content(1) = 4.
+// Reserved rows: header(1) + header border(1) + breadcrumb(1) + statusbar border(1) + statusbar(1) = 5.
 func (m monitorModel) logHeight() int {
-	h := m.height - 4
-	if h < 5 {
-		h = 5
+	h := m.height - 5
+	if h < 4 {
+		h = 4
 	}
 	return h
+}
+
+// ── Phase breadcrumb ──────────────────────────────────────────────────────────
+
+// renderPhaseBreadcrumb renders a horizontal timeline showing all phases,
+// marking completed ones with ✓, the current one with ◉, and future ones with ○.
+func (m monitorModel) renderPhaseBreadcrumb() string {
+	ordered := []phase{phaseStarting, phaseWaiting, phaseFixing, phaseReflecting, phaseDone}
+	names := []string{"start", "waiting", "fixing", "reflect", "done"}
+
+	// For ordering, phaseError occupies the phaseDone slot.
+	currentPhase := m.phase
+	if currentPhase == phaseError {
+		currentPhase = phaseDone
+	}
+
+	var parts []string
+	for i, p := range ordered {
+		var part string
+		switch {
+		case m.phase == phaseError && p == phaseDone:
+			part = stylePhaseErr.Render("✗ error")
+		case p < currentPhase:
+			part = styleLogDebug.Render("✓ " + names[i])
+		case p == currentPhase:
+			part = m.phase.Style().Render("◉ " + names[i])
+		default:
+			part = styleMuted.Render("○ " + names[i])
+		}
+		parts = append(parts, part)
+	}
+
+	sep := styleMuted.Render("  ›  ")
+	return "  " + strings.Join(parts, sep)
+}
+
+// ── Word wrap ─────────────────────────────────────────────────────────────────
+
+// wrapLine splits s into lines of at most w visible runes, breaking at spaces
+// where possible.
+func wrapLine(s string, w int) []string {
+	if w <= 0 {
+		return []string{s}
+	}
+	runes := []rune(s)
+	var lines []string
+	for len(runes) > 0 {
+		if len(runes) <= w {
+			lines = append(lines, string(runes))
+			break
+		}
+		// Try to break at a space within the last 12 chars of the window.
+		cut := w
+		for cut > w-12 && cut > 0 && runes[cut-1] != ' ' {
+			cut--
+		}
+		if cut <= 0 {
+			cut = w // no space found — hard break
+		}
+		lines = append(lines, strings.TrimRight(string(runes[:cut]), " "))
+		runes = runes[cut:]
+		// Skip leading spaces on continuation lines.
+		for len(runes) > 0 && runes[0] == ' ' {
+			runes = runes[1:]
+		}
+	}
+	return lines
+}
+
+// ── Help overlay ──────────────────────────────────────────────────────────────
+
+func (m monitorModel) renderHelp() string {
+	helpStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(mauve).
+		Padding(1, 4)
+
+	title := styleStep.Render("keyboard shortcuts")
+
+	type krow struct{ key, desc string }
+	rows := []krow{
+		{"↑ / k", "scroll up"},
+		{"↓ / j", "scroll down"},
+		{"g", "jump to top"},
+		{"G", "jump to bottom"},
+		{"s", "save reflect log to file"},
+		{"?", "toggle this help"},
+		{"q / ^C", "quit"},
+	}
+
+	var lines []string
+	for _, r := range rows {
+		lines = append(lines,
+			styleMuted.Render(fmt.Sprintf("%-10s", r.key))+"  "+styleVal.Render(r.desc))
+	}
+
+	return helpStyle.Render(title + "\n\n" + strings.Join(lines, "\n"))
 }
 
 // ── Update ────────────────────────────────────────────────────────────────────
@@ -237,23 +349,48 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q":
+		key := msg.String()
+		// Always handle quit.
+		if key == "ctrl+c" || key == "q" {
 			if m.cmd != nil && m.cmd.Process != nil {
 				_ = m.cmd.Process.Kill()
 			}
 			return m, tea.Quit
-		case "G":
-			m.atBottom = true
-			m.viewport.GotoBottom()
-		case "g":
-			m.atBottom = false
-			m.viewport.GotoTop()
-		default:
-			var vpcmd tea.Cmd
-			m.viewport, vpcmd = m.viewport.Update(msg)
-			m.atBottom = m.viewport.AtBottom()
-			cmds = append(cmds, vpcmd)
+		}
+		// Toggle help overlay.
+		if key == "?" {
+			m.showHelp = !m.showHelp
+		} else if m.showHelp {
+			// Any other key dismisses the overlay.
+			m.showHelp = false
+		} else {
+			// Normal key handling when help is not shown.
+			switch key {
+			case "G":
+				m.atBottom = true
+				m.viewport.GotoBottom()
+			case "g":
+				m.atBottom = false
+				m.viewport.GotoTop()
+			case "s":
+				if len(m.reflectLines) > 0 {
+					fname := fmt.Sprintf("pr-review-reflect-%s.txt",
+						time.Now().Format("20060102-150405"))
+					content := strings.Join(m.reflectLines, "\n") + "\n"
+					if err := os.WriteFile(fname, []byte(content), 0o644); err != nil {
+						m.statusMsg = "✗ save failed"
+					} else {
+						m.statusMsg = "✓ saved → " + fname
+					}
+					cmds = append(cmds, tea.Tick(2*time.Second,
+						func(t time.Time) tea.Msg { return clearStatusMsg{} }))
+				}
+			default:
+				var vpcmd tea.Cmd
+				m.viewport, vpcmd = m.viewport.Update(msg)
+				m.atBottom = m.viewport.AtBottom()
+				cmds = append(cmds, vpcmd)
+			}
 		}
 
 	case tickMsg:
@@ -268,7 +405,7 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		raw := string(msg)
 		plain := stripANSI(raw)
 
-		// Route [reflect]-tagged lines and ◎ reflect │ status lines to the side panel.
+		// Route [reflect]-tagged lines to the side panel.
 		if strings.Contains(plain, "[reflect]") || strings.Contains(plain, "◎ reflect") {
 			entry := extractReflectEntry(plain)
 			m.reflectLines = append(m.reflectLines, entry)
@@ -305,16 +442,17 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.atBottom {
 			m.viewport.GotoBottom()
 		}
+
+	case clearStatusMsg:
+		m.statusMsg = ""
 	}
 
 	return m, tea.Batch(cmds...)
 }
 
 // inferPhase maps plain-text log line content to a phase.
-// Works on ANSI-stripped text so ANSI colour codes don't prevent matching.
 func inferPhase(plain string, current phase) phase {
 	switch {
-	// Approved — terminal state, never step back from it.
 	case current == phaseDone:
 		return phaseDone
 
@@ -324,24 +462,19 @@ func inferPhase(plain string, current phase) phase {
 	case strings.Contains(plain, "❌") || strings.Contains(plain, "Timed out"):
 		return phaseError
 
-	// Reflection runs alongside fixing — treat as its own phase.
 	case strings.Contains(plain, "[reflect]") || strings.Contains(plain, "◎ reflect"):
 		return phaseReflecting
 
-	// Active fix phase: agent is being invoked.
 	case strings.Contains(plain, "invoking opencode") ||
 		strings.Contains(plain, "invoking claude") ||
 		strings.Contains(plain, "💬"):
 		return phaseFixing
 
-	// Waiting for Copilot to re-review.
 	case strings.Contains(plain, "Waiting for Copilot") ||
 		strings.Contains(plain, "Copilot reviewing") ||
 		strings.Contains(plain, "⏳"):
 		return phaseWaiting
 
-	// Loop just started — move out of "starting" to "waiting" so the label
-	// updates as soon as the runner emits its first meaningful line.
 	case current == phaseStarting && (strings.Contains(plain, "Starting") ||
 		strings.Contains(plain, "🚀") ||
 		strings.Contains(plain, "Repo:") ||
@@ -353,8 +486,6 @@ func inferPhase(plain string, current phase) phase {
 
 // extractReflectEntry trims the timestamp/prefix from a [reflect] line.
 func extractReflectEntry(plain string) string {
-	// Format: "[2026-04-10 11:33:41] [reflect] some message"
-	// or:     "◎ reflect | some message"
 	if idx := strings.Index(plain, "[reflect]"); idx >= 0 {
 		msg := strings.TrimSpace(plain[idx+len("[reflect]"):])
 		return msg
@@ -377,6 +508,15 @@ func (m monitorModel) View() string {
 		totalW = 80
 	}
 
+	// Help overlay replaces the entire view.
+	if m.showHelp {
+		h := m.height
+		if h <= 0 {
+			h = 24
+		}
+		return lipgloss.Place(totalW, h, lipgloss.Center, lipgloss.Center, m.renderHelp())
+	}
+
 	showPanel := m.showReflectPanel()
 	logW := m.logWidth()
 	if !showPanel {
@@ -391,13 +531,23 @@ func (m monitorModel) View() string {
 		iterStr = fmt.Sprintf("%d", m.iter)
 	}
 
-	header := styleHeader.Width(totalW - 2).Render( // -2 for padding
-		styleHeaderLabel.Render("pr") + " " + styleHeaderVal.Render("#"+m.pr) +
+	titlePart := ""
+	if m.prTitle != "" {
+		titlePart = "  " + styleHeaderLabel.Render(`"`) +
+			styleHeaderVal.Render(truncate(m.prTitle, 36)) +
+			styleHeaderLabel.Render(`"`)
+	}
+
+	header := styleHeader.Width(totalW - 2).Render(
+		styleHeaderLabel.Render("pr") + " " + styleHeaderVal.Render("#"+m.pr) + titlePart +
 			"  " + styleHeaderLabel.Render("repo") + " " + styleHeaderVal.Render(m.repo) +
 			"  " + styleHeaderLabel.Render("runner") + " " + styleHeaderVal.Render(m.runner) +
 			"  " + styleHeaderLabel.Render("iter") + " " + styleHeaderVal.Render(iterStr) +
 			"  " + styleHeaderLabel.Render("elapsed") + " " + styleHeaderVal.Render(elapsed.String()),
 	)
+
+	// ── Phase breadcrumb ──────────────────────────────────────────────────────
+	breadcrumb := m.renderPhaseBreadcrumb()
 
 	// ── Main log viewport ─────────────────────────────────────────────────────
 	m.viewport.Width = logW
@@ -408,7 +558,6 @@ func (m monitorModel) View() string {
 	var body string
 	if showPanel {
 		reflectView := m.renderReflectPanel(logH)
-		// Join log + panel side by side, line by line.
 		body = lipgloss.JoinHorizontal(lipgloss.Top, logView, reflectView)
 	} else {
 		body = logView
@@ -416,7 +565,9 @@ func (m monitorModel) View() string {
 
 	// ── Status bar (full width) ───────────────────────────────────────────────
 	var phaseStr string
-	if m.done {
+	if m.statusMsg != "" {
+		phaseStr = styleTeal.Render(m.statusMsg)
+	} else if m.done {
 		if m.exitCode == 0 {
 			phaseStr = stylePhaseDone.Render("✓ done")
 		} else {
@@ -430,48 +581,62 @@ func (m monitorModel) View() string {
 	if !m.atBottom {
 		scrollHint = styleMuted.Render("  ↑ scrolled  G=bottom")
 	}
-	keys := styleMuted.Render("  q=quit  ↑↓/jk=scroll  G=bottom  g=top")
+	keys := styleMuted.Render("  q=quit  ↑↓/jk=scroll  s=save  ?=help")
 
 	statusBar := styleStatusBar.Width(totalW - 2).Render(phaseStr + scrollHint + keys)
 
-	return header + "\n" + body + "\n" + statusBar
+	return header + "\n" + breadcrumb + "\n" + body + "\n" + statusBar
 }
 
-// renderReflectPanel builds the right-side reflection panel.
+// renderReflectPanel builds the right-side reflection panel with word-wrapped entries.
 func (m monitorModel) renderReflectPanel(h int) string {
-	panelW := reflectPanelWidth // inner content width
+	panelW := m.reflectPanelWidth()
 	var b strings.Builder
 
 	title := styleReflectTitle.Render("◎ reflect")
 	b.WriteString(title + "\n")
 
-	// Show the last (h-1) lines so it fills the panel height.
-	lines := m.reflectLines
-	maxLines := h - 1 // reserve one row for title
+	// Expand all reflect lines with word-wrap, capped at 2 display lines per entry.
+	type displayLine struct {
+		text    string
+		isLatestEntry bool
+	}
+	var displayLines []displayLine
+	lastIdx := len(m.reflectLines) - 1
+	for i, l := range m.reflectLines {
+		wrapped := wrapLine(l, panelW)
+		if len(wrapped) > 2 {
+			wrapped = wrapped[:2] // cap at 2 lines per entry to avoid overflow
+		}
+		for _, wl := range wrapped {
+			displayLines = append(displayLines, displayLine{
+				text:          wl,
+				isLatestEntry: i == lastIdx,
+			})
+		}
+	}
+
+	// Show the last (h-1) display lines so it fills the panel height.
+	maxLines := h - 1
 	if maxLines < 1 {
 		maxLines = 1
 	}
-	if len(lines) > maxLines {
-		lines = lines[len(lines)-maxLines:]
+	if len(displayLines) > maxLines {
+		displayLines = displayLines[len(displayLines)-maxLines:]
 	}
 
-	for i, l := range lines {
-		// Truncate to panel width.
-		if len([]rune(l)) > panelW {
-			runes := []rune(l)
-			l = string(runes[:panelW-1]) + "…"
-		}
+	for _, dl := range displayLines {
 		var rendered string
-		if i == len(lines)-1 {
-			rendered = styleReflectNew.Render(l) // latest entry highlighted
+		if dl.isLatestEntry {
+			rendered = styleReflectNew.Render(dl.text)
 		} else {
-			rendered = styleReflectLine.Render(l)
+			rendered = styleReflectLine.Render(dl.text)
 		}
 		b.WriteString(rendered + "\n")
 	}
 
 	// Pad remaining rows so the panel always fills logHeight.
-	written := 1 + len(lines)
+	written := 1 + len(displayLines)
 	for i := written; i < h; i++ {
 		b.WriteString("\n")
 	}
@@ -514,11 +679,9 @@ func colorLine(line string) string {
 // ── RunMonitor ────────────────────────────────────────────────────────────────
 
 // RunMonitor starts the cycle monitor TUI wrapping the given runner command.
-func RunMonitor(pr, repo, runnerName, modelName string, runnerArgs []string) error {
+func RunMonitor(pr, repo, runnerName, modelName, prTitle string, runnerArgs []string) error {
 	cmd := exec.Command(runnerArgs[0], runnerArgs[1:]...)
 	cmd.Stdin = os.Stdin
-	// Capture BOTH stdout and stderr into the viewport so nothing is
-	// silently swallowed behind the alt screen.
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
@@ -536,7 +699,6 @@ func RunMonitor(pr, repo, runnerName, modelName string, runnerArgs []string) err
 	lineCh := make(chan string, 512)
 	doneCh := make(chan int, 1)
 
-	// readPipe drains one pipe, forwarding every line to lineCh.
 	readPipe := func(r io.Reader, wg *sync.WaitGroup) {
 		defer wg.Done()
 		scanner := bufio.NewScanner(r)
@@ -551,7 +713,6 @@ func RunMonitor(pr, repo, runnerName, modelName string, runnerArgs []string) err
 	go readPipe(stdoutPipe, &wg)
 	go readPipe(stderrPipe, &wg)
 
-	// Wait for both pipes to finish, then send exit code.
 	go func() {
 		wg.Wait()
 		exitCode := 0
@@ -565,14 +726,13 @@ func RunMonitor(pr, repo, runnerName, modelName string, runnerArgs []string) err
 		doneCh <- exitCode
 	}()
 
-	cm := newChannelMonitor(pr, repo, runnerName, modelName, lineCh, doneCh)
+	cm := newChannelMonitor(pr, repo, runnerName, modelName, prTitle, lineCh, doneCh)
 
 	p := tea.NewProgram(cm, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		return err
 	}
 
-	// Kill process if still running (user quit early).
 	if cmd.Process != nil {
 		_ = cmd.Process.Kill()
 	}
@@ -581,7 +741,6 @@ func RunMonitor(pr, repo, runnerName, modelName string, runnerArgs []string) err
 }
 
 // ── channelMonitor ────────────────────────────────────────────────────────────
-// channelMonitor wraps monitorModel and polls lineCh/doneCh via Bubble Tea cmds.
 
 type channelMonitor struct {
 	monitorModel
@@ -589,9 +748,10 @@ type channelMonitor struct {
 	doneCh <-chan int
 }
 
-func newChannelMonitor(pr, repo, runnerName, modelName string, lineCh <-chan string, doneCh <-chan int) channelMonitor {
+func newChannelMonitor(pr, repo, runnerName, modelName, prTitle string,
+	lineCh <-chan string, doneCh <-chan int) channelMonitor {
 	return channelMonitor{
-		monitorModel: newMonitorModel(pr, repo, runnerName, modelName, nil),
+		monitorModel: newMonitorModel(pr, repo, runnerName, modelName, prTitle, nil),
 		lineCh:       lineCh,
 		doneCh:       doneCh,
 	}
@@ -601,8 +761,7 @@ func (m channelMonitor) Init() tea.Cmd {
 	return tea.Batch(m.spinner.Tick, tick(), m.poll())
 }
 
-// poll blocks up to 50ms waiting for a line or done signal, then returns.
-// Returning nil allows other tea.Msgs (keys, ticks) to be processed.
+// poll blocks up to 50ms waiting for a line or done signal.
 func (m channelMonitor) poll() tea.Cmd {
 	return func() tea.Msg {
 		select {
@@ -625,22 +784,20 @@ func (m channelMonitor) poll() tea.Cmd {
 func (m channelMonitor) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
-	// Delegate common handling to the base model first.
 	updated, cmd := m.monitorModel.Update(msg)
 	m.monitorModel = updated.(monitorModel)
 	cmds = append(cmds, cmd)
 
 	switch msg.(type) {
 	case tea.KeyMsg:
-		// q/ctrl+c already handled in base; no extra poll needed.
+		// q/ctrl+c handled in base; no extra poll needed.
 	case logLineMsg:
 		// Got a line — immediately queue the next poll to drain fast.
 		cmds = append(cmds, m.poll())
 	case runnerDoneMsg:
 		// Runner finished — no more polling needed.
 	default:
-		// Covers: nil (poll timeout), tickMsg, spinner.TickMsg, WindowSizeMsg.
-		// Always re-poll so we never stop draining the channel.
+		// Covers: nil (poll timeout), tickMsg, spinner.TickMsg, WindowSizeMsg, clearStatusMsg.
 		cmds = append(cmds, m.poll())
 	}
 

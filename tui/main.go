@@ -37,9 +37,9 @@ var (
 			Align(lipgloss.Center)
 
 	styleSummaryBox = lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(surface).
-			Padding(0, 2)
+				Border(lipgloss.NormalBorder()).
+				BorderForeground(surface).
+				Padding(0, 2)
 
 	styleKey   = lipgloss.NewStyle().Foreground(overlay).Width(18)
 	styleVal   = lipgloss.NewStyle().Foreground(lavender).Bold(true)
@@ -59,9 +59,9 @@ var (
 			Align(lipgloss.Center)
 
 	styleConfirmBox = lipgloss.NewStyle().
-			Border(lipgloss.DoubleBorder()).
-			BorderForeground(mauve).
-			Padding(1, 2)
+				Border(lipgloss.DoubleBorder()).
+				BorderForeground(mauve).
+				Padding(1, 2)
 )
 
 // ── Step definitions ──────────────────────────────────────────────────────────
@@ -173,11 +173,16 @@ type model struct {
 	// fields
 	repo          string
 	prNum         string
+	prTitle       string // title of the selected PR (empty if typed manually)
 	path          string
+	pathDefault   string // pre-loaded from config, used as path input default
 	runnerIdx     int
 	modelOverride string
 	reflect       bool
 	reflectBranch string
+
+	// UI state
+	showHelp bool
 
 	// text inputs
 	input    textinput.Model
@@ -210,6 +215,8 @@ type model struct {
 }
 
 func initialModel() model {
+	cfg := LoadConfig()
+
 	ti := textinput.New()
 	ti.Cursor.Style = lipgloss.NewStyle().Foreground(mauve)
 	ti.PromptStyle = lipgloss.NewStyle().Foreground(mauve)
@@ -218,16 +225,29 @@ func initialModel() model {
 	ti.CharLimit = 256
 	ti.Focus()
 
+	// Auto-detect repo from git/gh; fall back to saved config.
 	repo := detectRepo()
-
+	if repo == "" {
+		repo = cfg.LastRepo
+	}
 	ti.SetValue(repo)
+
+	reflectCursor := 1 // default: "No"
+	if cfg.LastReflect {
+		reflectCursor = 0
+	}
 
 	return model{
 		step:          stepRepo,
 		repo:          "",
 		path:          "",
+		pathDefault:   cfg.LastPath,
 		runnerIdx:     0,
+		runnerCursor:  cfg.LastRunner,
+		modelOverride: cfg.LastModel,
 		reflect:       false,
+		reflectCursor: reflectCursor,
+		reflectBranch: cfg.LastBranch,
 		defaultBranch: "main",
 		input:         ti,
 		inputFor:      stepRepo,
@@ -238,7 +258,6 @@ func initialModel() model {
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 func (m model) Init() tea.Cmd {
-	// pre-fill input with detected repo
 	return textinput.Blink
 }
 
@@ -277,7 +296,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 	}
 
-	// Forward to textinput when it's active
+	// Forward to textinput when it's active.
 	if m.isInputActive() {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
@@ -300,9 +319,21 @@ func (m model) isInputActive() bool {
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
-	// Global: ctrl+c / esc at top step = quit
+	// Global: quit.
 	if key == "ctrl+c" {
 		return m, tea.Quit
+	}
+
+	// Global: toggle help overlay.
+	if key == "?" {
+		m.showHelp = !m.showHelp
+		return m, nil
+	}
+
+	// Any key dismisses the help overlay.
+	if m.showHelp {
+		m.showHelp = false
+		return m, nil
 	}
 
 	switch m.step {
@@ -348,9 +379,14 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.prNum = val
+				m.prTitle = "" // no title when entered manually
 				m.errMsg = ""
 				m.step = stepPath
-				m.input.SetValue(detectCWD())
+				pathDefault := m.pathDefault
+				if pathDefault == "" {
+					pathDefault = detectCWD()
+				}
+				m.input.SetValue(pathDefault)
 				m.input.Focus()
 				return m, textinput.Blink
 			}
@@ -382,8 +418,13 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return m, textinput.Blink
 				}
 				m.prNum = fmt.Sprintf("%d", m.prs[m.prCursor].Number)
+				m.prTitle = m.prs[m.prCursor].Title
 				m.step = stepPath
-				m.input.SetValue(detectCWD())
+				pathDefault := m.pathDefault
+				if pathDefault == "" {
+					pathDefault = detectCWD()
+				}
+				m.input.SetValue(pathDefault)
 				m.input.Focus()
 				return m, textinput.Blink
 			case "esc":
@@ -426,7 +467,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "enter":
 			m.runnerIdx = m.runnerCursor
 			m.step = stepModel
-			m.input.SetValue("")
+			m.input.SetValue(m.modelOverride) // pre-fill with last-used model
 			m.input.Placeholder = runners[m.runnerIdx].defaultModel
 			m.input.Focus()
 			return m, textinput.Blink
@@ -442,7 +483,6 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if key == "enter" {
 			m.modelOverride = strings.TrimSpace(m.input.Value())
 			m.step = stepReflect
-			// pre-fill reflect branch
 			if m.reflectBranch == "" {
 				m.reflectBranch = m.defaultBranch
 			}
@@ -463,8 +503,6 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// ── Reflect picker ────────────────────────────────────────────────────────
 	case stepReflect:
-		// sub-state: if reflectCursor==0 (yes) and user confirmed, show branch input
-		// We'll use inputFor to track sub-state
 		if m.inputFor == stepReflect {
 			// branch text input active
 			if key == "enter" {
@@ -547,7 +585,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Forward keystroke to textinput when active
+	// Forward keystroke to textinput when active.
 	if m.isInputActive() {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
@@ -559,17 +597,6 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m model) buildCmd() []string {
 	scriptDir := os.Getenv("PR_REVIEW_SCRIPT_DIR")
-	if scriptDir == "" {
-		// Fallback: assume scripts live next to the binary
-		exe, err := os.Executable()
-		if err == nil {
-			scriptDir = strings.TrimSuffix(exe, "/pr-review-tui")
-		}
-	}
-	if scriptDir == "" {
-		fmt.Fprintln(os.Stderr, "error: PR_REVIEW_SCRIPT_DIR is not set and could not detect script directory")
-		os.Exit(1)
-	}
 	r := runners[m.runnerIdx]
 	script := scriptDir + "/" + r.script
 
@@ -583,6 +610,17 @@ func (m model) buildCmd() []string {
 	if m.reflect {
 		cmd = append(cmd, "--reflect", "--reflect-main-branch", m.reflectBranch)
 	}
+
+	// Persist settings for next run.
+	SaveConfig(Config{
+		LastRepo:    m.repo,
+		LastPath:    m.path,
+		LastRunner:  m.runnerIdx,
+		LastModel:   m.modelOverride,
+		LastReflect: m.reflect,
+		LastBranch:  m.reflectBranch,
+	})
+
 	return cmd
 }
 
@@ -592,6 +630,15 @@ func (m model) View() string {
 	w := m.width
 	if w < 40 {
 		w = 80
+	}
+
+	// Help overlay replaces the entire view.
+	if m.showHelp {
+		h := m.height
+		if h <= 0 {
+			h = 24
+		}
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, m.renderHelp())
 	}
 
 	var b strings.Builder
@@ -610,7 +657,7 @@ func (m model) View() string {
 	// Summary of answered fields
 	b.WriteString(m.renderSummary(w) + "\n")
 
-	// Step header
+	// Step header: progress bar + label
 	label := stepLabels[m.step]
 	if m.step == stepDone {
 		label = "launching"
@@ -620,8 +667,8 @@ func (m model) View() string {
 	if current > total {
 		current = total
 	}
-	b.WriteString(styleStep.Render(fmt.Sprintf("  [%d/%d]  ", current, total)) +
-		styleMuted.Render(label) + "\n\n")
+	b.WriteString("  " + renderProgressBar(current, total, w) + "\n")
+	b.WriteString("  " + styleMuted.Render(label) + "\n\n")
 
 	// Step body
 	b.WriteString(m.renderStep(w))
@@ -631,7 +678,62 @@ func (m model) View() string {
 		b.WriteString("\n" + styleErr.Render("  ✗ "+m.errMsg))
 	}
 
+	// Help hint at the bottom
+	b.WriteString("\n" + styleMuted.Render("  ? for keyboard shortcuts"))
+
 	return b.String()
+}
+
+// renderProgressBar renders a filled/empty block progress bar.
+func renderProgressBar(current, total, w int) string {
+	barW := w - 12
+	if barW > 40 {
+		barW = 40
+	}
+	if barW < 8 {
+		barW = 8
+	}
+
+	filled := 0
+	if total > 0 {
+		filled = barW * current / total
+	}
+	if filled > barW {
+		filled = barW
+	}
+
+	bar := styleStep.Render(strings.Repeat("█", filled)) +
+		styleMuted.Render(strings.Repeat("░", barW-filled))
+	fraction := styleMuted.Render(fmt.Sprintf("  %d/%d", current, total))
+	return bar + fraction
+}
+
+// renderHelp renders the keyboard shortcut overlay for the wizard.
+func (m model) renderHelp() string {
+	helpStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(mauve).
+		Padding(1, 4)
+
+	title := styleStep.Render("keyboard shortcuts")
+
+	type krow struct{ key, desc string }
+	rows := []krow{
+		{"enter", "confirm / select"},
+		{"esc", "go back"},
+		{"↑ / k", "navigate up"},
+		{"↓ / j", "navigate down"},
+		{"?", "toggle this help"},
+		{"^C", "quit"},
+	}
+
+	var lines []string
+	for _, r := range rows {
+		lines = append(lines,
+			styleMuted.Render(fmt.Sprintf("%-10s", r.key))+"  "+styleVal.Render(r.desc))
+	}
+
+	return helpStyle.Render(title + "\n\n" + strings.Join(lines, "\n"))
 }
 
 func (m model) renderSummary(w int) string {
@@ -642,7 +744,11 @@ func (m model) renderSummary(w int) string {
 		rows = append(rows, row{"repository", m.repo})
 	}
 	if m.prNum != "" {
-		rows = append(rows, row{"PR", "#" + m.prNum})
+		val := "#" + m.prNum
+		if m.prTitle != "" {
+			val += "  " + truncate(m.prTitle, 48)
+		}
+		rows = append(rows, row{"PR", val})
 	}
 	if m.path != "" {
 		rows = append(rows, row{"path", m.path})
@@ -668,10 +774,6 @@ func (m model) renderSummary(w int) string {
 	var lines []string
 	for _, r := range rows {
 		lines = append(lines, styleKey.Render(r.k)+"  "+styleVal.Render(r.v))
-	}
-	inner := w - 4 - 4 // box border + padding
-	if inner < 20 {
-		inner = 20
 	}
 	return styleSummaryBox.Width(w-4).Render(strings.Join(lines, "\n")) + "\n"
 }
@@ -712,7 +814,6 @@ func (m model) renderStep(w int) string {
 				}
 				b.WriteString("\n")
 			}
-			// "type manually" option
 			manualLabel := "  ✏  type a number manually"
 			if m.prCursor == len(m.prs) {
 				b.WriteString(styleSelected.Render("  ❯" + manualLabel[2:]))
@@ -761,7 +862,6 @@ func (m model) renderStep(w int) string {
 		}
 
 	case stepConfirm:
-		// Full settings table
 		type row struct{ k, v string }
 		def := runners[m.runnerIdx].defaultModel
 		modelStr := m.modelOverride
@@ -772,8 +872,12 @@ func (m model) renderStep(w int) string {
 		if m.reflect {
 			refStr = "on → " + m.reflectBranch
 		}
+		prStr := "#" + m.prNum
+		if m.prTitle != "" {
+			prStr += "  " + truncate(m.prTitle, 40)
+		}
 		rows := []row{
-			{"PR", "#" + m.prNum},
+			{"PR", prStr},
 			{"repository", m.repo},
 			{"path", m.path},
 			{"runner", runners[m.runnerIdx].label[:strings.Index(runners[m.runnerIdx].label, " —")]},
@@ -837,7 +941,7 @@ func main() {
 	r := runners[fm.runnerIdx]
 	rName := r.label[:strings.Index(r.label, " —")]
 
-	if err := RunMonitor(fm.prNum, fm.repo, rName, fm.modelOverride, fm.finalCmd); err != nil {
+	if err := RunMonitor(fm.prNum, fm.repo, rName, fm.modelOverride, fm.prTitle, fm.finalCmd); err != nil {
 		fmt.Fprintln(os.Stderr, "monitor error:", err)
 		os.Exit(1)
 	}
