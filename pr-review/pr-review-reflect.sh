@@ -226,7 +226,7 @@ fi
 case "$AGENT_CLI" in
   opencode)
     oc_exit=0
-    opencode run --model "$MODEL" --dir "$WORKTREE_DIR" "$PROMPT" 2>&1 | tee -a "$LOGFILE" || oc_exit=$?
+    (cd "$WORKTREE_DIR" && opencode run --model "$MODEL" "$PROMPT") 2>&1 | tee -a "$LOGFILE" || oc_exit=$?
     [[ $oc_exit -ne 0 ]] && { log "⚠️  opencode exited ${oc_exit}"; exit 1; }
     ;;
   claude)
