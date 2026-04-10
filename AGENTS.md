@@ -41,6 +41,11 @@ Project instructions for AI coding agents.
 - Never subtract a panel's width from a layout calculation when that panel is hidden; make width computations conditional on panel visibility.
 - When a helper function's return value has a documented semantic (e.g. inner/content width vs. total/outer width), callers must apply any necessary adjustment (e.g. adding border/padding) at the call site rather than conflating the two semantics; document the convention in the function's comment.
 - When routing log or output lines to a conditional UI panel (e.g. a side panel that may be hidden on narrow terminals or before the first layout message), guard the routing on whether the panel is actually visible; never silently discard output that has no other render path.
+- When a UI component supports multiple interaction modes (e.g. text input vs. picker), scope input routing and focus gating to the currently active mode; never treat a component as input-active unconditionally when it may be in a non-input mode.
+- Keep in-code comments that document layout constants (e.g. "reserves N rows") in sync with the actual constant value and any external documentation; divergence between the constant, its comment, and docs causes silent layout bugs.
+
+### Go: Performance
+- Never accumulate strings with `+=` in a loop or hot path; use `strings.Builder` (or an equivalent append-only buffer) for incremental string construction to avoid O(n²) copying behavior.
 
 ### Go: Error Handling & Safety
 - Never call `os.Exit()` inside a UI framework lifecycle (e.g. Bubble Tea); return errors up to `main()` and quit gracefully so the terminal state (alt-screen, cursor) is restored.
