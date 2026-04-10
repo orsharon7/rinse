@@ -649,7 +649,7 @@ func (m model) buildCmd() ([]string, error) {
 
 func (m model) View() string {
 	w := m.width
-	if w < 40 {
+	if w <= 0 {
 		w = 80
 	}
 

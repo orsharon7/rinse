@@ -519,7 +519,7 @@ func extractReflectEntry(plain string) string {
 
 func (m monitorModel) View() string {
 	totalW := m.width
-	if totalW < 40 {
+	if totalW <= 0 {
 		totalW = 80
 	}
 
