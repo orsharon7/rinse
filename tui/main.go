@@ -309,8 +309,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) isInputActive() bool {
 	switch m.step {
-	case stepRepo, stepPath, stepModel, stepReflect:
+	case stepRepo, stepPath, stepModel:
 		return true
+	case stepReflect:
+		// Only active when the branch text input is shown (not during the Yes/No picker).
+		return m.inputFor == stepReflect
 	case stepPR:
 		return m.prManual || len(m.prs) == 0
 	}

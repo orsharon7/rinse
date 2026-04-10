@@ -142,9 +142,9 @@ type monitorModel struct {
 	phase        phase
 	iter         int
 	started      time.Time
-	lines        []string // all main log lines
-	reflectLines []string // lines tagged [reflect]
-	renderedLog  string   // cached rendered content of lines (appended incrementally)
+	lines        []string        // all main log lines
+	reflectLines []string        // lines tagged [reflect]
+	renderedLog  strings.Builder // cached rendered content of lines (appended incrementally, O(1) amortized)
 
 	// sub-components
 	viewport  viewport.Model
@@ -231,6 +231,7 @@ func (m monitorModel) showReflectPanel() bool {
 
 // logHeight returns viewport height.
 // Reserved rows: header(1) + header border(1) + breadcrumb(1) + statusbar border(1) + statusbar(1) = 5.
+// The breadcrumb is an intentional separate line rendered between header and log body in View().
 func (m monitorModel) logHeight() int {
 	h := m.height - 5
 	if h < 4 {
@@ -348,7 +349,7 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.viewport.Width = m.logWidth()
 		m.viewport.Height = m.logHeight()
-		m.viewport.SetContent(m.renderedLog)
+		m.viewport.SetContent(m.renderedLog.String())
 		if m.atBottom {
 			m.viewport.GotoBottom()
 		}
@@ -419,12 +420,12 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !m.showReflectPanel() {
 				// Panel is hidden — keep reflect lines visible in the main log too.
 				m.lines = append(m.lines, raw)
-				m.renderedLog += colorLine(raw) + "\n"
+				m.renderedLog.WriteString(colorLine(raw) + "\n")
 			}
 		} else {
 			m.lines = append(m.lines, raw)
-			// Append only the new line to the cached rendered buffer (O(1) per line).
-			m.renderedLog += colorLine(raw) + "\n"
+			// Append only the new line to the cached rendered buffer (O(1) amortized per line).
+			m.renderedLog.WriteString(colorLine(raw) + "\n")
 		}
 
 		m.phase = inferPhase(plain, m.phase)
@@ -439,7 +440,7 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.viewport.Width = m.logWidth()
 		m.viewport.Height = m.logHeight()
-		m.viewport.SetContent(m.renderedLog)
+		m.viewport.SetContent(m.renderedLog.String())
 		if m.atBottom {
 			m.viewport.GotoBottom()
 		}
@@ -452,7 +453,7 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.phase = phaseError
 		}
-		m.viewport.SetContent(m.renderedLog)
+		m.viewport.SetContent(m.renderedLog.String())
 		if m.atBottom {
 			m.viewport.GotoBottom()
 		}
