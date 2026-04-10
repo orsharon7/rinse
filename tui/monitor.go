@@ -125,6 +125,28 @@ type logLineMsg string
 type runnerDoneMsg struct{ exitCode int }
 type tickMsg time.Time
 type clearStatusMsg struct{}
+type actionDoneMsg struct {
+	output string
+	err    error
+}
+
+// ── Post-cycle menu ───────────────────────────────────────────────────────────
+
+// postCycleOption describes one action in the post-cycle Bubble Tea menu.
+type postCycleOption struct {
+	label string
+}
+
+// postCycleMenuOptions are shown when the runner exits 0 and signals "ready to merge".
+// The CWD and default branch are filled in at runtime.
+func buildPostCycleOptions(defaultBranch string) []postCycleOption {
+	return []postCycleOption{
+		{label: "Merge PR + delete remote branch + checkout → " + defaultBranch},
+		{label: "Merge PR only"},
+		{label: "Open PR in browser"},
+		{label: "Do nothing (exit)"},
+	}
+}
 
 // ── Monitor model ─────────────────────────────────────────────────────────────
 
@@ -135,6 +157,7 @@ type monitorModel struct {
 	runner  string
 	model   string
 	prTitle string
+	cwd     string // local checkout path (for post-cycle git ops)
 
 	// state
 	width        int
@@ -145,6 +168,13 @@ type monitorModel struct {
 	lines        []string         // all main log lines
 	reflectLines []string         // lines tagged [reflect]
 	renderedLog  *strings.Builder // cached rendered content of lines (appended incrementally, O(1) amortized)
+
+	// post-cycle menu
+	readyToMerge       bool // runner signalled "ready to merge"
+	showPostCycleMenu  bool // display the Bubble Tea merge menu
+	postCycleCursor    int  // selected menu item index
+	postCycleOptions   []postCycleOption
+	postCycleDefaultBr string // default branch detected from log / git
 
 	// sub-components
 	viewport  viewport.Model
@@ -159,7 +189,7 @@ type monitorModel struct {
 	done     bool
 }
 
-func newMonitorModel(pr, repo, runnerName, modelName, prTitle string, cmd *exec.Cmd) monitorModel {
+func newMonitorModel(pr, repo, runnerName, modelName, prTitle, cwd string, cmd *exec.Cmd) monitorModel {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(mauve)
@@ -167,20 +197,44 @@ func newMonitorModel(pr, repo, runnerName, modelName, prTitle string, cmd *exec.
 	vp := viewport.New(80, 20)
 	vp.Style = lipgloss.NewStyle().Foreground(text)
 
+	// Try to detect default branch from local git; fall back to "main".
+	defaultBr := detectLocalDefaultBranch(cwd)
+
 	return monitorModel{
-		pr:          pr,
-		repo:        repo,
-		runner:      runnerName,
-		model:       modelName,
-		prTitle:     prTitle,
-		phase:       phaseStarting,
-		started:     time.Now(),
-		spinner:     sp,
-		viewport:    vp,
-		atBottom:    true,
-		cmd:         cmd,
-		renderedLog: &strings.Builder{},
+		pr:                 pr,
+		repo:               repo,
+		runner:             runnerName,
+		model:              modelName,
+		prTitle:            prTitle,
+		cwd:                cwd,
+		phase:              phaseStarting,
+		started:            time.Now(),
+		spinner:            sp,
+		viewport:           vp,
+		atBottom:           true,
+		cmd:                cmd,
+		renderedLog:        &strings.Builder{},
+		postCycleDefaultBr: defaultBr,
 	}
+}
+
+// detectLocalDefaultBranch returns the default branch name from the local git
+// worktree at cwd, falling back to "main" if detection fails.
+func detectLocalDefaultBranch(cwd string) string {
+	if cwd == "" {
+		return "main"
+	}
+	out, err := exec.Command("git", "-C", cwd,
+		"symbolic-ref", "refs/remotes/origin/HEAD").Output()
+	if err != nil {
+		return "main"
+	}
+	ref := strings.TrimSpace(string(out))
+	// ref looks like "refs/remotes/origin/main"
+	if idx := strings.LastIndex(ref, "/"); idx >= 0 {
+		return ref[idx+1:]
+	}
+	return "main"
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -364,6 +418,12 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, tea.Quit
 		}
+
+		// Post-cycle menu captures all other keys when visible.
+		if m.showPostCycleMenu {
+			return m.handlePostCycleKey(key)
+		}
+
 		// Toggle help overlay.
 		if key == "?" {
 			m.showHelp = !m.showHelp
@@ -412,6 +472,11 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		raw := string(msg)
 		plain := stripANSI(raw)
 
+		// Detect "ready to merge" signals from the runner.
+		if isReadyToMerge(plain) {
+			m.readyToMerge = true
+		}
+
 		// Route [reflect]-tagged lines to the side panel when it is visible.
 		// When the panel is hidden (narrow terminal or before first WindowSizeMsg),
 		// also send them to the main log so they remain visible.
@@ -451,6 +516,12 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.exitCode = msg.exitCode
 		if msg.exitCode == 0 {
 			m.phase = phaseDone
+			// Show the Bubble Tea post-cycle menu when the runner signalled readiness.
+			if m.readyToMerge {
+				m.showPostCycleMenu = true
+				m.postCycleCursor = 0
+				m.postCycleOptions = buildPostCycleOptions(m.postCycleDefaultBr)
+			}
 		} else {
 			m.phase = phaseError
 		}
@@ -459,11 +530,99 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport.GotoBottom()
 		}
 
+	case actionDoneMsg:
+		if msg.err != nil {
+			m.renderedLog.WriteString(colorLine("❌ action failed: "+msg.err.Error()) + "\n")
+		} else if msg.output != "" {
+			for _, ln := range strings.Split(strings.TrimRight(msg.output, "\n"), "\n") {
+				m.renderedLog.WriteString(colorLine(ln) + "\n")
+			}
+		}
+		m.viewport.SetContent(m.renderedLog.String())
+		m.viewport.GotoBottom()
+		m.atBottom = true
+
 	case clearStatusMsg:
 		m.statusMsg = ""
 	}
 
 	return m, tea.Batch(cmds...)
+}
+
+// isReadyToMerge returns true when the log line signals that the PR is approved
+// / clean and ready for the user to act on.
+func isReadyToMerge(plain string) bool {
+	return strings.Contains(plain, "Clean review") ||
+		strings.Contains(plain, "ready to merge") ||
+		(strings.Contains(plain, "APPROVED") && strings.Contains(plain, "PR"))
+}
+
+// handlePostCycleKey processes keyboard input when the post-cycle menu is shown.
+func (m monitorModel) handlePostCycleKey(key string) (tea.Model, tea.Cmd) {
+	n := len(m.postCycleOptions)
+	switch key {
+	case "up", "k":
+		if m.postCycleCursor > 0 {
+			m.postCycleCursor--
+		}
+	case "down", "j":
+		if m.postCycleCursor < n-1 {
+			m.postCycleCursor++
+		}
+	case "enter":
+		return m.executePostCycleAction(m.postCycleCursor)
+	case "esc":
+		// Dismiss menu — just exit; user can press q to fully quit.
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+// executePostCycleAction runs the chosen merge action asynchronously.
+func (m monitorModel) executePostCycleAction(choice int) (tea.Model, tea.Cmd) {
+	pr := m.pr
+	repo := m.repo
+	cwd := m.cwd
+	defaultBr := m.postCycleDefaultBr
+
+	m.showPostCycleMenu = false
+
+	switch choice {
+	case 0: // Full cleanup: merge + delete remote branch + checkout default branch
+		return m, func() tea.Msg {
+			out, err := runShell("gh", "pr", "merge", pr, "--repo", repo, "--squash", "--delete-branch")
+			if err != nil {
+				return actionDoneMsg{output: out, err: err}
+			}
+			// Checkout default branch and delete local feature branch.
+			localBranch, _ := runShell("git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD")
+			localBranch = strings.TrimSpace(localBranch)
+			if localBranch != "" && localBranch != defaultBr {
+				_, _ = runShell("git", "-C", cwd, "checkout", defaultBr)
+				_, _ = runShell("git", "-C", cwd, "branch", "-d", localBranch)
+			}
+			return actionDoneMsg{output: "✅ Merged, remote branch deleted, local branch deleted."}
+		}
+	case 1: // Merge PR only
+		return m, func() tea.Msg {
+			out, err := runShell("gh", "pr", "merge", pr, "--repo", repo, "--squash")
+			return actionDoneMsg{output: out, err: err}
+		}
+	case 2: // Open in browser
+		return m, func() tea.Msg {
+			out, err := runShell("gh", "pr", "view", pr, "--repo", repo, "--web")
+			return actionDoneMsg{output: out, err: err}
+		}
+	default: // Do nothing
+		return m, tea.Quit
+	}
+}
+
+// runShell executes a command and returns combined stdout+stderr output.
+func runShell(name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
 }
 
 // inferPhase maps plain-text log line content to a phase.
@@ -531,6 +690,15 @@ func (m monitorModel) View() string {
 			h = 24
 		}
 		return lipgloss.Place(totalW, h, lipgloss.Center, lipgloss.Center, m.renderHelp())
+	}
+
+	// Post-cycle menu overlay replaces the entire view.
+	if m.showPostCycleMenu {
+		h := m.height
+		if h <= 0 {
+			h = 24
+		}
+		return lipgloss.Place(totalW, h, lipgloss.Center, lipgloss.Center, m.renderPostCycleMenu())
 	}
 
 	showPanel := m.showReflectPanel()
@@ -611,6 +779,29 @@ func (m monitorModel) View() string {
 	statusBar := styleStatusBar.Width(statusBarWidth).Render(phaseStr + scrollHint + keys)
 
 	return header + "\n" + breadcrumb + "\n" + body + "\n" + statusBar
+}
+
+// renderPostCycleMenu renders the centered Bubble Tea post-cycle action menu.
+func (m monitorModel) renderPostCycleMenu() string {
+	menuStyle := lipgloss.NewStyle().
+		Border(lipgloss.DoubleBorder()).
+		BorderForeground(teal).
+		Padding(1, 4)
+
+	title := styleTeal.Render("✅  PR approved — what would you like to do?")
+
+	var lines []string
+	for i, opt := range m.postCycleOptions {
+		if i == m.postCycleCursor {
+			lines = append(lines, styleSelected.Render("  ❯ "+opt.label))
+		} else {
+			lines = append(lines, styleUnselected.Render("    "+opt.label))
+		}
+	}
+
+	hint := styleMuted.Render("\n  ↑↓ / jk to move · enter to confirm · q to quit")
+	content := title + "\n\n" + strings.Join(lines, "\n") + hint
+	return menuStyle.Render(content)
 }
 
 // renderReflectPanel builds the right-side reflection panel with word-wrapped entries.
@@ -704,7 +895,8 @@ func colorLine(line string) string {
 // ── RunMonitor ────────────────────────────────────────────────────────────────
 
 // RunMonitor starts the cycle monitor TUI wrapping the given runner command.
-func RunMonitor(pr, repo, runnerName, modelName, prTitle string, runnerArgs []string) error {
+// cwd is the local checkout path used for post-cycle git operations.
+func RunMonitor(pr, repo, runnerName, modelName, prTitle, cwd string, runnerArgs []string) error {
 	cmd := exec.Command(runnerArgs[0], runnerArgs[1:]...)
 	cmd.Stdin = os.Stdin
 
@@ -760,7 +952,7 @@ func RunMonitor(pr, repo, runnerName, modelName, prTitle string, runnerArgs []st
 		doneCh <- exitCode
 	}()
 
-	cm := newChannelMonitor(pr, repo, runnerName, modelName, prTitle, lineCh, doneCh)
+	cm := newChannelMonitor(pr, repo, runnerName, modelName, prTitle, cwd, lineCh, doneCh)
 
 	p := tea.NewProgram(cm, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
@@ -782,10 +974,10 @@ type channelMonitor struct {
 	doneCh <-chan int
 }
 
-func newChannelMonitor(pr, repo, runnerName, modelName, prTitle string,
+func newChannelMonitor(pr, repo, runnerName, modelName, prTitle, cwd string,
 	lineCh <-chan string, doneCh <-chan int) channelMonitor {
 	return channelMonitor{
-		monitorModel: newMonitorModel(pr, repo, runnerName, modelName, prTitle, nil),
+		monitorModel: newMonitorModel(pr, repo, runnerName, modelName, prTitle, cwd, nil),
 		lineCh:       lineCh,
 		doneCh:       doneCh,
 	}
