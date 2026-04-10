@@ -439,7 +439,7 @@ PROMPT_EOF
   reflect_pid=""
   if [[ "$REFLECT" == true ]]; then
     reflect_model="${REFLECT_MODEL:-$MODEL}"
-    log "🔍 Launching reflection agent in background (model: ${reflect_model}, target branch: ${REFLECT_MAIN_BRANCH})..."
+    ui_reflect_log "starting  (model: ${reflect_model} → ${REFLECT_MAIN_BRANCH})"
     export REFLECT_COMMENTS_JSON="$comments_json"
     bash "${SCRIPT_DIR}/pr-review-reflect.sh" "$PR_NUMBER" \
       --repo "$REPO" --cwd "$CWD" \
@@ -460,14 +460,19 @@ PROMPT_EOF
     log "❌ opencode exited with code ${oc_exit} — aborting"
     if [[ -n "$reflect_pid" ]]; then
       kill "$reflect_pid" 2>/dev/null || true
-      ui_reflect_done "$LOGFILE"
+      ui_reflect_log "killed (opencode failed)" false
     fi
     exit 1
   fi
 
   # Wait for reflection to finish (it should complete well before next Copilot review)
   if [[ -n "$reflect_pid" ]]; then
-    wait "$reflect_pid" && ui_reflect_done "$LOGFILE" || { ui_reflect_done "$LOGFILE"; log "⚠️  Reflection exited non-zero (non-fatal)"; }
+    if wait "$reflect_pid"; then
+      reflect_summary=$(grep -E '\[reflect\].*(Reflection complete|No changes|No top-level)' "$LOGFILE" 2>/dev/null | tail -1 | sed 's/^.*\[reflect\] //' || echo "done")
+      ui_reflect_log "$reflect_summary"
+    else
+      ui_reflect_log "exited non-zero — check ~/.pr-review-reflect.log" false
+    fi
   fi
 
   echo "$rid" > "$STATE_FILE"

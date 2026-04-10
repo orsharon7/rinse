@@ -446,7 +446,7 @@ PROMPT_EOF
   reflect_pid=""
   if [[ "$REFLECT" == true ]]; then
     reflect_model="${REFLECT_MODEL:-github-copilot/claude-sonnet-4.6}"
-    log "🔍 Launching reflection agent in background (model: ${reflect_model}, target branch: ${REFLECT_MAIN_BRANCH})..."
+    ui_reflect_log "starting  (model: ${reflect_model} → ${REFLECT_MAIN_BRANCH})"
     export REFLECT_COMMENTS_JSON="$comments_json"
     bash "${SCRIPT_DIR}/pr-review-reflect.sh" "$PR_NUMBER" \
       --repo "$REPO" --cwd "$CWD" \
@@ -456,7 +456,6 @@ PROMPT_EOF
       --agent opencode \
       >> "$LOGFILE" 2>&1 &
     reflect_pid=$!
-    ui_reflect_start "$LOGFILE"
   fi
 
   claude_exit=0
@@ -467,13 +466,18 @@ PROMPT_EOF
     log "❌ Claude exited with code ${claude_exit} — aborting"
     if [[ -n "$reflect_pid" ]]; then
       kill "$reflect_pid" 2>/dev/null || true
-      ui_reflect_done "$LOGFILE"
+      ui_reflect_log "killed (claude failed)" false
     fi
     exit 1
   fi
 
   if [[ -n "$reflect_pid" ]]; then
-    wait "$reflect_pid" && ui_reflect_done "$LOGFILE" || { ui_reflect_done "$LOGFILE"; log "⚠️  Reflection exited non-zero (non-fatal)"; }
+    if wait "$reflect_pid"; then
+      reflect_summary=$(grep -E '\[reflect\].*(Reflection complete|No changes|No top-level)' "$LOGFILE" 2>/dev/null | tail -1 | sed 's/^.*\[reflect\] //' || echo "done")
+      ui_reflect_log "$reflect_summary"
+    else
+      ui_reflect_log "exited non-zero — check ~/.pr-review-reflect.log" false
+    fi
   fi
 
   # Save last-known review ID so next iteration knows to wait for a fresh review
