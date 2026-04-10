@@ -54,13 +54,26 @@ while [[ $# -gt 0 ]]; do
     --model)         MODEL="$2";         shift 2 ;;
     --agent)         AGENT_CLI="$2";     shift 2 ;;
     --dry-run)       DRY_RUN=true;       shift ;;
+    --skip-if-open-prs) SKIP_IF_OPEN_PRS=true; shift ;;
     *) >&2 echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
 
+SKIP_IF_OPEN_PRS="${SKIP_IF_OPEN_PRS:-false}"
+
 if [[ -z "$REPO" ]]; then
   REPO=$(cd "$CWD" && gh repo view --json nameWithOwner -q '.nameWithOwner' 2>/dev/null || echo "")
   [[ -z "$REPO" ]] && { >&2 echo "Cannot detect repo. Use --repo."; exit 1; }
+fi
+
+# ─── Skip early if open PRs exist (mid-cycle guard) ─────────────────────────
+
+if [[ "$SKIP_IF_OPEN_PRS" == true ]]; then
+  open_count=$(gh pr list --repo "$REPO" --base "$MAIN_BRANCH" --state open --json number --jq 'length' 2>/dev/null || echo 0)
+  if [[ "$open_count" -gt 0 ]]; then
+    log "Skipping mid-cycle push — ${open_count} open PR(s) against ${MAIN_BRANCH} (would cause merge conflict)"
+    exit 0
+  fi
 fi
 
 # ─── Set up git worktree on main ─────────────────────────────────────────────

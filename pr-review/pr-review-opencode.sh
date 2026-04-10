@@ -87,12 +87,14 @@ done
 # Called after auto-merge when --reflect-optimize is set.
 run_reflect_optimize() {
   local reflect_model="${REFLECT_MODEL:-$MODEL}"
+  local skip_flag="${1:-}"
   log "🔧 Running reflection optimize pass (model: ${reflect_model}, target branch: ${REFLECT_MAIN_BRANCH})..."
   bash "${SCRIPT_DIR}/pr-review-reflect-optimize.sh" "$PR_NUMBER" \
     --repo "$REPO" --cwd "$CWD" \
     --main-branch "$REFLECT_MAIN_BRANCH" \
     --model "$reflect_model" \
     --agent opencode \
+    ${skip_flag:+"$skip_flag"} \
     >> "$LOGFILE" 2>&1 \
     && log "✓ Reflection optimize pass complete" \
     || log "⚠️  Reflection optimize pass exited non-zero (non-fatal)"
@@ -500,7 +502,7 @@ PROMPT_EOF
 
   if [[ "$REFLECT_OPTIMIZE" == true ]] && (( iter % 3 == 0 )); then
     log "🔁 Running mid-cycle optimize pass (iteration ${iter})..."
-    run_reflect_optimize
+    run_reflect_optimize "--skip-if-open-prs"
   fi
 
   log "✓ Iteration ${iter} complete — waiting for next Copilot review..."
