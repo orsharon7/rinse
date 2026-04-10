@@ -21,10 +21,9 @@ if ! command -v gum >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ ! -t 0 || ! -t 1 ]]; then
-  echo "pr-review-launch.sh requires an interactive terminal." >&2
-  exit 1
-fi
+# Redirect debug trace to file — always on so we can diagnose issues
+exec 2>/tmp/pr-review-launch-debug.txt
+set -x
 
 # ─── Source shared UI primitives ──────────────────────────────────────────────
 # shellcheck source=pr-review-ui.sh
