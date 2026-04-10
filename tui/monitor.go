@@ -142,9 +142,9 @@ type monitorModel struct {
 	phase        phase
 	iter         int
 	started      time.Time
-	lines        []string        // all main log lines
-	reflectLines []string        // lines tagged [reflect]
-	renderedLog  strings.Builder // cached rendered content of lines (appended incrementally, O(1) amortized)
+	lines        []string         // all main log lines
+	reflectLines []string         // lines tagged [reflect]
+	renderedLog  *strings.Builder // cached rendered content of lines (appended incrementally, O(1) amortized)
 
 	// sub-components
 	viewport  viewport.Model
@@ -168,17 +168,18 @@ func newMonitorModel(pr, repo, runnerName, modelName, prTitle string, cmd *exec.
 	vp.Style = lipgloss.NewStyle().Foreground(text)
 
 	return monitorModel{
-		pr:       pr,
-		repo:     repo,
-		runner:   runnerName,
-		model:    modelName,
-		prTitle:  prTitle,
-		phase:    phaseStarting,
-		started:  time.Now(),
-		spinner:  sp,
-		viewport: vp,
-		atBottom: true,
-		cmd:      cmd,
+		pr:          pr,
+		repo:        repo,
+		runner:      runnerName,
+		model:       modelName,
+		prTitle:     prTitle,
+		phase:       phaseStarting,
+		started:     time.Now(),
+		spinner:     sp,
+		viewport:    vp,
+		atBottom:    true,
+		cmd:         cmd,
+		renderedLog: &strings.Builder{},
 	}
 }
 

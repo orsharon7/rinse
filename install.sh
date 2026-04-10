@@ -56,6 +56,16 @@ fi
 
 echo "Installed → $INSTALL_DIR/$BINARY"
 
+# ── Install pr-review scripts alongside the binary ────────────────────────────
+# Copy the pr-review/ helper scripts into $INSTALL_DIR/pr-review/ so the
+# installed command works regardless of where this repo lives or whether it is
+# deleted after installation.
+PR_REVIEW_INSTALL_DIR="$INSTALL_DIR/pr-review"
+mkdir -p "$PR_REVIEW_INSTALL_DIR"
+cp "$SCRIPT_DIR/pr-review/"*.sh "$PR_REVIEW_INSTALL_DIR/"
+chmod +x "$PR_REVIEW_INSTALL_DIR/"*.sh
+echo "Scripts    → $PR_REVIEW_INSTALL_DIR/"
+
 # ── Shell hint ────────────────────────────────────────────────────────────────
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
   echo ""
@@ -70,7 +80,9 @@ if [[ ! -f "$WRAPPER" ]]; then
   cat > "$WRAPPER" <<WRAPPER_EOF
 #!/usr/bin/env bash
 # pr-review — thin wrapper that sets PR_REVIEW_SCRIPT_DIR and launches the TUI
-export PR_REVIEW_SCRIPT_DIR="$SCRIPT_DIR/pr-review"
+# PR_REVIEW_SCRIPT_DIR points to the scripts installed alongside this binary,
+# so it works even if the original repo is moved or deleted.
+export PR_REVIEW_SCRIPT_DIR="$INSTALL_DIR/pr-review"
 exec "$INSTALL_DIR/$BINARY" "\$@"
 WRAPPER_EOF
   chmod +x "$WRAPPER"
