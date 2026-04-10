@@ -22,8 +22,8 @@ if ! command -v gum >/dev/null 2>&1; then
 fi
 
 # Redirect debug trace to file — always on so we can diagnose issues
-exec 2>/tmp/pr-review-launch-debug.txt
-set -x
+# exec 2>/tmp/pr-review-launch-debug.txt
+# set -x
 
 # ─── Source shared UI primitives ──────────────────────────────────────────────
 # shellcheck source=pr-review-ui.sh
@@ -218,7 +218,7 @@ main() {
 
       # ── 1: Repository ───────────────────────────────────────────────────────
       1)
-        _repaint 1 $TOTAL "repository" "${sum[@]}"
+        _repaint 1 $TOTAL "repository" "${sum[@]+"${sum[@]}"}"
         gum style --foreground "$C_OVERLAY" "  GitHub repo in owner/repo format"
         echo ""
         local new_repo
@@ -238,7 +238,7 @@ main() {
 
       # ── 2: PR picker ────────────────────────────────────────────────────────
       2)
-        _repaint 2 $TOTAL "pull request" "${sum[@]}"
+        _repaint 2 $TOTAL "pull request" "${sum[@]+"${sum[@]}"}"
         gum style --foreground "$C_OVERLAY" "  Fetching open PRs…"
 
         local open_prs_raw
@@ -298,7 +298,7 @@ main() {
 
       # ── 3: Local path ───────────────────────────────────────────────────────
       3)
-        _repaint 3 $TOTAL "local clone path" "${sum[@]}"
+        _repaint 3 $TOTAL "local clone path" "${sum[@]+"${sum[@]}"}"
         gum style --foreground "$C_OVERLAY" "  Absolute path to your local checkout"
         echo ""
         local new_cwd
@@ -321,7 +321,7 @@ main() {
 
       # ── 4: Runner ───────────────────────────────────────────────────────────
       4)
-        _repaint 4 $TOTAL "runner" "${sum[@]}"
+        _repaint 4 $TOTAL "runner" "${sum[@]+"${sum[@]}"}"
         gum style --foreground "$C_OVERLAY" "  Which AI agent drives the review loop?"
         echo ""
         local runner_chosen
@@ -355,7 +355,7 @@ main() {
 
       # ── 5: Model ────────────────────────────────────────────────────────────
       5)
-        _repaint 5 $TOTAL "model" "${sum[@]}"
+        _repaint 5 $TOTAL "model" "${sum[@]+"${sum[@]}"}"
         gum style --foreground "$C_OVERLAY" \
           "  Leave blank for default: $(gum style --foreground "$C_LAVENDER" "${default_model:-n/a}")"
         echo ""
@@ -374,7 +374,7 @@ main() {
         if [[ "$runner_label" == "claude v1" ]]; then
           reflect="false"; step=$(( step + 1 )); continue
         fi
-        _repaint 6 $TOTAL "reflection agent" "${sum[@]}"
+        _repaint 6 $TOTAL "reflection agent" "${sum[@]+"${sum[@]}"}"
         gum style --foreground "$C_OVERLAY" \
           "  Extracts coding rules from Copilot comments → pushes to ${detected_default_branch}"
         echo ""
@@ -402,7 +402,7 @@ main() {
 
       # ── 7: Confirm & launch ─────────────────────────────────────────────────
       7)
-        _repaint 7 $TOTAL "review & launch" "${sum[@]}"
+        _repaint 7 $TOTAL "review & launch" "${sum[@]+"${sum[@]}"}"
 
         # Full settings table
         local w; w=$(_w)
