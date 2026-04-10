@@ -59,7 +59,7 @@ DRY_RUN=false
 REFLECT=false
 REFLECT_MODEL=""
 REFLECT_MAIN_BRANCH="main"
-REFLECT_OPTIMIZE=false
+REFLECT_OPTIMIZE=false  # auto-enabled when REFLECT=true
 AUTO_MERGE=false
 
 while [[ $# -gt 0 ]]; do
@@ -67,10 +67,10 @@ while [[ $# -gt 0 ]]; do
     --repo)                REPO="$2";                shift 2 ;;
     --cwd)                 CWD="$2";                 shift 2 ;;
     --model)               MODEL="$2";               shift 2 ;;
-    --reflect)             REFLECT=true;             shift ;;
+    --reflect)             REFLECT=true; REFLECT_OPTIMIZE=true; shift ;;
     --reflect-model)       REFLECT_MODEL="$2";       shift 2 ;;
     --reflect-main-branch) REFLECT_MAIN_BRANCH="$2"; shift 2 ;;
-    --reflect-optimize)    REFLECT_OPTIMIZE=true;    shift ;;
+    --reflect-optimize)    REFLECT_OPTIMIZE=true;    shift ;;  # can also be set standalone without --reflect
     --wait-max)            WAIT_MAX="$2";            shift 2 ;;
     --no-interactive)      export PR_REVIEW_NO_INTERACTIVE=true; shift ;;
     --auto-merge)          AUTO_MERGE=true; shift ;;
