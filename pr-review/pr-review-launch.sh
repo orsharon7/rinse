@@ -8,7 +8,7 @@
 #   ./pr-review-launch.sh <pr_number>
 #   ./pr-review-launch.sh <pr_number> --repo owner/repo --cwd /path/to/repo
 #
-set -euo pipefail
+set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
