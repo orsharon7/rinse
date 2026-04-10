@@ -149,8 +149,10 @@ ui_wait_tick() {
   local max="$2"
   local msg="${3:-Copilot reviewing}"
 
-  # Clamp max to avoid divide-by-zero
-  [[ "$max" -lt 1 ]] && max=1
+  # Clamp max to avoid divide-by-zero; guard against non-numeric values
+  if ! [[ "$max" =~ ^[0-9]+$ ]] || [[ "$max" -lt 1 ]]; then
+    max=1
+  fi
 
   if [[ "$_UI_TTY" != true ]]; then
     log "   ⏳ ${msg}... (${elapsed}s / ${max}s)"

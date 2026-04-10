@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -37,9 +38,9 @@ var (
 			Align(lipgloss.Center)
 
 	styleSummaryBox = lipgloss.NewStyle().
-				Border(lipgloss.NormalBorder()).
-				BorderForeground(surface).
-				Padding(0, 2)
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(surface).
+			Padding(0, 2)
 
 	styleKey   = lipgloss.NewStyle().Foreground(overlay).Width(18)
 	styleVal   = lipgloss.NewStyle().Foreground(lavender).Bold(true)
@@ -59,9 +60,9 @@ var (
 			Align(lipgloss.Center)
 
 	styleConfirmBox = lipgloss.NewStyle().
-				Border(lipgloss.DoubleBorder()).
-				BorderForeground(mauve).
-				Padding(1, 2)
+			Border(lipgloss.DoubleBorder()).
+			BorderForeground(mauve).
+			Padding(1, 2)
 )
 
 // ── Step definitions ──────────────────────────────────────────────────────────
@@ -566,7 +567,12 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "enter":
 			switch m.confirmCursor {
 			case 0: // launch
-				m.finalCmd = m.buildCmd()
+				cmd, err := m.buildCmd()
+				if err != nil {
+					m.errMsg = err.Error()
+					return m, nil
+				}
+				m.finalCmd = cmd
 				m.step = stepDone
 				return m, tea.Quit
 			case 1: // edit (go back)
@@ -595,10 +601,22 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m model) buildCmd() []string {
+func (m model) buildCmd() ([]string, error) {
 	scriptDir := os.Getenv("PR_REVIEW_SCRIPT_DIR")
+	if scriptDir == "" {
+		// Fall back to the directory containing the running binary.
+		exe, err := os.Executable()
+		if err != nil {
+			return nil, fmt.Errorf("could not determine script directory: %w", err)
+		}
+		scriptDir = filepath.Dir(exe)
+	}
+
 	r := runners[m.runnerIdx]
-	script := scriptDir + "/" + r.script
+	script := filepath.Join(scriptDir, r.script)
+	if _, err := os.Stat(script); err != nil {
+		return nil, fmt.Errorf("runner script not found: %s", script)
+	}
 
 	cmd := []string{script, m.prNum,
 		"--repo", m.repo,
@@ -621,7 +639,7 @@ func (m model) buildCmd() []string {
 		LastBranch:  m.reflectBranch,
 	})
 
-	return cmd
+	return cmd, nil
 }
 
 // ── View ──────────────────────────────────────────────────────────────────────
@@ -754,7 +772,12 @@ func (m model) renderSummary(w int) string {
 		rows = append(rows, row{"path", m.path})
 	}
 	if m.step > stepRunner {
-		rows = append(rows, row{"runner", runners[m.runnerIdx].label[:strings.Index(runners[m.runnerIdx].label, " —")]})
+		label := runners[m.runnerIdx].label
+		runnerName := label
+		if sep := strings.Index(label, " —"); sep >= 0 {
+			runnerName = label[:sep]
+		}
+		rows = append(rows, row{"runner", runnerName})
 	}
 	if m.step > stepModel && m.modelOverride != "" {
 		rows = append(rows, row{"model", m.modelOverride})
@@ -880,7 +903,13 @@ func (m model) renderStep(w int) string {
 			{"PR", prStr},
 			{"repository", m.repo},
 			{"path", m.path},
-			{"runner", runners[m.runnerIdx].label[:strings.Index(runners[m.runnerIdx].label, " —")]},
+			{"runner", func() string {
+				label := runners[m.runnerIdx].label
+				if sep := strings.Index(label, " —"); sep >= 0 {
+					return label[:sep]
+				}
+				return label
+			}()},
 			{"model", modelStr},
 			{"reflection", refStr},
 		}
@@ -909,10 +938,17 @@ func (m model) renderStep(w int) string {
 }
 
 func truncate(s string, n int) string {
-	if len(s) <= n {
+	runes := []rune(s)
+	if len(runes) <= n {
 		return s
 	}
-	return s[:n-1] + "…"
+	if n <= 0 {
+		return ""
+	}
+	if n == 1 {
+		return "…"
+	}
+	return string(runes[:n-1]) + "…"
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -939,7 +975,10 @@ func main() {
 
 	// Hand off to the cycle monitor TUI
 	r := runners[fm.runnerIdx]
-	rName := r.label[:strings.Index(r.label, " —")]
+	rName, _, found := strings.Cut(r.label, " —")
+	if !found {
+		rName = r.label
+	}
 
 	if err := RunMonitor(fm.prNum, fm.repo, rName, fm.modelOverride, fm.prTitle, fm.finalCmd); err != nil {
 		fmt.Fprintln(os.Stderr, "monitor error:", err)

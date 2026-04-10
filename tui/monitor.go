@@ -144,6 +144,7 @@ type monitorModel struct {
 	started      time.Time
 	lines        []string // all main log lines
 	reflectLines []string // lines tagged [reflect]
+	renderedLog  string   // cached rendered content of lines (appended incrementally)
 
 	// sub-components
 	viewport  viewport.Model
@@ -207,9 +208,13 @@ func (m monitorModel) reflectPanelWidth() int {
 }
 
 // logWidth returns the width available to the main log viewport.
+// When the reflect panel is hidden, the full terminal width is used.
 func (m monitorModel) logWidth() int {
 	if m.width <= 0 {
 		return 80
+	}
+	if !m.showReflectPanel() {
+		return m.width
 	}
 	rpw := m.reflectPanelWidth()
 	w := m.width - (rpw + 3) // 3 = border(1) + padding(2)
@@ -343,7 +348,7 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.viewport.Width = m.logWidth()
 		m.viewport.Height = m.logHeight()
-		m.viewport.SetContent(m.renderLines())
+		m.viewport.SetContent(m.renderedLog)
 		if m.atBottom {
 			m.viewport.GotoBottom()
 		}
@@ -411,6 +416,8 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.reflectLines = append(m.reflectLines, entry)
 		} else {
 			m.lines = append(m.lines, raw)
+			// Append only the new line to the cached rendered buffer (O(1) per line).
+			m.renderedLog += colorLine(raw) + "\n"
 		}
 
 		m.phase = inferPhase(plain, m.phase)
@@ -425,7 +432,7 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.viewport.Width = m.logWidth()
 		m.viewport.Height = m.logHeight()
-		m.viewport.SetContent(m.renderLines())
+		m.viewport.SetContent(m.renderedLog)
 		if m.atBottom {
 			m.viewport.GotoBottom()
 		}
@@ -438,7 +445,7 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.phase = phaseError
 		}
-		m.viewport.SetContent(m.renderLines())
+		m.viewport.SetContent(m.renderedLog)
 		if m.atBottom {
 			m.viewport.GotoBottom()
 		}
@@ -598,7 +605,7 @@ func (m monitorModel) renderReflectPanel(h int) string {
 
 	// Expand all reflect lines with word-wrap, capped at 2 display lines per entry.
 	type displayLine struct {
-		text    string
+		text          string
 		isLatestEntry bool
 	}
 	var displayLines []displayLine
@@ -701,10 +708,18 @@ func RunMonitor(pr, repo, runnerName, modelName, prTitle string, runnerArgs []st
 
 	readPipe := func(r io.Reader, wg *sync.WaitGroup) {
 		defer wg.Done()
-		scanner := bufio.NewScanner(r)
-		scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-		for scanner.Scan() {
-			lineCh <- scanner.Text()
+		reader := bufio.NewReader(r)
+		for {
+			line, err := reader.ReadString('\n')
+			if len(line) > 0 {
+				lineCh <- strings.TrimRight(line, "\r\n")
+			}
+			if err != nil {
+				if err != io.EOF {
+					lineCh <- fmt.Sprintf("[monitor] pipe read error: %v", err)
+				}
+				return
+			}
 		}
 	}
 

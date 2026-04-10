@@ -473,7 +473,6 @@ PROMPT_EOF
 
   if [[ -n "$reflect_pid" ]]; then
     if wait "$reflect_pid"; then
-      local reflect_summary
       reflect_summary=$(grep -E '\[reflect\].*(Reflection complete|No changes|No top-level)' "$LOGFILE" 2>/dev/null | tail -1 | sed 's/^.*\[reflect\] //' || echo "done")
       ui_reflect_log "$reflect_summary"
     else
