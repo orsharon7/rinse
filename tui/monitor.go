@@ -531,12 +531,13 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case actionDoneMsg:
-		if msg.err != nil {
-			m.renderedLog.WriteString(colorLine("❌ action failed: "+msg.err.Error()) + "\n")
-		} else if msg.output != "" {
+		if msg.output != "" {
 			for _, ln := range strings.Split(strings.TrimRight(msg.output, "\n"), "\n") {
 				m.renderedLog.WriteString(colorLine(ln) + "\n")
 			}
+		}
+		if msg.err != nil {
+			m.renderedLog.WriteString(colorLine("❌ action failed: "+msg.err.Error()) + "\n")
 		}
 		m.viewport.SetContent(m.renderedLog.String())
 		m.viewport.GotoBottom()
@@ -590,7 +591,7 @@ func (m monitorModel) executePostCycleAction(choice int) (tea.Model, tea.Cmd) {
 	switch choice {
 	case 0: // Full cleanup: merge + delete remote branch + checkout default branch
 		return m, func() tea.Msg {
-			out, err := runShell("gh", "pr", "merge", pr, "--repo", repo, "--merge", "--delete-branch")
+			out, err := runShell("gh", "pr", "merge", pr, "--repo", repo, "--merge", "--delete-branch", "--yes")
 			if err != nil {
 				return actionDoneMsg{output: out, err: err}
 			}
@@ -616,7 +617,7 @@ func (m monitorModel) executePostCycleAction(choice int) (tea.Model, tea.Cmd) {
 		}
 	case 1: // Merge PR only
 		return m, func() tea.Msg {
-			out, err := runShell("gh", "pr", "merge", pr, "--repo", repo, "--merge")
+			out, err := runShell("gh", "pr", "merge", pr, "--repo", repo, "--merge", "--yes")
 			return actionDoneMsg{output: out, err: err}
 		}
 	case 2: // Open in browser
