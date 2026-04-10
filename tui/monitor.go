@@ -649,7 +649,7 @@ func (m monitorModel) renderReflectPanel(h int) string {
 	}
 
 	return styleReflectPanel.
-		Width(panelW).
+		Width(panelW + 3).
 		Height(h).
 		Render(b.String())
 }
@@ -730,6 +730,7 @@ func RunMonitor(pr, repo, runnerName, modelName, prTitle string, runnerArgs []st
 
 	go func() {
 		wg.Wait()
+		close(lineCh) // signal that all pipe output has been flushed
 		exitCode := 0
 		if err := cmd.Wait(); err != nil {
 			if exitErr, ok := err.(*exec.ExitError); ok {
@@ -777,19 +778,20 @@ func (m channelMonitor) Init() tea.Cmd {
 }
 
 // poll blocks up to 50ms waiting for a line or done signal.
+// lineCh is closed by RunMonitor once both pipe readers have finished, so poll
+// continues draining buffered lines until the channel is closed; only then does
+// it read the exit code from doneCh. This prevents final stdout/stderr lines
+// from being dropped when doneCh and lineCh become ready at the same time.
 func (m channelMonitor) poll() tea.Cmd {
 	return func() tea.Msg {
 		select {
 		case line, ok := <-m.lineCh:
 			if !ok {
-				return nil
+				// lineCh closed — all pipe output has been flushed; wait for exit code.
+				code := <-m.doneCh
+				return runnerDoneMsg{exitCode: code}
 			}
 			return logLineMsg(line)
-		case code, ok := <-m.doneCh:
-			if !ok {
-				return nil
-			}
-			return runnerDoneMsg{exitCode: code}
 		case <-time.After(50 * time.Millisecond):
 			return nil
 		}

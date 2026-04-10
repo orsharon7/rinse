@@ -8,7 +8,7 @@
 # What it does:
 #   1. Detects OS + arch
 #   2. If a pre-built binary is available in dist/, installs it
-#   3. Otherwise falls back to go build (requires Go ≥ 1.21)
+#   3. Otherwise falls back to go build (requires Go ≥ 1.24)
 #
 set -euo pipefail
 

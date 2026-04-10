@@ -1,6 +1,6 @@
 module pr-review-tui
 
-go 1.24.5
+go 1.24
 
 require (
 	github.com/charmbracelet/bubbles v1.0.0
