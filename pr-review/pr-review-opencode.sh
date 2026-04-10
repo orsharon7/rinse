@@ -498,6 +498,11 @@ PROMPT_EOF
   echo "$rid" > "$STATE_FILE"
   log "💾 Saved last-known review ID: ${rid}"
 
+  if [[ "$REFLECT_OPTIMIZE" == true ]] && (( iter % 3 == 0 )); then
+    log "🔁 Running mid-cycle optimize pass (iteration ${iter})..."
+    run_reflect_optimize
+  fi
+
   log "✓ Iteration ${iter} complete — waiting for next Copilot review..."
   echo ""
   sleep 5
