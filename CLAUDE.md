@@ -16,6 +16,8 @@ Project instructions for AI coding agents.
 - When a non-interactive mode flag (e.g. `--no-interactive`) is set, skip all interactive menus and prompts entirely rather than falling back to a still-blocking alternative.
 - When computing a display width or substring length by subtracting a prefix/offset, clamp the result to a minimum of 0 before use; negative lengths in bash substring expressions (`${var:offset:length}`) slice from the end rather than yielding an empty string.
 - Always use `grep -E` (ERE) for patterns with alternation; never rely on `\|` in BRE, which is non-portable across BSD/macOS and GNU grep.
+- Never use `local` outside of a function body; it is invalid in bash at top-level scope and will abort scripts running under `set -e`.
+- Always verify that arithmetic expansions have balanced parentheses (`$(( ... ))`); an extra `)` is a syntax error that prevents the script from being sourced.
 
 ### Environment & CI Portability
 - When performing git operations that require user identity, add a preflight check for `user.name`/`user.email` with a clear error message, or accept identity overrides via environment variables.
@@ -34,6 +36,16 @@ Project instructions for AI coding agents.
 - When multiple log or output formats represent the same logical event, use a single shared predicate for all detection (routing, phase inference, string extraction); never duplicate format-detection logic across callsites.
 - When trimming a known separator character from a string, account for all visual and encoding variants of that character (e.g. ASCII `|` and box-drawing `│`) to avoid leaving stray leading characters.
 - When a layout conditionally hides a panel based on available width, the render path must also skip or empty that panel; keep layout-guard logic and render-guard logic in sync.
+- Never subtract a panel's width from a layout calculation when that panel is hidden; make width computations conditional on panel visibility.
+
+### Go: Error Handling & Safety
+- Never call `os.Exit()` inside a UI framework lifecycle (e.g. Bubble Tea); return errors up to `main()` and quit gracefully so the terminal state (alt-screen, cursor) is restored.
+- Always guard `strings.Index()` results against `-1` before using them as slice bounds; prefer `strings.Cut()` which returns a `found` boolean and eliminates the panic risk.
+- Always check and handle `scanner.Err()` after a `bufio.Scanner` loop exits; ignoring it can silently stall pipe reads and deadlock child processes.
+
+### Go: File Paths & Unicode
+- Use `filepath.Dir()` and `filepath.Join()` for portable path derivation; never use string trimming of binary names to compute parent directories.
+- Use rune-aware (or display-width-aware) truncation for any user-visible string; never slice strings by byte index when content may contain multi-byte UTF-8 characters.
 
 ### Go Module Hygiene
 - Run `go mod tidy` before committing Go module changes; packages imported directly in source must not be annotated `// indirect` in `go.mod`.
