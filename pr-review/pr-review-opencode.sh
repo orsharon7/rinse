@@ -426,10 +426,8 @@ PROMPT_EOF
   fi
 
   oc_exit=0
-  opencode run \
-    --model "$MODEL" \
-    --dir "$CWD" \
-    "$PROMPT" 2>&1 | tee -a "$LOGFILE" || oc_exit=$?
+  (cd "$CWD" && opencode run --model "$MODEL" "$PROMPT") \
+    2>&1 | tee -a "$LOGFILE" || oc_exit=$?
 
   if [[ $oc_exit -ne 0 ]]; then
     log "❌ opencode exited with code ${oc_exit} — aborting"
