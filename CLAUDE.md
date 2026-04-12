@@ -5,7 +5,7 @@ Project instructions for AI coding agents.
 <!-- BEGIN:COPILOT-RULES -->
 ## Coding Guidelines (AI-maintained)
 *Auto-updated by pr-review-reflect — do not edit this section manually.*
-*Last updated: 2026-04-12 from PR #23 review*
+*Last updated: 2026-04-12 from PR #34 review*
 
 ### Shell Scripting
 - Read interactive input from `/dev/tty`, never stderr; render UI output to stderr.
@@ -29,6 +29,8 @@ Project instructions for AI coding agents.
 - Phrase design-document assertions as intent, not fact.
 - Keep architecture and data-flow diagrams in sync with actual SDK/API call paths; when an implementation changes its call site, update every diagram that references it in the same PR.
 - When a document section contradicts another (e.g. "Project Context" claims a framework that another section says is not used), reconcile them by verifying against actual imports and removing or qualifying the inaccurate claim.
+- When an ADR or architectural decision document declares a constraint, it must account for all active runtime dispatch paths; if a legitimate exception exists (e.g. a platform-managed orchestrator), carve it out explicitly rather than leaving ADR and runtime code silently contradicting each other.
+- Keep code-example field names and function signatures in documentation (CLAUDE.md, AGENTS.md, inline comments) exactly in sync with the real runtime schema; a wrong discriminant field name (e.g. `event.type` vs `event.event`) or wrong function name causes silent copy-paste breakage for contributors.
 
 ### CLI, Installers & Packaging
 - Optional parameters default to empty; include the flag only when the user provides a value — never silently pin an omitted value.
@@ -44,6 +46,7 @@ Project instructions for AI coding agents.
 - Persist final item state on the data object (e.g. `finalStatus`); never derive display state from a mutable run-scoped map. Apply streaming styling only to actively streaming items; use persisted state for all others.
 - Normalize internal/legacy identifiers to canonical labels before rendering in chips or badges.
 - In multi-axis execution models (e.g. sequential steps × agents-per-step), gate streaming finalization on all axes — `stepIdx > 0` alone misses agent transitions within step 0.
+- Never hard-code a UI value that mirrors a backend configurable setting (e.g. `maxRevisions = 2`); source it from the backend payload or a settings endpoint so the UI stays correct when the backend value changes.
 
 ### Go
 - **Performance:** Use `strings.Builder` for string construction; never `+=` in a loop (O(n²)).
@@ -57,6 +60,8 @@ Project instructions for AI coding agents.
 - **Streams & serialization:** Close async streams in a `try/finally` via `await stream.aclose()` when not using a context manager. Join multi-line protocol frames with the spec-mandated separator (`"\n"`), not an empty string.
 - **Imports & parsing:** Before removing a module-level import symbol, grep the file for remaining usages. When parsing structured strings (e.g. ARM IDs), locate segments by key, not fixed index; guard against malformed input.
 - **Warnings:** Use a narrowly scoped `"ignore"` filter with a precise `message` regex; a broad `"always"` filter re-enables warnings globally.
+- **Dependency compatibility:** When a third-party symbol is removed in a new package version, guard the import with `try/except ImportError` and raise a descriptive `RuntimeError` at call-time rather than crashing at import-time; ensure the pinned version and the imported symbols are reconciled so tests don't silently stub away a runtime `ImportError`.
+- **Dead code:** Remove duplicate or overwritten variable assignments (e.g. a `tasks = [...]` list immediately overwritten) before merging; dead executable code misleads future editors and masks bugs.
 
 ### Configuration & Cloud Resources
 - Never expose a config setting not wired to runtime behavior; verify end-to-end: read → validate → pass to constructor.
@@ -72,6 +77,7 @@ Project instructions for AI coding agents.
 - Use CSS `:hover` or class toggles for hover effects, not `onMouseEnter`/`onMouseLeave` mutations.
 - Never combine a percentage `width` with a fixed pixel `height` on an SVG; use `aspect-ratio` or explicit pixel dimensions.
 - Never call browser-only APIs (`window`, `document`, `matchMedia`) during SSR render; compute in `useEffect`. Feature-detect before calling modern Web APIs; fall back to legacy equivalents (e.g. `addListener`).
+- Never use inline hex color values; use Tailwind utility classes or CSS design tokens (e.g. `var(--color-name)`) so theming and design-system constraints apply consistently.
 
 ### API, Testing & Observability
 - When a backend enum gains new values or aliases, update all mirrored client-side type definitions in the same change.
