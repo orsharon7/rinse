@@ -613,7 +613,23 @@ func (m model) buildCmd() ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("could not determine script directory: %w", err)
 		}
-		scriptDir = filepath.Dir(exe)
+		binDir := filepath.Dir(exe)
+		// Scripts live in pr-review/ which is a sibling of tui/ (the binary's dir).
+		// Try: <binDir>/pr-review/, then <binDir>/../pr-review/, then <binDir> itself.
+		candidates := []string{
+			filepath.Join(binDir, "pr-review"),
+			filepath.Join(binDir, "..", "pr-review"),
+			binDir,
+		}
+		for _, c := range candidates {
+			if _, err := os.Stat(filepath.Join(c, runners[0].script)); err == nil {
+				scriptDir = c
+				break
+			}
+		}
+		if scriptDir == "" {
+			scriptDir = binDir
+		}
 	}
 
 	r := runners[m.runnerIdx]
