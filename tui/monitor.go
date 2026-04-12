@@ -152,12 +152,13 @@ func buildPostCycleOptions(defaultBranch string) []postCycleOption {
 
 type monitorModel struct {
 	// config
-	pr      string
-	repo    string
-	runner  string
-	model   string
-	prTitle string
-	cwd     string // local checkout path (for post-cycle git ops)
+	pr        string
+	repo      string
+	runner    string
+	model     string
+	prTitle   string
+	cwd       string // local checkout path (for post-cycle git ops)
+	autoMerge bool   // when true, runner handles merge; suppress TUI post-cycle menu
 
 	// state
 	width        int
@@ -189,7 +190,7 @@ type monitorModel struct {
 	done     bool
 }
 
-func newMonitorModel(pr, repo, runnerName, modelName, prTitle, cwd string, cmd *exec.Cmd) monitorModel {
+func newMonitorModel(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge bool, cmd *exec.Cmd) monitorModel {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(mauve)
@@ -207,6 +208,7 @@ func newMonitorModel(pr, repo, runnerName, modelName, prTitle, cwd string, cmd *
 		model:              modelName,
 		prTitle:            prTitle,
 		cwd:                cwd,
+		autoMerge:          autoMerge,
 		phase:              phaseStarting,
 		started:            time.Now(),
 		spinner:            sp,
@@ -516,8 +518,10 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.exitCode = msg.exitCode
 		if msg.exitCode == 0 {
 			m.phase = phaseDone
-			// Show the Bubble Tea post-cycle menu when the runner signalled readiness.
-			if m.readyToMerge {
+			// Show the Bubble Tea post-cycle menu when the runner signalled readiness,
+			// but only when auto-merge is off (auto-merge means the runner already
+			// handled merge + cleanup itself).
+			if m.readyToMerge && !m.autoMerge {
 				m.showPostCycleMenu = true
 				m.postCycleCursor = 0
 				m.postCycleOptions = buildPostCycleOptions(m.postCycleDefaultBr)
@@ -909,7 +913,9 @@ func colorLine(line string) string {
 
 // RunMonitor starts the cycle monitor TUI wrapping the given runner command.
 // cwd is the local checkout path used for post-cycle git operations.
-func RunMonitor(pr, repo, runnerName, modelName, prTitle, cwd string, runnerArgs []string) error {
+// autoMerge signals that the runner will handle merge/cleanup automatically;
+// the TUI post-cycle menu is suppressed in that case.
+func RunMonitor(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge bool, runnerArgs []string) error {
 	cmd := exec.Command(runnerArgs[0], runnerArgs[1:]...)
 	cmd.Stdin = os.Stdin
 
@@ -965,7 +971,7 @@ func RunMonitor(pr, repo, runnerName, modelName, prTitle, cwd string, runnerArgs
 		doneCh <- exitCode
 	}()
 
-	cm := newChannelMonitor(pr, repo, runnerName, modelName, prTitle, cwd, lineCh, doneCh)
+	cm := newChannelMonitor(pr, repo, runnerName, modelName, prTitle, cwd, autoMerge, lineCh, doneCh)
 
 	p := tea.NewProgram(cm, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
@@ -987,10 +993,10 @@ type channelMonitor struct {
 	doneCh <-chan int
 }
 
-func newChannelMonitor(pr, repo, runnerName, modelName, prTitle, cwd string,
+func newChannelMonitor(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge bool,
 	lineCh <-chan string, doneCh <-chan int) channelMonitor {
 	return channelMonitor{
-		monitorModel: newMonitorModel(pr, repo, runnerName, modelName, prTitle, cwd, nil),
+		monitorModel: newMonitorModel(pr, repo, runnerName, modelName, prTitle, cwd, autoMerge, nil),
 		lineCh:       lineCh,
 		doneCh:       doneCh,
 	}
