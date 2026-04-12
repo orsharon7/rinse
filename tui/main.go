@@ -427,9 +427,11 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.prTitle = "" // no title when entered manually
 				m.errMsg = ""
 				m.step = stepPath
-				pathDefault := m.pathDefault
+				// Always prefer CWD (user launched from the repo dir);
+				// fall back to config only if CWD detection fails.
+				pathDefault := detectCWD()
 				if pathDefault == "" {
-					pathDefault = detectCWD()
+					pathDefault = m.pathDefault
 				}
 				m.input.SetValue(pathDefault)
 				m.input.Focus()
@@ -465,9 +467,11 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.prNum = fmt.Sprintf("%d", m.prs[m.prCursor].Number)
 				m.prTitle = m.prs[m.prCursor].Title
 				m.step = stepPath
-				pathDefault := m.pathDefault
+				// Always prefer CWD (user launched from the repo dir);
+				// fall back to config only if CWD detection fails.
+				pathDefault := detectCWD()
 				if pathDefault == "" {
-					pathDefault = detectCWD()
+					pathDefault = m.pathDefault
 				}
 				m.input.SetValue(pathDefault)
 				m.input.Focus()
