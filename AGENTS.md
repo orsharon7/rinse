@@ -32,6 +32,7 @@ Project instructions for AI coding agents.
 - Ensure log messages, menu text, and UI labels exactly match the behavior the code actually performs; never describe a side effect (e.g. "with remote branch deletion") unless the corresponding flag or call is present in the implementation.
 - When a README section references a project artifact (e.g. a LICENSE file, a config file, a script), ensure that artifact actually exists in the repository; remove or update the section whenever the artifact is added, renamed, or deleted.
 - Keep installer/script documented prerequisites (e.g. minimum tool versions) in sync with what the module manifest (e.g. `go.mod`, `package.json`) actually declares; never let the two diverge silently.
+- When a design or planning document makes assertions about implementation scope (e.g. "no new files", "zero logic changes"), phrase these as design intent rather than factual statements; the actual implementation may diverge and such claims become misleading.
 
 ### CLI & User Input
 - When a parameter is optional (e.g. "leave blank for default"), default its prompt to an empty string and only include the corresponding flag/argument in the command when the user explicitly provides a non-empty value; never use a non-empty default that silently pins a value the user intended to omit.
@@ -84,6 +85,7 @@ Project instructions for AI coding agents.
 ### Configuration Integrity
 - Never expose a configuration setting (env var, config key, or documented option) that is not wired into the corresponding runtime behavior; either connect it to the implementation or remove the config surface and its documentation entirely.
 - When adding a new configuration option, verify end-to-end that the value is read, validated, and passed to the relevant constructor or call site before shipping.
+- When using a typed settings model (e.g. Pydantic `BaseSettings`), declare every env-var-backed field as an explicit model field; using `getattr` with a fallback silently bypasses the schema so the env var can never be set by the caller.
 
 ### Python: Warnings & Logging
 - When suppressing a specific warning, use a narrowly scoped `"ignore"` filter with a precise `message` regex rather than a broad `"always"` filter; a broad `"always"` filter re-enables all matching warnings globally, not just the one being targeted.
@@ -99,6 +101,13 @@ Project instructions for AI coding agents.
 
 ### UI: Identifier Normalization
 - Always normalize internal or legacy identifiers (e.g. API tool IDs, feature flags) to a canonical user-facing label before rendering them in UI components; never expose raw internal or alias names in chips, badges, or labels, as they create inconsistent UX and leak implementation details.
+
+### Frontend: Performance
+- Never use `Array.find()` or equivalent O(n) search inside a render loop over the same collection; build a lookup map (e.g. a keyed object or `Map`) once before the loop to keep rendering O(n).
+
+### Accessibility
+- Always add an explicit `aria-label` to icon-only buttons (controls with no visible text); `title` alone is not a reliable accessible name for screen readers.
+- Always add a `@media (prefers-reduced-motion: reduce)` block that disables or neutralizes CSS animations and transitions; omitting it can cause discomfort or harm for users with vestibular or motion-sensitivity disorders.
 
 <!-- END:COPILOT-RULES -->
 
