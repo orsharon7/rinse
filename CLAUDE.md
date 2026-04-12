@@ -61,6 +61,7 @@ Project instructions for AI coding agents.
 - **Serialization:** Join multi-line protocol frames (e.g. SSE `data:` lines) with the spec-mandated separator (`"\n"`), not an empty string.
 - **Import hygiene:** When removing a symbol from a module-level import, grep the entire file for remaining usages first; `NameError` only surfaces at runtime.
 - **Structured string parsing:** When splitting a structured string format (e.g. ARM resource IDs), locate named segments by searching for the segment key rather than assuming a fixed positional index; always guard against malformed input and return a clear error or skip instead of raising.
+- **Async stream cleanup:** When consuming an async stream without a context manager (e.g. `responses.create(stream=True)` instead of `async with ... as stream:`), always close it in a `try/finally` block via `await stream.aclose()` to prevent connection leaks on cancellation, exceptions, or early exit.
 
 ### Configuration & Cloud Resources
 - Never expose a config setting (env var, config key, documented option) that is not wired to runtime behavior; verify end-to-end: read → validate → pass to the relevant constructor.
