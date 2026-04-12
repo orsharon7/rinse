@@ -5,7 +5,7 @@ Project instructions for AI coding agents.
 <!-- BEGIN:COPILOT-RULES -->
 ## Coding Guidelines (AI-maintained)
 *Auto-updated by pr-review-reflect — do not edit this section manually.*
-*Last updated: 2026-04-12 from PR #22 review*
+*Last updated: 2026-04-12 from PR #23 review*
 
 ### Shell Scripting
 - Read interactive terminal input from `/dev/tty`, never stderr; render UI output to stderr.
@@ -42,6 +42,7 @@ Project instructions for AI coding agents.
 ### UI & State Management
 - Persist final item state on the data object (e.g. `finalStatus`); never derive display state from a mutable run-scoped map. Apply streaming-derived styling only to actively streaming items; use persisted state for all others.
 - Normalize internal/legacy identifiers to canonical user-facing labels before rendering in chips, badges, or labels.
+- When finalizing streaming state in a multi-axis execution model (e.g., sequential steps × agents-per-step), gate finalization on all relevant axes — a guard on `stepIdx > 0` alone misses agent transitions within the first step when `agentIdx > 0`.
 
 ### Go
 - **Performance:** Use `strings.Builder` for incremental string construction; never `+=` in a loop (O(n²)).
@@ -84,5 +85,6 @@ Project instructions for AI coding agents.
 
 ### Logging & Observability
 - Retry log messages must use a denominator matching actual total attempts; distinguish "attempt N of M" (total) from "retry N of M" (retries-only).
+- Keep retry constant names, inline comments, and loop bounds mutually consistent: if the loop is `range(MAX_RETRIES + 1)`, the comment must reflect total attempts (`MAX_RETRIES + 1`), not just the constant value.
 
 <!-- END:COPILOT-RULES -->
