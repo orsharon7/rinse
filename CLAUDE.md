@@ -5,7 +5,7 @@ Project instructions for AI coding agents.
 <!-- BEGIN:COPILOT-RULES -->
 ## Coding Guidelines (AI-maintained)
 *Auto-updated by pr-review-reflect — do not edit this section manually.*
-*Last updated: 2026-04-12 from PR #22 review (optimized)*
+*Last updated: 2026-04-12 from PR #22 review*
 
 ### Shell Scripting
 - Read interactive terminal input from `/dev/tty`, never stderr; render UI output to stderr.
@@ -75,6 +75,11 @@ Project instructions for AI coding agents.
 - Build a lookup map before render loops; never use `Array.find()` (O(n)) inside a loop over the same collection.
 - Add `aria-label` to all icon-only buttons; `title` alone is not a reliable accessible name.
 - Include a `@media (prefers-reduced-motion: reduce)` block that disables CSS animations/transitions.
+- Never apply animations via inline `style` attributes; CSS `@media (prefers-reduced-motion)` rules cannot override inline styles, so motion-sensitive users will not be protected. Use CSS classes or check `window.matchMedia('(prefers-reduced-motion: reduce)')` at render time instead.
+- Trigger scroll/layout side-effects (e.g. `scrollDown()`) after DOM mutations that append new nodes, not before; elements appended after a scroll call land off-screen until the next interaction.
+
+### Documentation Integrity (Functions & Docstrings)
+- Docstrings must accurately reflect which parameters are truly required vs. optional and what side-effects occur (e.g. logging, emitting events); never describe a parameter as required if the function only conditionally uses it, and never say "skips silently" if the function logs or emits status messages.
 
 <!-- END:COPILOT-RULES -->
 
