@@ -70,6 +70,7 @@ Project instructions for AI coding agents.
 ### Frontend & Accessibility
 - Build a lookup map before render loops; never use `Array.find()` (O(n)) inside a loop over the same collection.
 - Add `aria-label` to all icon-only buttons; `title` alone is not a reliable accessible name.
+- Give every interactive form control (input, textarea, select) an explicit accessible name via `aria-label` or an associated `<label>`; placeholder text is not a substitute and is invisible to screen readers.
 - Never apply animations via inline `style` attributes — `@media (prefers-reduced-motion: reduce)` cannot override them. Use CSS classes (or check `window.matchMedia` at render time) and include a `prefers-reduced-motion` block that disables animations/transitions.
 - Trigger scroll/layout side-effects (e.g. `scrollDown()`) after DOM mutations, not before; elements appended after a scroll call land off-screen.
 - Never cap a dynamically-sized container with fixed `max-height` + `overflow: hidden`; use a viewport-relative cap (e.g. `min(80vh, 1400px)`) with `overflow-y: auto`.
