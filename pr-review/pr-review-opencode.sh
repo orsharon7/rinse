@@ -370,11 +370,25 @@ while true; do
       local_branch=$(git -C "$CWD" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
       base_branch=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.base.ref' 2>/dev/null || echo "main")
       gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch
+      _local_deleted=false
       if [[ -n "$local_branch" && "$local_branch" != "$base_branch" ]]; then
-        git -C "$CWD" checkout "$base_branch" 2>/dev/null || true
-        git -C "$CWD" branch -d "$local_branch" 2>/dev/null || true
+        if git -C "$CWD" checkout "$base_branch" 2>/dev/null; then
+          git -C "$CWD" pull --ff-only origin "$base_branch" 2>/dev/null || true
+          if git -C "$CWD" branch -d "$local_branch" 2>/dev/null \
+              || git -C "$CWD" branch -D "$local_branch" 2>/dev/null; then
+            _local_deleted=true
+          else
+            log "⚠️  Could not delete local branch ${local_branch}"
+          fi
+        else
+          log "⚠️  Could not switch to ${base_branch} — skipping local branch deletion"
+        fi
       fi
-      log "✅ Merged, remote branch deleted, local branch deleted."
+      if [[ "$_local_deleted" == true ]]; then
+        log "✅ Merged, remote branch deleted, local branch deleted."
+      else
+        log "✅ Merged, remote branch deleted."
+      fi
       [[ "$REFLECT_OPTIMIZE" == true ]] && run_reflect_optimize
     else
       ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
@@ -393,11 +407,25 @@ while true; do
       local_branch=$(git -C "$CWD" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
       base_branch=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.base.ref' 2>/dev/null || echo "main")
       gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch
+      _local_deleted=false
       if [[ -n "$local_branch" && "$local_branch" != "$base_branch" ]]; then
-        git -C "$CWD" checkout "$base_branch" 2>/dev/null || true
-        git -C "$CWD" branch -d "$local_branch" 2>/dev/null || true
+        if git -C "$CWD" checkout "$base_branch" 2>/dev/null; then
+          git -C "$CWD" pull --ff-only origin "$base_branch" 2>/dev/null || true
+          if git -C "$CWD" branch -d "$local_branch" 2>/dev/null \
+              || git -C "$CWD" branch -D "$local_branch" 2>/dev/null; then
+            _local_deleted=true
+          else
+            log "⚠️  Could not delete local branch ${local_branch}"
+          fi
+        else
+          log "⚠️  Could not switch to ${base_branch} — skipping local branch deletion"
+        fi
       fi
-      log "✅ Merged, remote branch deleted, local branch deleted."
+      if [[ "$_local_deleted" == true ]]; then
+        log "✅ Merged, remote branch deleted, local branch deleted."
+      else
+        log "✅ Merged, remote branch deleted."
+      fi
       [[ "$REFLECT_OPTIMIZE" == true ]] && run_reflect_optimize
     else
       ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"

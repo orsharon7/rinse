@@ -76,18 +76,20 @@ const (
 	stepRunner
 	stepModel
 	stepReflect
+	stepAutoMerge
 	stepConfirm
 	stepDone
 )
 
 var stepLabels = map[step]string{
-	stepRepo:    "repository",
-	stepPR:      "pull request",
-	stepPath:    "local clone path",
-	stepRunner:  "runner",
-	stepModel:   "model",
-	stepReflect: "reflection",
-	stepConfirm: "review & launch",
+	stepRepo:      "repository",
+	stepPR:        "pull request",
+	stepPath:      "local clone path",
+	stepRunner:    "runner",
+	stepModel:     "model",
+	stepReflect:   "reflection",
+	stepAutoMerge: "on-approval action",
+	stepConfirm:   "review & launch",
 }
 
 // ── PR list (fetched async) ───────────────────────────────────────────────────
@@ -181,6 +183,7 @@ type model struct {
 	modelOverride string
 	reflect       bool
 	reflectBranch string
+	autoMerge     bool
 
 	// UI state
 	showHelp bool
@@ -201,6 +204,9 @@ type model struct {
 
 	// reflect picker cursor (0=yes 1=no)
 	reflectCursor int
+
+	// auto-merge picker cursor (0=yes 1=no)
+	autoMergeCursor int
 
 	// confirm picker cursor
 	confirmCursor int
@@ -238,21 +244,28 @@ func initialModel() model {
 		reflectCursor = 0
 	}
 
+	autoMergeCursor := 1 // default: "No"
+	if cfg.LastAutoMerge {
+		autoMergeCursor = 0
+	}
+
 	return model{
-		step:          stepRepo,
-		repo:          "",
-		path:          "",
-		pathDefault:   cfg.LastPath,
-		runnerIdx:     0,
-		runnerCursor:  cfg.LastRunner,
-		modelOverride: cfg.LastModel,
-		reflect:       false,
-		reflectCursor: reflectCursor,
-		reflectBranch: cfg.LastBranch,
-		defaultBranch: "main",
-		input:         ti,
-		inputFor:      stepRepo,
-		prLoading:     false,
+		step:            stepRepo,
+		repo:            "",
+		path:            "",
+		pathDefault:     cfg.LastPath,
+		runnerIdx:       0,
+		runnerCursor:    cfg.LastRunner,
+		modelOverride:   cfg.LastModel,
+		reflect:         false,
+		reflectCursor:   reflectCursor,
+		reflectBranch:   cfg.LastBranch,
+		autoMerge:       false,
+		autoMergeCursor: autoMergeCursor,
+		defaultBranch:   "main",
+		input:           ti,
+		inputFor:        stepRepo,
+		prLoading:       false,
 	}
 }
 
@@ -517,7 +530,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.reflectBranch = val
 				m.reflect = true
 				m.inputFor = stepRunner // reset
-				m.step = stepConfirm
+				m.step = stepAutoMerge
 				return m, nil
 			}
 			if key == "esc" {
@@ -546,7 +559,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				// no
 				m.reflect = false
-				m.step = stepConfirm
+				m.step = stepAutoMerge
 				return m, nil
 			case "esc":
 				m.step = stepModel
@@ -554,6 +567,26 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.input.Focus()
 				return m, textinput.Blink
 			}
+		}
+
+	// ── Auto-merge picker ─────────────────────────────────────────────────────
+	case stepAutoMerge:
+		switch key {
+		case "up", "k":
+			if m.autoMergeCursor > 0 {
+				m.autoMergeCursor--
+			}
+		case "down", "j":
+			if m.autoMergeCursor < 1 {
+				m.autoMergeCursor++
+			}
+		case "enter":
+			m.autoMerge = m.autoMergeCursor == 0
+			m.step = stepConfirm
+			return m, nil
+		case "esc":
+			m.step = stepReflect
+			return m, nil
 		}
 
 	// ── Confirm ───────────────────────────────────────────────────────────────
@@ -579,18 +612,14 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.step = stepDone
 				return m, tea.Quit
 			case 1: // edit (go back)
-				m.step = stepModel
-				m.input.SetValue(m.modelOverride)
-				m.input.Focus()
-				return m, textinput.Blink
+				m.step = stepAutoMerge
+				return m, nil
 			case 2: // abort
 				return m, tea.Quit
 			}
 		case "esc":
-			m.step = stepModel
-			m.input.SetValue(m.modelOverride)
-			m.input.Focus()
-			return m, textinput.Blink
+			m.step = stepAutoMerge
+			return m, nil
 		}
 	}
 
@@ -631,15 +660,19 @@ func (m model) buildCmd() ([]string, error) {
 	if m.reflect {
 		cmd = append(cmd, "--reflect", "--reflect-main-branch", m.reflectBranch)
 	}
+	if m.autoMerge {
+		cmd = append(cmd, "--auto-merge")
+	}
 
 	// Persist settings for next run.
 	SaveConfig(Config{
-		LastRepo:    m.repo,
-		LastPath:    m.path,
-		LastRunner:  m.runnerIdx,
-		LastModel:   m.modelOverride,
-		LastReflect: m.reflect,
-		LastBranch:  m.reflectBranch,
+		LastRepo:      m.repo,
+		LastPath:      m.path,
+		LastRunner:    m.runnerIdx,
+		LastModel:     m.modelOverride,
+		LastReflect:   m.reflect,
+		LastBranch:    m.reflectBranch,
+		LastAutoMerge: m.autoMerge,
 	})
 
 	return cmd, nil
@@ -683,7 +716,7 @@ func (m model) View() string {
 	if m.step == stepDone {
 		label = "launching"
 	}
-	total := 7
+	total := 8
 	current := int(m.step) + 1
 	if current > total {
 		current = total
@@ -791,6 +824,11 @@ func (m model) renderSummary(w int) string {
 			ref = "on → " + m.reflectBranch
 		}
 		rows = append(rows, row{"reflection", ref})
+		am := "off"
+		if m.autoMerge {
+			am = "on"
+		}
+		rows = append(rows, row{"auto-merge", am})
 	}
 
 	if len(rows) == 0 {
@@ -891,6 +929,20 @@ func (m model) renderStep(w int) string {
 			}
 		}
 
+	case stepAutoMerge:
+		b.WriteString(styleMuted.Render(
+			"  Automatically merge + delete branches when the review is clean",
+		) + "\n\n")
+		opts := []string{"  Yes, auto-merge on approval", "  No, show menu to decide"}
+		for i, opt := range opts {
+			if i == m.autoMergeCursor {
+				b.WriteString(styleSelected.Render("  ❯" + opt[2:]))
+			} else {
+				b.WriteString(styleUnselected.Render(opt))
+			}
+			b.WriteString("\n")
+		}
+
 	case stepConfirm:
 		type row struct{ k, v string }
 		def := runners[m.runnerIdx].defaultModel
@@ -901,6 +953,10 @@ func (m model) renderStep(w int) string {
 		refStr := "off"
 		if m.reflect {
 			refStr = "on → " + m.reflectBranch
+		}
+		amStr := "off"
+		if m.autoMerge {
+			amStr = "on"
 		}
 		prStr := "#" + m.prNum
 		if m.prTitle != "" {
@@ -919,6 +975,7 @@ func (m model) renderStep(w int) string {
 			}()},
 			{"model", modelStr},
 			{"reflection", refStr},
+			{"auto-merge", amStr},
 		}
 		var lines []string
 		for _, r := range rows {
@@ -996,7 +1053,7 @@ func main() {
 	// post-cycle Bubble Tea menu instead.
 	runnerCmd := append(fm.finalCmd, "--no-interactive")
 
-	if err := RunMonitor(fm.prNum, fm.repo, rName, fm.modelOverride, fm.prTitle, fm.path, runnerCmd); err != nil {
+	if err := RunMonitor(fm.prNum, fm.repo, rName, fm.modelOverride, fm.prTitle, fm.path, fm.autoMerge, runnerCmd); err != nil {
 		fmt.Fprintln(os.Stderr, "monitor error:", err)
 		os.Exit(1)
 	}
