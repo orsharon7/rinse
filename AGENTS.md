@@ -57,7 +57,8 @@ Project instructions for AI coding agents.
 
 ### Python
 - **Safety:** Guard boolean aggregates against the empty-collection case (`all_failed = bool(collection)`). If a docstring asserts "Never raises", wrap every code path including pre-`try` operations.
-- **Streams & serialization:** Close async streams in a `try/finally` via `await stream.aclose()` when not using a context manager. Join multi-line protocol frames with the spec-mandated separator (`"\n"`), not an empty string.
+- **Variable initialization:** Initialize all closure-captured accumulator variables (e.g. output collectors, loop-input message variables) before the first function or loop iteration that reads them; never rely on a later assignment inside a loop to satisfy an earlier reference outside it.
+- **Streams & serialization:** Close async streams in a `try/finally` via `await stream.aclose()` when not using a context manager. Join multi-line protocol frames with the spec-mandated separator (`"\n"`), not an empty string. When a comment or docstring describes serialization behavior (e.g. "field omitted when None"), verify the actual serializer call uses the matching option (e.g. `exclude_none=True`); mismatched intent and implementation silently emit incorrect wire formats.
 - **Imports & parsing:** Before removing a module-level import symbol, grep the file for remaining usages. When parsing structured strings (e.g. ARM IDs), locate segments by key, not fixed index; guard against malformed input.
 - **Warnings:** Use a narrowly scoped `"ignore"` filter with a precise `message` regex; a broad `"always"` filter re-enables warnings globally.
 - **Dependency compatibility:** When a third-party symbol is removed in a new package version, guard the import with `try/except ImportError` and raise a descriptive `RuntimeError` at call-time rather than crashing at import-time; ensure the pinned version and the imported symbols are reconciled so tests don't silently stub away a runtime `ImportError`.
@@ -78,6 +79,7 @@ Project instructions for AI coding agents.
 - Never combine a percentage `width` with a fixed pixel `height` on an SVG; use `aspect-ratio` or explicit pixel dimensions.
 - Never call browser-only APIs (`window`, `document`, `matchMedia`) during SSR render; compute in `useEffect`. Feature-detect before calling modern Web APIs; fall back to legacy equivalents (e.g. `addListener`).
 - Never use inline hex color values; use Tailwind utility classes or CSS design tokens (e.g. `var(--color-name)`) so theming and design-system constraints apply consistently.
+- When reading properties from an SSE or event payload in a `useEffect`, verify the payload's runtime type matches its TypeScript type; never access object properties on a value typed as a string or string union without a type guard.
 
 ### API, Testing & Observability
 - When a backend enum gains new values or aliases, update all mirrored client-side type definitions in the same change.
