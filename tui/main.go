@@ -160,9 +160,8 @@ type runner struct {
 }
 
 var runners = []runner{
-	{"opencode  — GitHub Copilot · no API key needed  ✦", "pr-review-opencode.sh", "github-copilot/claude-sonnet-4.6"},
-	{"claude v2 — Claude Code · requires Anthropic key", "pr-review-claude-v2.sh", "claude-sonnet-4-6"},
-	{"claude v1 — legacy runner", "pr-review-claude.sh", ""},
+	{"opencode — GitHub Copilot · no API key needed  ✦", "pr-review-opencode.sh", "github-copilot/claude-sonnet-4.6"},
+	{"claude  — Claude Code · requires Anthropic key", "pr-review-claude-v2.sh", "claude-sonnet-4-6"},
 }
 
 // ── Model ─────────────────────────────────────────────────────────────────────
@@ -538,11 +537,6 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.input.SetValue("")
 			m.input.Placeholder = m.reflectBranch
 			m.input.Focus()
-			// skip reflect for claude v1
-			if m.runnerIdx == 2 {
-				m.reflect = false
-				m.step = stepConfirm
-			}
 			return m, textinput.Blink
 		}
 		if key == "esc" {
