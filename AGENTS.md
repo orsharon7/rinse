@@ -58,6 +58,7 @@ Project instructions for AI coding agents.
 - **Contracts:** If a docstring asserts "Never raises", wrap every code path — including pre-`try` operations — in exception handling.
 - **Warnings:** Use a narrowly scoped `"ignore"` filter with a precise `message` regex; a broad `"always"` filter re-enables warnings globally.
 - **Serialization:** Join multi-line protocol frames (e.g. SSE `data:` lines) with the spec-mandated separator (`"\n"`), not an empty string.
+- **Import hygiene:** When removing a symbol from a module-level import block, grep the entire file for remaining usages first; `NameError` only surfaces at runtime, not at import time.
 
 ### Configuration Integrity
 - Never expose a config setting (env var, config key, documented option) that is not wired to runtime behavior; remove or connect it, and verify end-to-end: read → validate → pass to the relevant constructor.
@@ -73,6 +74,7 @@ Project instructions for AI coding agents.
 - Trigger scroll/layout side-effects (e.g. `scrollDown()`) after DOM mutations, not before; elements appended after a scroll call land off-screen.
 - Never cap a dynamically-sized container with fixed `max-height` + `overflow: hidden`; use a viewport-relative cap (e.g. `min(80vh, 1400px)`) with `overflow-y: auto`.
 - Never use `onMouseEnter`/`onMouseLeave` to imperatively mutate element styles for hover effects; use CSS `:hover` or a class toggle so styling stays declarative and isn't reset by re-renders.
+- Never combine a percentage `width` with a fixed pixel `height` on an SVG element; the default `preserveAspectRatio="xMidYMid meet"` will scale to the narrower dimension, leaving wasted space — omit the explicit height and let CSS/`aspect-ratio` control it, or use explicit pixel dimensions with overflow scrolling.
 
 ### API & Type Contracts
 - When a backend enum or union type gains new values or legacy aliases, update all mirrored client-side type definitions (e.g. TypeScript unions) in the same change.
