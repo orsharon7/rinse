@@ -5,7 +5,7 @@ Project instructions for AI coding agents.
 <!-- BEGIN:COPILOT-RULES -->
 ## Coding Guidelines (AI-maintained)
 *Auto-updated by pr-review-reflect — do not edit this section manually.*
-*Last updated: 2026-04-12 from PR #22 review (optimized)*
+*Last updated: 2026-04-12 from PR #22 review*
 
 ### Shell Scripting
 - Read interactive terminal input from `/dev/tty`, never stderr; render UI output to stderr.
@@ -72,6 +72,7 @@ Project instructions for AI coding agents.
 - Never apply animations via inline `style` attributes — `@media (prefers-reduced-motion: reduce)` cannot override them. Use CSS classes (or check `window.matchMedia` at render time) and include a `prefers-reduced-motion` block that disables animations/transitions.
 - Trigger scroll/layout side-effects (e.g. `scrollDown()`) after DOM mutations, not before; elements appended after a scroll call land off-screen.
 - Never cap a dynamically-sized container with fixed `max-height` + `overflow: hidden`; use a viewport-relative cap (e.g. `min(80vh, 1400px)`) with `overflow-y: auto`.
+- Never use `onMouseEnter`/`onMouseLeave` to imperatively mutate element styles for hover effects; use CSS `:hover` or a class toggle so styling stays declarative and isn't reset by re-renders.
 
 ### API & Type Contracts
 - When a backend enum or union type gains new values or legacy aliases, update all mirrored client-side type definitions (e.g. TypeScript unions) in the same change.
@@ -79,6 +80,7 @@ Project instructions for AI coding agents.
 ### Testing
 - When patching settings/config with `MagicMock`, explicitly set every field controlling branching logic; unset mock attributes are truthy and silently force unintended code paths.
 - When a settings field is renamed or removed, update all test fixtures referencing the old name; stale assignments silently mask regressions.
+- Remove unused imports from test files; they add noise, can trip strict linters, and obscure what the test actually depends on.
 
 ### Logging & Observability
 - Retry log messages must use a denominator matching actual total attempts; distinguish "attempt N of M" (total) from "retry N of M" (retries-only).
