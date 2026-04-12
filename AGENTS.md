@@ -5,7 +5,7 @@ Project instructions for AI coding agents.
 <!-- BEGIN:COPILOT-RULES -->
 ## Coding Guidelines (AI-maintained)
 *Auto-updated by pr-review-reflect — do not edit this section manually.*
-*Last updated: 2026-04-12 from PR #22 review (optimized)*
+*Last updated: 2026-04-12 from PR #22 review*
 
 ### Shell Scripting
 - Read interactive terminal input from `/dev/tty`, never stderr; render UI output to stderr.
@@ -71,6 +71,7 @@ Project instructions for AI coding agents.
 - Never cap a dynamically-sized container with fixed `max-height` + `overflow: hidden`; use a viewport-relative cap (e.g. `min(80vh, 1400px)`) with `overflow-y: auto`.
 - Use CSS `:hover` or class toggles for hover effects, not `onMouseEnter`/`onMouseLeave` style mutations.
 - Never combine a percentage `width` with a fixed pixel `height` on an SVG; omit the explicit height and let CSS/`aspect-ratio` control it, or use explicit pixel dimensions.
+- Never call browser-only APIs (`window`, `document`, `matchMedia`, etc.) during render in SSR contexts; compute such values in a `useEffect` so the initial client render matches server output and avoids hydration mismatches.
 
 ### API & Type Contracts
 - When a backend enum or union type gains new values or legacy aliases, update all mirrored client-side type definitions (e.g. TypeScript unions) in the same change.
