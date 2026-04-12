@@ -5,109 +5,76 @@ Project instructions for AI coding agents.
 <!-- BEGIN:COPILOT-RULES -->
 ## Coding Guidelines (AI-maintained)
 *Auto-updated by pr-review-reflect — do not edit this section manually.*
-*Last updated: 2026-04-12 from PR #22 review*
+*Last updated: 2026-04-12 from PR #22 review (optimized)*
 
 ### Shell Scripting
-- Always read interactive terminal input (keypresses, menus) from `/dev/tty`, never from stderr (`&2`); render UI output to stderr.
-- Always validate numeric parameters are within an acceptable range (e.g. ≥ 1) before using them as divisors; never assume a caller-supplied value is safe for arithmetic.
-- Always verify CLI flag syntax against the tool's actual specification — boolean flags (enabled by presence/absence) are not interchangeable with `--flag=value` style; test flags before shipping.
-- Always pass an explicit `--repo` (or equivalent scope flag) to CLI tools like `gh` rather than relying on ambient directory inference; the inferred context may differ from the user's intended target.
-- Use `tput sc`/`tput rc` (or ANSI save/restore cursor `\0337`/`\0338`) around any temporary cursor repositioning; never restore the cursor to hard-coded row/column values.
-- When a non-interactive mode flag (e.g. `--no-interactive`) is set, skip all interactive menus and prompts entirely rather than falling back to a still-blocking alternative.
-- When computing a display width or substring length by subtracting a prefix/offset, clamp the result to a minimum of 0 before use; negative lengths in bash substring expressions (`${var:offset:length}`) slice from the end rather than yielding an empty string.
-- Always use `grep -E` (ERE) for patterns with alternation; never rely on `\|` in BRE, which is non-portable across BSD/macOS and GNU grep.
-- Never use `local` outside of a function body; it is invalid in bash at top-level scope and will abort scripts running under `set -e`.
-- Always verify that arithmetic expansions have balanced parentheses (`$(( ... ))`); an extra `)` is a syntax error that prevents the script from being sourced.
-- When generating a wrapper script via heredoc, embed resolved absolute paths directly into the heredoc rather than post-processing with `sed`; `sed` operates on the literal heredoc text and cannot resolve shell variables that were in scope when the heredoc was written.
-- When a function accepts a status/ok argument (e.g. `true`, `false`, `skip`), all output paths — including non-interactive or fallback branches — must reflect that status visually; never silently discard a failure or skip signal by printing the same icon/prefix unconditionally.
+- Read interactive terminal input from `/dev/tty`, never stderr; render UI output to stderr.
+- Validate numeric parameters are ≥ 1 before use as divisors; never assume caller-supplied values are safe for arithmetic.
+- Verify CLI flag syntax against the tool's spec — boolean flags (presence/absence) are not interchangeable with `--flag=value`; test before shipping.
+- Pass an explicit `--repo` (or equivalent scope flag) to CLI tools like `gh`; never rely on ambient directory inference.
+- Use `tput sc`/`tput rc` around temporary cursor repositioning; never restore to hard-coded row/column values.
+- When `--no-interactive` is set, skip all prompts entirely; never fall back to a still-blocking alternative.
+- Clamp display-width subtractions to a minimum of 0; negative lengths in `${var:offset:length}` slice from the end.
+- Use `grep -E` for alternation patterns; `\|` in BRE is non-portable across BSD/macOS and GNU grep.
+- Never use `local` outside a function body (invalid at top-level under `set -e`) or unbalanced `$(( ))` (syntax error).
+- In heredoc-generated wrapper scripts, embed resolved absolute paths directly; `sed` cannot resolve shell variables from the outer scope.
+- All output paths of a status-accepting function (`true`/`false`/`skip`) must reflect that status visually; never silently discard a failure/skip signal.
 
 ### Environment & CI Portability
-- When performing git operations that require user identity, add a preflight check for `user.name`/`user.email` with a clear error message, or accept identity overrides via environment variables.
-- When a preflight check supports multiple configuration sources (config file, environment variables), check all advertised sources and keep the error message exactly in sync with what is actually checked.
-- Always validate required environment variables before using them to construct paths or commands; return a clear error rather than silently producing an invalid path.
-- When validating git identity for commit operations, check both author identity (`GIT_AUTHOR_NAME`/`GIT_AUTHOR_EMAIL`) and committer identity (`GIT_COMMITTER_NAME`/`GIT_COMMITTER_EMAIL`); a preflight that checks only one role can pass while `git commit` still fails.
+- For git operations requiring identity, check both author (`GIT_AUTHOR_NAME`/`GIT_AUTHOR_EMAIL`) and committer (`GIT_COMMITTER_NAME`/`GIT_COMMITTER_EMAIL`) identity; a preflight that checks only one role can pass while `git commit` still fails.
+- When a preflight supports multiple config sources, check all of them and keep error messages in sync with what is actually checked.
+- Validate required environment variables before constructing paths or commands; return a clear error rather than silently producing an invalid path.
 
 ### Documentation Integrity
-- Keep README directory trees and file references in sync with actual repository contents; if a path is user-created at runtime, document it as such rather than listing it as a committed file.
-- Ensure log messages, menu text, and UI labels exactly match the behavior the code actually performs; never describe a side effect (e.g. "with remote branch deletion") unless the corresponding flag or call is present in the implementation.
-- When a README section references a project artifact (e.g. a LICENSE file, a config file, a script), ensure that artifact actually exists in the repository; remove or update the section whenever the artifact is added, renamed, or deleted.
-- Keep installer/script documented prerequisites (e.g. minimum tool versions) in sync with what the module manifest (e.g. `go.mod`, `package.json`) actually declares; never let the two diverge silently.
-- When a design or planning document makes assertions about implementation scope (e.g. "no new files", "zero logic changes"), phrase these as design intent rather than factual statements; the actual implementation may diverge and such claims become misleading.
+- Keep README file trees, artifact references, and documented prerequisites (tool versions, `go.mod`/`package.json`) in sync with actual repository contents and module manifests; update or remove stale references when files are added, renamed, or deleted.
+- UI labels, log messages, and menu text must exactly match the behavior performed; never describe a side effect unless the corresponding code is present.
+- Phrase implementation-scope assertions in design documents as intent, not fact; the actual implementation may diverge.
 
-### CLI & User Input
-- When a parameter is optional (e.g. "leave blank for default"), default its prompt to an empty string and only include the corresponding flag/argument in the command when the user explicitly provides a non-empty value; never use a non-empty default that silently pins a value the user intended to omit.
-
-### Installers & Packaging
-- When an installer generates a wrapper script or binary that references helper files by absolute path, either install those files alongside the binary or clearly document that the source repository must remain present at the original path; never silently produce a wrapper that breaks if the repo is moved or deleted.
+### CLI, Installers & Packaging
+- For optional parameters, default the prompt to empty and only include the flag when the user provides a non-empty value; never silently pin a value the user intended to omit.
+- Installer-generated wrappers that reference helper files by absolute path must either bundle those files or document that the source repo must remain at its original path.
 
 ### TUI & Layout
-- When multiple log or output formats represent the same logical event, use a single shared predicate for all detection (routing, phase inference, string extraction); never duplicate format-detection logic across callsites.
-- When trimming a known separator character from a string, account for all visual and encoding variants of that character (e.g. ASCII `|` and box-drawing `│`) to avoid leaving stray leading characters.
-- When a layout conditionally hides a panel based on available width, the render path must also skip or empty that panel; keep layout-guard logic and render-guard logic in sync.
-- Never subtract a panel's width from a layout calculation when that panel is hidden; make width computations conditional on panel visibility.
-- When a helper function's return value has a documented semantic (e.g. inner/content width vs. total/outer width), callers must apply any necessary adjustment (e.g. adding border/padding) at the call site rather than conflating the two semantics; document the convention in the function's comment.
-- When routing log or output lines to a conditional UI panel (e.g. a side panel that may be hidden on narrow terminals or before the first layout message), guard the routing on whether the panel is actually visible; never silently discard output that has no other render path.
-- When a UI component supports multiple interaction modes (e.g. text input vs. picker), scope input routing and focus gating to the currently active mode; never treat a component as input-active unconditionally when it may be in a non-input mode.
-- Keep in-code comments that document layout constants (e.g. "reserves N rows") in sync with the actual constant value and any external documentation; divergence between the constant, its comment, and docs causes silent layout bugs.
-- When defaulting a layout dimension (e.g. terminal width), apply the fallback only when the value is uninitialized (`<= 0`), never when it is a legitimately small positive value; substituting a larger fixed constant for a real small dimension causes overflow/wrapping on narrow terminals.
-- Always clamp computed widget dimensions (e.g. `totalW - 2`, `w - 4`) to a minimum of 0 before passing them to a rendering library (e.g. lipgloss `Width()`); terminal resize events can produce legitimately small sizes that make the subtraction negative, causing rendering glitches or panics.
-
-### Go: Performance
-- Never accumulate strings with `+=` in a loop or hot path; use `strings.Builder` (or an equivalent append-only buffer) for incremental string construction to avoid O(n²) copying behavior.
-
-### Go: Error Handling & Safety
-- Never call `os.Exit()` inside a UI framework lifecycle (e.g. Bubble Tea); return errors up to `main()` and quit gracefully so the terminal state (alt-screen, cursor) is restored.
-- Always guard `strings.Index()` results against `-1` before using them as slice bounds; prefer `strings.Cut()` which returns a `found` boolean and eliminates the panic risk.
-- Always check and handle `scanner.Err()` after a `bufio.Scanner` loop exits; ignoring it can silently stall pipe reads and deadlock child processes.
-- Never embed non-copy-safe types (e.g. `strings.Builder`, `sync.Mutex`) by value in structs that are copied frequently (e.g. Bubble Tea models passed by value through `Update`); store them behind a pointer or use a copy-safe alternative to avoid runtime panics.
-
-### Go: Concurrency & Channels
-- When a producer signals completion via a separate done channel, always drain all data channels fully before acting on the done signal; never let a `select` race cause buffered output to be silently dropped.
-
-### Go: File Paths & Unicode
-- Use `filepath.Dir()` and `filepath.Join()` for portable path derivation; never use string trimming of binary names to compute parent directories.
-- Use rune-aware (or display-width-aware) truncation for any user-visible string; never slice strings by byte index when content may contain multi-byte UTF-8 characters.
-
-### Go Module Hygiene
-- Run `go mod tidy` before committing Go module changes; packages imported directly in source must not be annotated `// indirect` in `go.mod`.
-
-### Go: Build & Linker
-- When using `-X pkg.Symbol=value` in LDFLAGS, ensure the named symbol is actually declared as a `var` in the target package; an injected symbol with no corresponding variable causes a link-time "symbol not found" failure.
+- Use a single shared predicate for detecting the same logical event across log/output formats; never duplicate format-detection logic.
+- When a panel is hidden, both layout-guard and render-guard logic must agree; never subtract a hidden panel's width from layout calculations.
+- Always clamp computed widget dimensions to ≥ 0 before passing to a rendering library; apply the terminal-width fallback only when the value is uninitialized (`<= 0`), never over a legitimately small positive value.
+- Guard log/output routing to a conditional panel on whether the panel is actually visible; never silently discard output with no other render path.
+- Document helper-function return-value semantics (inner vs. outer width) in comments; callers must apply border/padding adjustments at the call site.
+- Keep layout-constant comments in sync with the actual constant value; scope input routing and focus gating to the currently active interaction mode.
+- When trimming a separator, account for all visual/encoding variants (e.g. ASCII `|` and box-drawing `│`).
 
 ### UI & State Management
-- Never derive display state for a completed/finalized item from a mutable run-scoped map that is reset on each new run; persist the final state on the data object itself (e.g. a `finalStatus` field) so prior items remain visually stable across subsequent runs.
-- Apply live/streaming-derived styling only to items that are actively streaming; use persisted state for all other items to prevent visual regression when shared state is reset.
+- Persist final item state on the data object itself (e.g. a `finalStatus` field); never derive display state from a mutable run-scoped map that resets on each run.
+- Apply streaming-derived styling only to actively streaming items; use persisted state for all others.
+- Normalize internal/legacy identifiers to canonical user-facing labels before rendering in chips, badges, or labels.
 
-### Python: Control Flow & Aggregates
-- When initializing a boolean aggregate (e.g. `all_failed = True`) over a collection, guard against the empty-collection case explicitly — either with `if not collection: continue` or by initializing based on emptiness (e.g. `all_failed = bool(collection)`) — so empty inputs never produce a spurious failure.
-- Never assume a collection passed to a loop is non-empty; always handle the empty case explicitly when the loop body's aggregate result is used to gate downstream behavior.
+### Go
+- **Performance:** Use `strings.Builder` for incremental string construction; never use `+=` in a loop (O(n²)).
+- **Error handling:** Never call `os.Exit()` inside a UI framework lifecycle (e.g. Bubble Tea); return errors to `main()`. Prefer `strings.Cut()` over `strings.Index()` to avoid `-1` slice panics. Always check `scanner.Err()` after a `bufio.Scanner` loop.
+- **Safety:** Never embed non-copy-safe types (`strings.Builder`, `sync.Mutex`) by value in frequently-copied structs (e.g. Bubble Tea models); use a pointer instead.
+- **Concurrency:** Drain all data channels before acting on a done-channel signal; never let a `select` race drop buffered output.
+- **Paths & Unicode:** Use `filepath.Dir()`/`filepath.Join()` for path derivation. Use rune-aware truncation for user-visible strings; never slice by byte index.
+- **Module hygiene:** Run `go mod tidy` before committing; directly-imported packages must not be marked `// indirect`.
+- **Linker:** Ensure every `-X pkg.Symbol=value` LDFLAGS symbol is declared as a `var` in the target package.
+
+### Python
+- **Aggregates:** Guard boolean aggregates over collections against the empty-collection case (e.g. `all_failed = bool(collection)`); never assume a loop input is non-empty.
+- **Contracts:** If a function's docstring asserts "Never raises", wrap every code path — including pre-`try` operations — in exception handling.
+- **Warnings:** Use a narrowly scoped `"ignore"` filter with a precise `message` regex; a broad `"always"` filter re-enables warnings globally.
+- **Serialization:** Join multi-line protocol frames (e.g. SSE `data:` lines) with the spec-mandated separator (`"\n"`), not an empty string.
 
 ### Configuration Integrity
-- Never expose a configuration setting (env var, config key, or documented option) that is not wired into the corresponding runtime behavior; either connect it to the implementation or remove the config surface and its documentation entirely.
-- When adding a new configuration option, verify end-to-end that the value is read, validated, and passed to the relevant constructor or call site before shipping.
-- When using a typed settings model (e.g. Pydantic `BaseSettings`), declare every env-var-backed field as an explicit model field; using `getattr` with a fallback silently bypasses the schema so the env var can never be set by the caller.
-
-### Python: Warnings & Logging
-- When suppressing a specific warning, use a narrowly scoped `"ignore"` filter with a precise `message` regex rather than a broad `"always"` filter; a broad `"always"` filter re-enables all matching warnings globally, not just the one being targeted.
-
-### Protocol & Serialization
-- When reconstructing multi-line protocol frames (e.g. SSE `data:` lines, HTTP chunked payloads), join segments with the spec-mandated separator (e.g. `"\n"` for SSE) rather than an empty string; joining without a separator loses semantic content and corrupts payloads.
-
-### Python: Contracts & Exception Handling
-- When a function's docstring asserts "Never raises" (or an equivalent contract), ensure every code path — including all operations before the first `try/except` — is covered by exception handling; an unguarded top-level call breaks the contract silently.
+- Never expose a config setting (env var, config key, documented option) that is not wired to runtime behavior; remove or connect it.
+- Verify new config options end-to-end: read → validate → pass to the relevant constructor or call site.
+- In typed settings models (e.g. Pydantic `BaseSettings`), declare every env-var-backed field explicitly; `getattr` with a fallback silently bypasses the schema.
 
 ### Cloud Resource Configuration
-- Never infer a cloud resource's subscription or resource group from the metadata of an unrelated resource (e.g. deriving a Search service ARM ID from a Foundry project resource ID); always prefer an explicit configuration setting (e.g. `AZURE_SEARCH_RESOURCE_ID`) and emit a warning when falling back to inference, since cross-resource-group deployments will silently 404.
+- Never infer a cloud resource's subscription/resource group from an unrelated resource's metadata; prefer explicit config (e.g. `AZURE_SEARCH_RESOURCE_ID`) and warn on fallback inference, since cross-resource-group deployments will silently 404.
 
-### UI: Identifier Normalization
-- Always normalize internal or legacy identifiers (e.g. API tool IDs, feature flags) to a canonical user-facing label before rendering them in UI components; never expose raw internal or alias names in chips, badges, or labels, as they create inconsistent UX and leak implementation details.
-
-### Frontend: Performance
-- Never use `Array.find()` or equivalent O(n) search inside a render loop over the same collection; build a lookup map (e.g. a keyed object or `Map`) once before the loop to keep rendering O(n).
-
-### Accessibility
-- Always add an explicit `aria-label` to icon-only buttons (controls with no visible text); `title` alone is not a reliable accessible name for screen readers.
-- Always add a `@media (prefers-reduced-motion: reduce)` block that disables or neutralizes CSS animations and transitions; omitting it can cause discomfort or harm for users with vestibular or motion-sensitivity disorders.
+### Frontend & Accessibility
+- Build a lookup map before render loops; never use `Array.find()` (O(n)) inside a loop over the same collection.
+- Add `aria-label` to all icon-only buttons; `title` alone is not a reliable accessible name.
+- Include a `@media (prefers-reduced-motion: reduce)` block that disables CSS animations/transitions.
 
 <!-- END:COPILOT-RULES -->
 
