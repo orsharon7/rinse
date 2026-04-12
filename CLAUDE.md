@@ -77,6 +77,7 @@ Project instructions for AI coding agents.
 - Include a `@media (prefers-reduced-motion: reduce)` block that disables CSS animations/transitions.
 - Never apply animations via inline `style` attributes; CSS `@media (prefers-reduced-motion)` rules cannot override inline styles, so motion-sensitive users will not be protected. Use CSS classes or check `window.matchMedia('(prefers-reduced-motion: reduce)')` at render time instead.
 - Trigger scroll/layout side-effects (e.g. `scrollDown()`) after DOM mutations that append new nodes, not before; elements appended after a scroll call land off-screen until the next interaction.
+- Never cap a dynamically-sized content container with a fixed `max-height` and `overflow: hidden` simultaneously; use a viewport-relative cap (e.g. `min(80vh, 1400px)`) with `overflow-y: auto` so content remains reachable regardless of how much the underlying data grows.
 
 ### Documentation Integrity (Functions & Docstrings)
 - Docstrings must accurately reflect which parameters are truly required vs. optional and what side-effects occur (e.g. logging, emitting events); never describe a parameter as required if the function only conditionally uses it, and never say "skips silently" if the function logs or emits status messages.
@@ -86,6 +87,7 @@ Project instructions for AI coding agents.
 
 ### Testing
 - In tests that patch settings or config objects with a `MagicMock`, explicitly set every field that controls branching logic to a concrete value; unset mock attributes are truthy and will silently force unintended code paths.
+- When a settings field is renamed or removed, update all test fixtures that reference the old field name; stale assignments silently mask regressions and misrepresent the active schema.
 
 ### Logging & Observability
 - Retry/attempt log messages must use a denominator that matches the actual total attempts (initial + retries); distinguish "attempt N of M" (total) from "retry N of M" (retries-only) to avoid misleading operators during incident debugging.
