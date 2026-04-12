@@ -5,7 +5,7 @@ Project instructions for AI coding agents.
 <!-- BEGIN:COPILOT-RULES -->
 ## Coding Guidelines (AI-maintained)
 *Auto-updated by pr-review-reflect — do not edit this section manually.*
-*Last updated: 2026-04-12 from PR #23 review (optimized)*
+*Last updated: 2026-04-12 from PR #23 review*
 
 ### Shell Scripting
 - Read interactive input from `/dev/tty`, never stderr; render UI output to stderr.
@@ -26,6 +26,8 @@ Project instructions for AI coding agents.
 - Labels, log messages, and docstrings must match actual behavior: never describe a side effect the code doesn't perform; never say "skips silently" if the function logs or emits.
 - Document serialization formats and SDK call paths exactly as implemented; never carry over assumptions from prior designs or reference methods the code doesn't call.
 - Phrase design-document assertions as intent, not fact.
+- Keep architecture and data-flow diagrams in sync with actual SDK/API call paths; when an implementation changes its call site, update every diagram that references it in the same PR.
+- When a document section contradicts another (e.g. "Project Context" claims a framework that another section says is not used), reconcile them by verifying against actual imports and removing or qualifying the inaccurate claim.
 
 ### CLI, Installers & Packaging
 - Optional parameters default to empty; include the flag only when the user provides a value — never silently pin an omitted value.
