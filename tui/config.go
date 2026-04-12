@@ -8,12 +8,13 @@ import (
 
 // Config stores the last-used wizard settings so repeated runs need fewer keystrokes.
 type Config struct {
-	LastRepo    string `json:"last_repo"`
-	LastPath    string `json:"last_path"`
-	LastRunner  int    `json:"last_runner"`
-	LastModel   string `json:"last_model"`
-	LastReflect bool   `json:"last_reflect"`
-	LastBranch  string `json:"last_reflect_branch"`
+	LastRepo      string `json:"last_repo"`
+	LastPath      string `json:"last_path"`
+	LastRunner    int    `json:"last_runner"`
+	LastModel     string `json:"last_model"`
+	LastReflect   bool   `json:"last_reflect"`
+	LastBranch    string `json:"last_reflect_branch"`
+	LastAutoMerge bool   `json:"last_auto_merge"`
 }
 
 func configPath() string {
