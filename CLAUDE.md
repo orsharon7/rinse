@@ -5,7 +5,7 @@ Project instructions for AI coding agents.
 <!-- BEGIN:COPILOT-RULES -->
 ## Coding Guidelines (AI-maintained)
 *Auto-updated by pr-review-reflect — do not edit this section manually.*
-*Last updated: 2026-04-10 from PR #8 review*
+*Last updated: 2026-04-12 from PR #22 review*
 
 ### Shell Scripting
 - Always read interactive terminal input (keypresses, menus) from `/dev/tty`, never from stderr (`&2`); render UI output to stderr.
@@ -72,6 +72,21 @@ Project instructions for AI coding agents.
 
 ### Go: Build & Linker
 - When using `-X pkg.Symbol=value` in LDFLAGS, ensure the named symbol is actually declared as a `var` in the target package; an injected symbol with no corresponding variable causes a link-time "symbol not found" failure.
+
+### UI & State Management
+- Never derive display state for a completed/finalized item from a mutable run-scoped map that is reset on each new run; persist the final state on the data object itself (e.g. a `finalStatus` field) so prior items remain visually stable across subsequent runs.
+- Apply live/streaming-derived styling only to items that are actively streaming; use persisted state for all other items to prevent visual regression when shared state is reset.
+
+### Python: Control Flow & Aggregates
+- When initializing a boolean aggregate (e.g. `all_failed = True`) over a collection, guard against the empty-collection case explicitly — either with `if not collection: continue` or by initializing based on emptiness (e.g. `all_failed = bool(collection)`) — so empty inputs never produce a spurious failure.
+- Never assume a collection passed to a loop is non-empty; always handle the empty case explicitly when the loop body's aggregate result is used to gate downstream behavior.
+
+### Configuration Integrity
+- Never expose a configuration setting (env var, config key, or documented option) that is not wired into the corresponding runtime behavior; either connect it to the implementation or remove the config surface and its documentation entirely.
+- When adding a new configuration option, verify end-to-end that the value is read, validated, and passed to the relevant constructor or call site before shipping.
+
+### Python: Warnings & Logging
+- When suppressing a specific warning, use a narrowly scoped `"ignore"` filter with a precise `message` regex rather than a broad `"always"` filter; a broad `"always"` filter re-enables all matching warnings globally, not just the one being targeted.
 
 <!-- END:COPILOT-RULES -->
 
