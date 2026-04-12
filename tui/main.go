@@ -203,7 +203,8 @@ type model struct {
 	runnerCursor int
 
 	// reflect picker cursor (0=yes 1=no)
-	reflectCursor int
+	reflectCursor      int
+	reflectBranchEdited bool // true when user explicitly typed a branch name
 
 	// auto-merge picker cursor (0=yes 1=no)
 	autoMergeCursor int
@@ -301,7 +302,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case defaultBranchMsg:
 		m.defaultBranch = string(msg)
-		if m.reflectBranch == "" {
+		// Always sync reflectBranch to the target repo's default branch
+		// unless the user has explicitly changed it in this session.
+		// The persisted cfg.LastBranch may be stale from a different repo.
+		if !m.reflectBranchEdited {
 			m.reflectBranch = m.defaultBranch
 		}
 		return m, nil
@@ -365,6 +369,30 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.repo = val
 			m.errMsg = ""
+			// Load per-repo settings if available
+			if rc, ok := LoadRepoConfig(val); ok {
+				if rc.Path != "" {
+					m.pathDefault = rc.Path
+				}
+				if rc.Runner >= 0 && rc.Runner < len(runners) {
+					m.runnerCursor = rc.Runner
+				}
+				m.modelOverride = rc.Model
+				m.reflect = rc.Reflect
+				if rc.Reflect {
+					m.reflectCursor = 0
+				} else {
+					m.reflectCursor = 1
+				}
+				m.autoMerge = rc.AutoMerge
+				if rc.AutoMerge {
+					m.autoMergeCursor = 0
+				} else {
+					m.autoMergeCursor = 1
+				}
+				// Don't load branch from per-repo config — let fetchDefaultBranch handle it
+				m.reflectBranchEdited = false
+			}
 			m.step = stepPR
 			m.prLoading = true
 			m.prs = nil
@@ -526,6 +554,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				val := strings.TrimSpace(m.input.Value())
 				if val == "" {
 					val = m.defaultBranch
+				} else {
+					m.reflectBranchEdited = true
 				}
 				m.reflectBranch = val
 				m.reflect = true

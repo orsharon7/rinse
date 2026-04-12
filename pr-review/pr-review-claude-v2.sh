@@ -188,71 +188,72 @@ _dismiss_and_rerequst() {
   return 1
 }
 
-# Interactive stall menu — shown when TTY and Copilot hasn't responded
+# Interactive stall menu — shown when TTY and Copilot hasn't responded.
+# Uses a loop instead of recursion to avoid stack overflow on repeated "Wait again".
 _stall_menu() {
-  echo "" >&2
-  log "   ⚠️  Copilot hasn't responded after ${WAIT_MAX}s"
+  while true; do
+    echo "" >&2
+    log "   ⚠️  Copilot hasn't responded after ${WAIT_MAX}s"
 
-  local choice
-  choice=$(_ui_arrow_menu \
-    "Wait again  (another ${WAIT_MAX}s)" \
-    "Check now  (single poll, then keep waiting)" \
-    "Dismiss & re-request  (restart Copilot review)" \
-    "Stop the cycle  (exit)")
+    local choice
+    choice=$(_ui_arrow_menu \
+      "Wait again  (another ${WAIT_MAX}s)" \
+      "Check now  (single poll, then keep waiting)" \
+      "Dismiss & re-request  (restart Copilot review)" \
+      "Stop the cycle  (exit)")
 
-  case "$choice" in
-    0)  # Wait again
-      log "   ⏳ Waiting another ${WAIT_MAX}s..."
-      local elapsed3=0 interval=15
-      while [[ $elapsed3 -lt $WAIT_MAX ]]; do
-        local p3
-        p3=$(copilot_is_pending)
-        [[ "$p3" == "false" ]] && { ui_wait_clear; return 0; }
-        ui_wait_tick "$elapsed3" "$WAIT_MAX" "Copilot reviewing (extended wait)"
-        local sleep_time3=$(( interval < (WAIT_MAX - elapsed3) ? interval : (WAIT_MAX - elapsed3) ))
-        sleep "$sleep_time3"
-        elapsed3=$(( elapsed3 + sleep_time3 ))
-      done
-      ui_wait_clear
-      if [[ "$(copilot_is_pending)" == "false" ]]; then
-        log "   ✓ Review arrived — continuing"
-        return 0
-      fi
-      _stall_menu
-      return $?
-      ;;
-    1)  # Check now
-      ui_wait_clear
-      if [[ "$(copilot_is_pending)" == "false" ]]; then
-        log "   ✓ Review found — continuing"
-        return 0
-      fi
-      log "   Still pending — resuming wait..."
-      local elapsed4=0 interval=15
-      while [[ $elapsed4 -lt $WAIT_MAX ]]; do
-        local p4
-        p4=$(copilot_is_pending)
-        [[ "$p4" == "false" ]] && { ui_wait_clear; return 0; }
-        ui_wait_tick "$elapsed4" "$WAIT_MAX" "Copilot reviewing"
-        local sleep_time4=$(( interval < (WAIT_MAX - elapsed4) ? interval : (WAIT_MAX - elapsed4) ))
-        sleep "$sleep_time4"
-        elapsed4=$(( elapsed4 + sleep_time4 ))
-      done
-      ui_wait_clear
-      if [[ "$(copilot_is_pending)" == "false" ]]; then return 0; fi
-      _stall_menu
-      return $?
-      ;;
-    2)  # Dismiss & re-request
-      log "   🔄 Dismissing and re-requesting Copilot review..."
-      _dismiss_and_rerequst
-      return $?
-      ;;
-    3)  # Stop
-      log "   🛑 Cycle stopped by user."
-      return 1
-      ;;
-  esac
+    case "$choice" in
+      0)  # Wait again
+        log "   ⏳ Waiting another ${WAIT_MAX}s..."
+        local elapsed3=0 interval=15
+        while [[ $elapsed3 -lt $WAIT_MAX ]]; do
+          local p3
+          p3=$(copilot_is_pending)
+          [[ "$p3" == "false" ]] && { ui_wait_clear; return 0; }
+          ui_wait_tick "$elapsed3" "$WAIT_MAX" "Copilot reviewing (extended wait)"
+          local sleep_time3=$(( interval < (WAIT_MAX - elapsed3) ? interval : (WAIT_MAX - elapsed3) ))
+          sleep "$sleep_time3"
+          elapsed3=$(( elapsed3 + sleep_time3 ))
+        done
+        ui_wait_clear
+        if [[ "$(copilot_is_pending)" == "false" ]]; then
+          log "   ✓ Review arrived — continuing"
+          return 0
+        fi
+        # Loop back to show menu again
+        ;;
+      1)  # Check now
+        ui_wait_clear
+        if [[ "$(copilot_is_pending)" == "false" ]]; then
+          log "   ✓ Review found — continuing"
+          return 0
+        fi
+        log "   Still pending — resuming wait..."
+        local elapsed4=0 interval=15
+        while [[ $elapsed4 -lt $WAIT_MAX ]]; do
+          local p4
+          p4=$(copilot_is_pending)
+          [[ "$p4" == "false" ]] && { ui_wait_clear; return 0; }
+          ui_wait_tick "$elapsed4" "$WAIT_MAX" "Copilot reviewing"
+          local sleep_time4=$(( interval < (WAIT_MAX - elapsed4) ? interval : (WAIT_MAX - elapsed4) ))
+          sleep "$sleep_time4"
+          elapsed4=$(( elapsed4 + sleep_time4 ))
+        done
+        ui_wait_clear
+        if [[ "$(copilot_is_pending)" == "false" ]]; then return 0; fi
+        # Loop back to show menu again
+        ;;
+      2)  # Dismiss & re-request
+        log "   🔄 Dismissing and re-requesting Copilot review..."
+        _dismiss_and_rerequst
+        return $?
+        ;;
+      3)  # Stop
+        log "   🛑 Cycle stopped by user."
+        return 1
+        ;;
+    esac
+  done
 }
 
 # ─── Startup ──────────────────────────────────────────────────────────────────
@@ -476,7 +477,10 @@ PROMPT_EOF
       reflect_summary=$(grep -E '\[reflect\].*(Reflection complete|No changes|No top-level)' "$LOGFILE" 2>/dev/null | tail -1 | sed 's/^.*\[reflect\] //' || echo "done")
       ui_reflect_log "$reflect_summary"
     else
-      ui_reflect_log "exited non-zero — check ~/.pr-review-reflect.log" false
+      # Surface the last few lines from the reflect log so errors are visible in the TUI
+      local reflect_err=""
+      reflect_err=$(tail -3 "${HOME}/.pr-review-reflect.log" 2>/dev/null | head -3 || echo "")
+      ui_reflect_log "exited non-zero — ${reflect_err:-check ~/.pr-review-reflect.log}" false
     fi
   fi
 

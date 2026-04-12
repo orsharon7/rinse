@@ -42,6 +42,27 @@ log() {
   echo "[$ts] [reflect] $*" | tee -a "$LOGFILE"
 }
 
+# Retry a command up to N times with exponential backoff.
+# Usage: retry <max_attempts> <command> [args...]
+retry() {
+  local max="$1"; shift
+  local attempt=1 delay=2
+  while true; do
+    if "$@"; then
+      return 0
+    fi
+    if [[ $attempt -ge $max ]]; then
+      log "⚠️  Command failed after ${max} attempts: $*"
+      return 1
+    fi
+    log "   Retry ${attempt}/${max} in ${delay}s..."
+    sleep "$delay"
+    attempt=$(( attempt + 1 ))
+    delay=$(( delay * 2 ))
+  done
+}
+}
+
 # ─── Args ─────────────────────────────────────────────────────────────────────
 
 if [[ $# -lt 1 || "$1" == "--help" || "$1" == "-h" ]]; then
@@ -121,9 +142,13 @@ cleanup_worktree() {
 }
 trap cleanup_worktree EXIT
 
+# Prune stale worktree references left by previous crashed runs
+git -C "$CWD" worktree prune 2>/dev/null || true
+
 log "Fetching ${MAIN_BRANCH} and creating worktree at ${WORKTREE_DIR}..."
-git -C "$CWD" fetch origin "$MAIN_BRANCH" 2>&1 | tee -a "$LOGFILE"
-git -C "$CWD" worktree add "$WORKTREE_DIR" "origin/${MAIN_BRANCH}" 2>&1 | tee -a "$LOGFILE"
+retry 3 git -C "$CWD" fetch origin "$MAIN_BRANCH" 2>&1 | tee -a "$LOGFILE"
+# Use --detach to avoid conflicts with an already checked-out branch
+git -C "$CWD" worktree add --detach "$WORKTREE_DIR" "origin/${MAIN_BRANCH}" 2>&1 | tee -a "$LOGFILE"
 
 # Point rule files at the worktree (main), not the PR branch
 AGENTS_FILE="${WORKTREE_DIR}/AGENTS.md"
@@ -258,6 +283,6 @@ rules_added=$(git -C "$WORKTREE_DIR" diff --cached AGENTS.md CLAUDE.md \
   | grep '^+' | grep -v '^+++' | grep -c '^\+- ' 2>/dev/null || echo "0")
 
 git -C "$WORKTREE_DIR" commit -m "chore: update AI coding rules from Copilot review #${PR_NUMBER} [skip ci]"
-git -C "$WORKTREE_DIR" push origin "HEAD:${MAIN_BRANCH}"
+retry 3 git -C "$WORKTREE_DIR" push origin "HEAD:${MAIN_BRANCH}"
 
 log "✓ Reflection complete — +${rules_added} rule(s) pushed to ${MAIN_BRANCH}"
