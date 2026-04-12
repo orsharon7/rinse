@@ -81,5 +81,14 @@ Project instructions for AI coding agents.
 ### Documentation Integrity (Functions & Docstrings)
 - Docstrings must accurately reflect which parameters are truly required vs. optional and what side-effects occur (e.g. logging, emitting events); never describe a parameter as required if the function only conditionally uses it, and never say "skips silently" if the function logs or emits status messages.
 
+### API & Type Contracts
+- When a backend enum or union type gains new values or legacy aliases, update all mirrored client-side type definitions (e.g. TypeScript unions) in the same change; never let frontend types drift from the backend API contract.
+
+### Testing
+- In tests that patch settings or config objects with a `MagicMock`, explicitly set every field that controls branching logic to a concrete value; unset mock attributes are truthy and will silently force unintended code paths.
+
+### Logging & Observability
+- Retry/attempt log messages must use a denominator that matches the actual total attempts (initial + retries); distinguish "attempt N of M" (total) from "retry N of M" (retries-only) to avoid misleading operators during incident debugging.
+
 <!-- END:COPILOT-RULES -->
 
