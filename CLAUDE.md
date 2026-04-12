@@ -25,6 +25,7 @@ Project instructions for AI coding agents.
 - Keep README file trees, artifact references, and prerequisites (`go.mod`/`package.json`, tool versions) in sync with the repo; remove stale references on rename/delete.
 - Labels, log messages, and docstrings must match actual behavior: never describe a side effect the code doesn't perform; never say "skips silently" if the function logs or emits.
 - Document serialization formats and SDK call paths exactly as implemented; never carry over assumptions from prior designs or reference methods the code doesn't call.
+- When documenting SDK calls in any file (docs, diagrams, README, code comments), match enum member names (including casing) and argument names/shapes exactly to the implementation; a mismatched enum variant or wrong argument name in an example causes silent copy/paste breakage.
 - Phrase design-document assertions as intent, not fact.
 - Keep architecture and data-flow diagrams in sync with actual SDK/API call paths; when an implementation changes its call site, update every diagram that references it in the same PR.
 - When a document section contradicts another (e.g. "Project Context" claims a framework that another section says is not used), reconcile them by verifying against actual imports and removing or qualifying the inaccurate claim.
