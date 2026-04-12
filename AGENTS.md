@@ -27,6 +27,8 @@ Project instructions for AI coding agents.
 - Keep README file trees, artifact references, and documented prerequisites (`go.mod`/`package.json`, tool versions) in sync with the repo; remove stale references when files are added, renamed, or deleted.
 - UI labels, log messages, and docstrings must exactly match the behavior performed: never describe a side effect the code doesn't perform, mark a parameter required only if always required, never say "skips silently" if the function logs or emits.
 - Phrase design-document assertions as intent, not fact; implementations may diverge.
+- Document the serialization format (JSON, YAML, etc.) of stored artifacts exactly as the code produces it; never carry over a format assumption from a prior design that differs from the implementation.
+- When documenting SDK or library call paths (e.g. file upload, API invocation), reference the actual call site used in the codebase; never document a method or client path that the implementation does not call.
 
 ### CLI, Installers & Packaging
 - For optional parameters, default to empty and include the flag only when the user provides a value; never silently pin a value the user intended to omit.
