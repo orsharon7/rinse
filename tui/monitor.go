@@ -233,6 +233,11 @@ type monitorModel struct {
 	iterHistory    []iterEntry // result of each completed iteration
 	currentComments int        // comments in current iteration
 
+	// wait progress (Copilot reviewing)
+	waitElapsed int // seconds elapsed in current wait
+	waitMax     int // max wait seconds (e.g. 300)
+	waitLabel   string // e.g. "Copilot reviewing"
+
 	// toast notification
 	toastMsg string
 
@@ -630,6 +635,36 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Suppress noisy poll-tick lines ("⏳ Copilot reviewing... (Xs / Ys)") from
+		// the log viewport. Instead, parse the progress and render it as an
+		// animated progress bar in the status bar.
+		if isWaitTickLine(plain) {
+			var e, mx int
+			if _, err := fmt.Sscanf(extractWaitProgress(plain), "%ds / %ds", &e, &mx); err == nil {
+				m.waitElapsed = e
+				m.waitMax = mx
+			}
+			// Extract the label (e.g. "Copilot reviewing" / "Copilot reviewing (retry)")
+			if idx := strings.Index(plain, "⏳"); idx >= 0 {
+				after := strings.TrimSpace(plain[idx+len("⏳"):])
+				if dotIdx := strings.Index(after, "..."); dotIdx > 0 {
+					m.waitLabel = after[:dotIdx]
+				}
+			}
+			// Don't append to log — it's shown in the status bar.
+			// Still update phase.
+			m.phase = inferPhase(plain, m.phase)
+			// Skip the rest of the logLineMsg handler for this line.
+			break
+		}
+
+		// Clear wait progress when we leave the waiting state.
+		if m.waitMax > 0 && !strings.Contains(plain, "⏳") && !strings.Contains(plain, "Copilot reviewing") {
+			m.waitElapsed = 0
+			m.waitMax = 0
+			m.waitLabel = ""
+		}
+
 		// Route [reflect]-tagged lines to the side panel when it is visible.
 		// When the panel is hidden (narrow terminal or before first WindowSizeMsg),
 		// also send them to the main log so they remain visible.
@@ -803,6 +838,57 @@ func isReflectLine(plain string) bool {
 		strings.Contains(plain, "◎ reflect") ||
 		strings.Contains(plain, "✗ reflect") ||
 		strings.Contains(plain, "○ reflect")
+}
+
+// isWaitTickLine returns true for the repeating "⏳ Copilot reviewing... (Xs / Ys)" poll lines.
+func isWaitTickLine(plain string) bool {
+	return strings.Contains(plain, "⏳") &&
+		strings.Contains(plain, "reviewing") &&
+		strings.Contains(plain, "s /")
+}
+
+// extractWaitProgress returns the "(Xs / Ys)" portion from a wait tick line.
+func extractWaitProgress(plain string) string {
+	if idx := strings.LastIndex(plain, "("); idx >= 0 {
+		if end := strings.Index(plain[idx:], ")"); end >= 0 {
+			return plain[idx+1 : idx+end]
+		}
+	}
+	return ""
+}
+
+// renderWaitProgress renders a compact animated progress bar for the status bar.
+// Format: ⏳ Copilot reviewing  ████████░░░░░░░░░░  45s / 300s (15%)
+func (m monitorModel) renderWaitProgress() string {
+	label := m.waitLabel
+	if label == "" {
+		label = "Copilot reviewing"
+	}
+	elapsed := m.waitElapsed
+	max := m.waitMax
+	if max < 1 {
+		max = 1
+	}
+
+	// Bar dimensions
+	barW := 20
+	filled := elapsed * barW / max
+	if filled > barW {
+		filled = barW
+	}
+	empty := barW - filled
+	if empty < 0 {
+		empty = 0
+	}
+	pct := elapsed * 100 / max
+
+	bar := stylePhaseWaiting.Render(strings.Repeat("█", filled)) +
+		styleMuted.Render(strings.Repeat("░", empty))
+
+	return m.spinner.View() + " " +
+		stylePhaseWaiting.Render(label) + "  " +
+		bar + "  " +
+		styleMuted.Render(fmt.Sprintf("%ds / %ds (%d%%)", elapsed, max, pct))
 }
 
 // inferPhase maps plain-text log line content to a phase.
@@ -980,6 +1066,9 @@ func (m monitorModel) View() string {
 		} else {
 			phaseStr = stylePhaseErr.Render(fmt.Sprintf("✗ exited %d", m.exitCode))
 		}
+	} else if m.phase == phaseWaiting && m.waitMax > 0 {
+		// Render animated progress bar for the wait phase.
+		phaseStr = m.renderWaitProgress()
 	} else {
 		phaseStr = m.spinner.View() + " " + m.phase.Style().Render(m.phase.String())
 	}

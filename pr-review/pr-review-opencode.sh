@@ -521,9 +521,9 @@ PROMPT_EOF
       reflect_summary=$(grep -E '\[reflect\].*(Reflection complete|No changes|No top-level)' "$LOGFILE" 2>/dev/null | tail -1 | sed 's/^.*\[reflect\] //' || echo "done")
       ui_reflect_log "$reflect_summary"
     else
-      # Surface the last few lines from the reflect log so errors are visible in the TUI
+      # Surface the last error from the reflect log so it's visible in the TUI
       local reflect_err=""
-      reflect_err=$(tail -3 "${HOME}/.pr-review-reflect.log" 2>/dev/null | head -3 || echo "")
+      reflect_err=$(tail -1 "${HOME}/.pr-review-reflect.log" 2>/dev/null | tr -d '\n' || echo "")
       ui_reflect_log "exited non-zero — ${reflect_err:-check ~/.pr-review-reflect.log}" false
     fi
   fi
