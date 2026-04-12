@@ -57,6 +57,7 @@ Project instructions for AI coding agents.
 - **Warnings:** Use a narrowly scoped `"ignore"` filter with a precise `message` regex; a broad `"always"` filter re-enables warnings globally.
 - **Serialization:** Join multi-line protocol frames (e.g. SSE `data:` lines) with the spec-mandated separator (`"\n"`), not an empty string.
 - **Import hygiene:** When removing a symbol from a module-level import, grep the entire file for remaining usages first; `NameError` only surfaces at runtime.
+- **Structured string parsing:** When splitting a structured string format (e.g. ARM resource IDs), locate named segments by searching for the segment key rather than assuming a fixed positional index; always guard against malformed input and return a clear error or skip instead of raising.
 
 ### Configuration & Cloud Resources
 - Never expose a config setting (env var, config key, documented option) that is not wired to runtime behavior; verify end-to-end: read → validate → pass to the relevant constructor.
@@ -72,6 +73,7 @@ Project instructions for AI coding agents.
 - Use CSS `:hover` or class toggles for hover effects, not `onMouseEnter`/`onMouseLeave` style mutations.
 - Never combine a percentage `width` with a fixed pixel `height` on an SVG; omit the explicit height and let CSS/`aspect-ratio` control it, or use explicit pixel dimensions.
 - Never call browser-only APIs (`window`, `document`, `matchMedia`, etc.) during render in SSR contexts; compute such values in a `useEffect` so the initial client render matches server output and avoids hydration mismatches.
+- Feature-detect Web APIs before calling them unconditionally; older browsers may only support legacy equivalents (e.g. `MediaQueryList.addListener` vs `addEventListener`) — check for the modern API's presence first and fall back to the legacy form.
 
 ### API & Type Contracts
 - When a backend enum or union type gains new values or legacy aliases, update all mirrored client-side type definitions (e.g. TypeScript unions) in the same change.
