@@ -88,5 +88,17 @@ Project instructions for AI coding agents.
 ### Python: Warnings & Logging
 - When suppressing a specific warning, use a narrowly scoped `"ignore"` filter with a precise `message` regex rather than a broad `"always"` filter; a broad `"always"` filter re-enables all matching warnings globally, not just the one being targeted.
 
+### Protocol & Serialization
+- When reconstructing multi-line protocol frames (e.g. SSE `data:` lines, HTTP chunked payloads), join segments with the spec-mandated separator (e.g. `"\n"` for SSE) rather than an empty string; joining without a separator loses semantic content and corrupts payloads.
+
+### Python: Contracts & Exception Handling
+- When a function's docstring asserts "Never raises" (or an equivalent contract), ensure every code path — including all operations before the first `try/except` — is covered by exception handling; an unguarded top-level call breaks the contract silently.
+
+### Cloud Resource Configuration
+- Never infer a cloud resource's subscription or resource group from the metadata of an unrelated resource (e.g. deriving a Search service ARM ID from a Foundry project resource ID); always prefer an explicit configuration setting (e.g. `AZURE_SEARCH_RESOURCE_ID`) and emit a warning when falling back to inference, since cross-resource-group deployments will silently 404.
+
+### UI: Identifier Normalization
+- Always normalize internal or legacy identifiers (e.g. API tool IDs, feature flags) to a canonical user-facing label before rendering them in UI components; never expose raw internal or alias names in chips, badges, or labels, as they create inconsistent UX and leak implementation details.
+
 <!-- END:COPILOT-RULES -->
 
