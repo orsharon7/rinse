@@ -145,7 +145,7 @@ trap cleanup_worktree EXIT
 git -C "$CWD" worktree prune 2>/dev/null || true
 
 log "Fetching ${MAIN_BRANCH} and creating worktree at ${WORKTREE_DIR}..."
-retry 3 git -C "$CWD" fetch origin "$MAIN_BRANCH" 2>&1 | tee -a "$LOGFILE"
+retry 3 bash -c 'git -C "$1" fetch origin "$2" 2>&1 | tee -a "$3"' _ "$CWD" "$MAIN_BRANCH" "$LOGFILE"
 # Use --detach to avoid conflicts with an already checked-out branch
 git -C "$CWD" worktree add --detach "$WORKTREE_DIR" "origin/${MAIN_BRANCH}" 2>&1 | tee -a "$LOGFILE"
 

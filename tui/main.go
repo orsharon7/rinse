@@ -219,20 +219,27 @@ type model struct {
 
 func initialModel() model {
 	repo := detectRepo()
-	path := detectCWD()
 
 	cfg := LoadConfig()
 	var rc RepoConfig
+	hasRepoConfig := false
 	if repo != "" {
 		if loaded, ok := LoadRepoConfig(repo); ok {
 			rc = loaded
+			hasRepoConfig = true
 		}
 	}
-	if rc.Runner == 0 && cfg.LastRunner > 0 && cfg.LastRunner < len(runners) {
+	if !hasRepoConfig && cfg.LastRunner > 0 && cfg.LastRunner < len(runners) {
 		rc.Runner = cfg.LastRunner
 	}
 	if rc.Model == "" {
 		rc.Model = cfg.LastModel
+	}
+
+	// Apply persisted path when available; fall back to CWD.
+	path := rc.Path
+	if path == "" {
+		path = detectCWD()
 	}
 
 	ti := textinput.New()
@@ -257,19 +264,24 @@ func initialModel() model {
 	bi.Prompt = "  ❯ "
 	bi.CharLimit = 80
 
-	reflectDefault := rc.Reflect || cfg.LastReflect
-	autoMergeDefault := rc.AutoMerge || cfg.LastAutoMerge
+	// If a repo config exists, use its values verbatim; otherwise fall back to
+	// the global last-used values so a repo with reflect:false isn't forced on.
+	reflectDefault := rc.Reflect
+	autoMergeDefault := rc.AutoMerge
+	if !hasRepoConfig {
+		reflectDefault = cfg.LastReflect
+		autoMergeDefault = cfg.LastAutoMerge
+	}
 
 	runnerIdx := rc.Runner
 	if runnerIdx < 0 || runnerIdx >= len(runners) {
 		runnerIdx = 0
 	}
 
-	// Use per-repo branch if set, fall back to global last-used branch.
+	// Use per-repo branch if set; leave empty so the detected defaultBranch
+	// will be applied once defaultBranchMsg arrives — never borrow a branch
+	// from a different repo via cfg.LastBranch.
 	reflectBranch := rc.Branch
-	if reflectBranch == "" {
-		reflectBranch = cfg.LastBranch
-	}
 
 	return model{
 		view:          viewPRPicker,

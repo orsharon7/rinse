@@ -613,7 +613,18 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Track iteration results for the timeline.
 		if strings.Contains(plain, "complete") && strings.Contains(plain, "Iteration") {
-			entry := iterEntry{num: m.iter, result: iterFixed, comments: m.currentComments}
+			iterNum := m.iter
+			for i, word := range strings.Fields(plain) {
+				if word == "Iteration" && i+1 < len(strings.Fields(plain)) {
+					var parsedIter int
+					if _, err := fmt.Sscanf(strings.Fields(plain)[i+1], "%d", &parsedIter); err == nil && parsedIter > 0 {
+						iterNum = parsedIter
+						m.iter = parsedIter
+					}
+					break
+				}
+			}
+			entry := iterEntry{num: iterNum, result: iterFixed, comments: m.currentComments}
 			m.iterHistory = append(m.iterHistory, entry)
 			m.currentComments = 0
 		}
