@@ -5,7 +5,7 @@ Project instructions for AI coding agents.
 <!-- BEGIN:COPILOT-RULES -->
 ## Coding Guidelines (AI-maintained)
 *Auto-updated by pr-review-reflect — do not edit this section manually.*
-*Last updated: 2026-04-12 from PR #11 review (optimized)*
+*Last updated: 2026-04-13 from PR #12 review*
 
 ### Shell Scripting
 - Read interactive input from `/dev/tty`; render UI output to stderr.
@@ -16,6 +16,7 @@ Project instructions for AI coding agents.
 - Use `grep -E` for alternation; `\|` in BRE is non-portable across BSD/macOS and GNU grep.
 - Never use `local` outside a function body or unbalanced `$(( ))`. Embed resolved absolute paths directly in heredoc wrappers.
 - Every output path of a status-accepting function (`true`/`false`/`skip`) must reflect that status visually; never silently discard it.
+- Validate shell script syntax with `bash -n`/`sh -n` before committing; a stray brace or unbalanced delimiter silently prevents the entire script from executing.
 
 ### Environment & CI Portability
 - Check both git identity pairs (`GIT_AUTHOR_NAME`/`EMAIL` and `GIT_COMMITTER_NAME`/`EMAIL`); missing one can pass preflight while `git commit` still fails.
@@ -50,6 +51,9 @@ Project instructions for AI coding agents.
 - **Safety:** Use pointers for non-copy-safe types (`strings.Builder`, `sync.Mutex`) in frequently-copied structs. Drain data channels before acting on a done-channel signal.
 - **Paths & Unicode:** Use `filepath.Dir()`/`filepath.Join()`; rune-aware truncation for user-visible strings.
 - **Module hygiene:** Run `go mod tidy` before committing; direct imports must not be `// indirect`. Every `-X pkg.Symbol=value` LDFLAGS symbol must be declared as a `var`.
+- **Dead code:** Never declare package-level variables or identifiers that are unreferenced in code; Go will refuse to compile.
+- **Config scoping:** Initialize per-resource fields from the most-specific config scope first (e.g. per-repo); fall back to global/last-run values only when no scoped value exists.
+- **Map writes:** Guard map writes against empty/zero-value keys; validate that the key is non-empty before writing to avoid creating phantom entries.
 
 ### Python
 - **Safety & initialization:** Guard boolean aggregates against empty collections (`all_failed = bool(collection)`). Initialize all closure-captured accumulator variables before the first iteration that reads them. If a docstring asserts "Never raises", wrap all code paths including pre-`try` operations.
