@@ -98,6 +98,10 @@ func LoadRepoConfig(repo string) (RepoConfig, bool) {
 
 // SaveConfig writes the config atomically, storing per-repo settings keyed by repo name.
 func SaveConfig(cfg Config) {
+	// Don't write a per-repo entry when no repo has been detected.
+	if cfg.LastRepo == "" {
+		return
+	}
 	path := configPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return

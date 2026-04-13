@@ -20,11 +20,9 @@ import (
 // ── Additional palette ────────────────────────────────────────────────────────
 
 var (
-	green   = lipgloss.Color("#A6DA95")
-	peach   = lipgloss.Color("#F5A97F")
-	sky     = lipgloss.Color("#91D7E3")
-	base    = lipgloss.Color("#24273A")
-	mantle  = lipgloss.Color("#1E2030")
+	green = lipgloss.Color("#A6DA95")
+	peach = lipgloss.Color("#F5A97F")
+	sky   = lipgloss.Color("#91D7E3")
 )
 
 // ── Monitor styles ────────────────────────────────────────────────────────────
@@ -82,11 +80,11 @@ var (
 				BorderLeft(true).
 				BorderForeground(teal).
 				Padding(0, 1)
-	styleReflectTitle     = lipgloss.NewStyle().Foreground(teal).Bold(true)
-	styleReflectLine      = lipgloss.NewStyle().Foreground(subtext)
-	styleReflectNew       = lipgloss.NewStyle().Foreground(text)
-	styleReflectOK        = lipgloss.NewStyle().Foreground(green)
-	styleReflectFail      = lipgloss.NewStyle().Foreground(red)
+	styleReflectTitle = lipgloss.NewStyle().Foreground(teal).Bold(true)
+	styleReflectLine  = lipgloss.NewStyle().Foreground(subtext)
+	styleReflectNew   = lipgloss.NewStyle().Foreground(text)
+	styleReflectOK    = lipgloss.NewStyle().Foreground(green)
+	styleReflectFail  = lipgloss.NewStyle().Foreground(red)
 
 	// Iteration timeline styles.
 	styleTimelineDot     = lipgloss.NewStyle().Foreground(mauve)
@@ -174,11 +172,11 @@ type actionDoneMsg struct {
 type iterResult int
 
 const (
-	iterRunning iterResult = iota
-	iterFixed              // comments fixed, pushed
-	iterClean              // clean review (0 comments)
-	iterApproved           // Copilot approved
-	iterError              // error during this iteration
+	iterRunning  iterResult = iota
+	iterFixed               // comments fixed, pushed
+	iterClean               // clean review (0 comments)
+	iterApproved            // Copilot approved
+	iterError               // error during this iteration
 )
 
 type iterEntry struct {
@@ -228,14 +226,14 @@ type monitorModel struct {
 	renderedLog  *strings.Builder // cached rendered content of lines (appended incrementally, O(1) amortized)
 
 	// stats tracking
-	totalComments  int         // total comments seen across all iterations
-	rulesExtracted int         // rules pushed by reflect agent
-	iterHistory    []iterEntry // result of each completed iteration
-	currentComments int        // comments in current iteration
+	totalComments   int         // total comments seen across all iterations
+	rulesExtracted  int         // rules pushed by reflect agent
+	iterHistory     []iterEntry // result of each completed iteration
+	currentComments int         // comments in current iteration
 
 	// wait progress (Copilot reviewing)
-	waitElapsed int // seconds elapsed in current wait
-	waitMax     int // max wait seconds (e.g. 300)
+	waitElapsed int    // seconds elapsed in current wait
+	waitMax     int    // max wait seconds (e.g. 300)
 	waitLabel   string // e.g. "Copilot reviewing"
 
 	// toast notification
@@ -1106,7 +1104,7 @@ func (m monitorModel) renderIterTimeline() string {
 			parts = append(parts, styleTimelineDone.Render("✓"))
 		case iterError:
 			parts = append(parts, styleTimelineErr.Render("✗"))
-		default:
+		case iterRunning:
 			parts = append(parts, styleTimelineCurrent.Render("◌"))
 		}
 	}

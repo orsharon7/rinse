@@ -265,6 +265,12 @@ func initialModel() model {
 		runnerIdx = 0
 	}
 
+	// Use per-repo branch if set, fall back to global last-used branch.
+	reflectBranch := rc.Branch
+	if reflectBranch == "" {
+		reflectBranch = cfg.LastBranch
+	}
+
 	return model{
 		view:          viewPRPicker,
 		repo:          repo,
@@ -274,7 +280,7 @@ func initialModel() model {
 		runnerIdx:     runnerIdx,
 		modelOverride: rc.Model,
 		reflect:       reflectDefault,
-		reflectBranch: cfg.LastBranch,
+		reflectBranch: reflectBranch,
 		autoMerge:     autoMergeDefault,
 
 		prLoading: repo != "",
@@ -812,14 +818,14 @@ func (m model) renderRibbon(w int) string {
 		if branch == "" {
 			branch = m.defaultBranch
 		}
-		parts = append(parts, styleMuted.Render("reflect ") + styleTeal.Render("on → "+branch))
+		parts = append(parts, styleMuted.Render("reflect ")+styleTeal.Render("on → "+branch))
 	} else {
-		parts = append(parts, styleMuted.Render("reflect ") + styleMuted.Render("off"))
+		parts = append(parts, styleMuted.Render("reflect ")+styleMuted.Render("off"))
 	}
 	if m.autoMerge {
-		parts = append(parts, styleMuted.Render("auto-merge ") + styleTeal.Render("on"))
+		parts = append(parts, styleMuted.Render("auto-merge ")+styleTeal.Render("on"))
 	} else {
-		parts = append(parts, styleMuted.Render("auto-merge ") + styleMuted.Render("off"))
+		parts = append(parts, styleMuted.Render("auto-merge ")+styleMuted.Render("off"))
 	}
 
 	ribbonW := clamp(w-2, 0, 200)
