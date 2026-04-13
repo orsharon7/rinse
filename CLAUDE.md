@@ -17,6 +17,7 @@ Project instructions for AI coding agents.
 - Never use `local` outside a function body or unbalanced `$(( ))`. Embed resolved absolute paths directly in heredoc wrappers.
 - Every output path of a status-accepting function (`true`/`false`/`skip`) must reflect that status visually; never silently discard it.
 - Validate shell script syntax with `bash -n`/`sh -n` before committing; a stray brace or unbalanced delimiter silently prevents the entire script from executing.
+- When piping a function through `tee -a "$LOGFILE"`, suppress or redirect the function's internal `log()` calls to avoid writing each line twice to the logfile.
 
 ### Environment & CI Portability
 - Check both git identity pairs (`GIT_AUTHOR_NAME`/`EMAIL` and `GIT_COMMITTER_NAME`/`EMAIL`); missing one can pass preflight while `git commit` still fails.
@@ -53,6 +54,10 @@ Project instructions for AI coding agents.
 - **Module hygiene:** Run `go mod tidy` before committing; direct imports must not be `// indirect`. Every `-X pkg.Symbol=value` LDFLAGS symbol must be declared as a `var`.
 - **Dead code:** Never declare package-level variables or identifiers that are unreferenced in code; Go will refuse to compile.
 - **Config scoping:** Initialize per-resource fields from the most-specific config scope first (e.g. per-repo); fall back to global/last-run values only when no scoped value exists.
+- **Config presence:** Use an explicit presence flag (e.g. the `ok` return from a map lookup or loader) to detect missing per-scope config; never treat a zero value as "unset" — `0`, `false`, and `""` are all valid explicit choices.
+- **Config override:** When a scoped config entry exists, use its values verbatim; never combine with globals via `||`/`OR` — a global `true` must not override a scoped `false`.
+- **Config persistence:** Never persist a config field without also reading it back and applying it at load time; remove unused persisted fields rather than leaving misleading dead config.
+- **State sequencing:** Parse structured input into its canonical representation and update mutable state before deriving any values from it; never read a field before the parsing step that updates it.
 - **Map writes:** Guard map writes against empty/zero-value keys; validate that the key is non-empty before writing to avoid creating phantom entries.
 
 ### Python
