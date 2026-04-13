@@ -529,9 +529,13 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case "S":
 				ts := time.Now().Format("20060102-150405")
-				// Save main log
+				// Save the rendered main log so the file matches what was shown
+				// in the viewport, including lines appended outside m.lines.
 				mainFname := fmt.Sprintf("pr-review-log-%s.txt", ts)
-				mainContent := strings.Join(m.lines, "\n") + "\n"
+				mainContent := m.renderedLog.String()
+				if mainContent != "" && !strings.HasSuffix(mainContent, "\n") {
+					mainContent += "\n"
+				}
 				var savedParts []string
 				if err := os.WriteFile(mainFname, []byte(mainContent), 0o644); err != nil {
 					m.statusMsg = "✗ save failed"
@@ -1098,7 +1102,7 @@ func (m monitorModel) View() string {
 }
 
 // renderIterTimeline renders a compact horizontal timeline of iteration results.
-// Each iteration is a single character: ● (fixed), ○ (clean), ✓ (approved), ✗ (error), ◌ (running).
+// Each iteration is rendered as: ● or ●N (fixed), ○ (clean), ✓ (approved), ✗ (error), ◌ (running).
 func (m monitorModel) renderIterTimeline() string {
 	var parts []string
 	for _, e := range m.iterHistory {

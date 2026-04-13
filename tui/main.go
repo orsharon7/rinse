@@ -349,6 +349,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.reflectBranch == "" {
 			m.reflectBranch = m.defaultBranch
 		}
+		// If the settings overlay is already open, sync the branch input so the
+		// user sees the correct default rather than the "main" placeholder that
+		// was set at init time.
+		if m.view == viewSettings {
+			m.settingsBranchInput.Placeholder = m.defaultBranch
+			// Only update the value if the user hasn't explicitly edited it.
+			if m.settingsBranchInput.Value() == "main" || m.settingsBranchInput.Value() == "" {
+				m.settingsBranchInput.SetValue(m.defaultBranch)
+			}
+		}
 		return m, nil
 
 	case currentBranchMsg:
