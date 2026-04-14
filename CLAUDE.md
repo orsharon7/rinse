@@ -5,7 +5,7 @@ Project instructions for AI coding agents.
 <!-- BEGIN:COPILOT-RULES -->
 ## Coding Guidelines (AI-maintained)
 *Auto-updated by pr-review-reflect — do not edit this section manually.*
-*Last updated: 2026-04-14 from PR #16 review (optimized)*
+*Last updated: 2026-04-14 from PR #19 review*
 
 ### Shell Scripting
 - Read interactive input from `/dev/tty`; render UI output to stderr.
@@ -88,5 +88,11 @@ Project instructions for AI coding agents.
 - When a backend enum gains values/aliases, update all mirrored client-side type definitions in the same change.
 - With `MagicMock`, explicitly set every field controlling branching logic (unset attributes are truthy); update fixtures and remove unused imports when settings fields are renamed/removed.
 - Retry log denominators must match actual total attempts; keep constant names, comments, and loop bounds mutually consistent.
+
+### Structured Text & Marker Validation
+- Validate paired delimiters (e.g. `<!-- BEGIN:X -->` / `<!-- END:X -->`) as exact full lines using `grep -Fxc`; never use substring matching, which produces false positives on examples or comments.
+- When validating paired markers, assert each appears exactly once AND that BEGIN precedes END; a count-only check does not guarantee correct ordering.
+- When a script writes the same content to multiple files that must be identical, add a post-write diff/comparison step (e.g. `diff <(extract A) <(extract B)`) and fail loudly if they diverge.
+- On structured-section validation failure, revert the affected files (e.g. `git checkout -- <file>`) and abort; never continue with a corrupt or inconsistent section.
 
 <!-- END:COPILOT-RULES -->
