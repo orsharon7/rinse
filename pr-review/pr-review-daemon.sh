@@ -258,6 +258,12 @@ dispatch_runner() {
   (
     runner_pid=""
 
+    cleanup_dispatch_wrapper() {
+      release_dispatch_lock "$repo" "$pr"
+    }
+
+    trap 'cleanup_dispatch_wrapper' EXIT
+
     forward_runner_signal() {
       local sig="$1"
       if [[ -n "$runner_pid" ]] && kill -0 "$runner_pid" 2>/dev/null; then
@@ -465,7 +471,9 @@ cleanup_daemon() {
   done
   rm -f "$PIDFILE"
 }
-trap cleanup_daemon EXIT
+if [[ "$ONCE" != true ]]; then
+  trap cleanup_daemon EXIT
+fi
 
 if [[ "$ONCE" == true ]]; then
   poll_once

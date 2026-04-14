@@ -91,7 +91,7 @@ fi
 # ─── Scoped log (per-repo isolation for parallel runs) ────────────────────────
 
 REPO_SLUG="${REPO//\//_}"  # owner/repo → owner_repo
-LOGFILE="${HOME}/.pr-review/logs/${REPO_SLUG}-pr-${PR_NUMBER}-reflect.log"
+LOGFILE="${HOME}/.pr-review/logs/${REPO_SLUG}-pr-${PR_NUMBER}-reflect-optimize.log"
 mkdir -p "$(dirname "$LOGFILE")"
 
 # ─── Skip early if open PRs exist (mid-cycle guard) ─────────────────────────

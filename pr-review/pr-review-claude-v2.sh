@@ -148,7 +148,7 @@ if [[ "$USE_WORKTREE" == true ]]; then
     exit 1
   }
   git -C "$WORKTREE_DIR" branch --set-upstream-to="origin/${PR_BRANCH}" "$local_wt_branch" 2>/dev/null || {
-    >&2 echo "Fatal: could not set upstream for ${PR_BRANCH}"
+    >&2 echo "Fatal: could not set upstream for local branch ${local_wt_branch} to origin/${PR_BRANCH}"
     exit 1
   }
 
