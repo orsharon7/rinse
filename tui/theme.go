@@ -191,15 +191,9 @@ var (
 // ── Wizard Styles ─────────────────────────────────────────────────────────────
 
 var (
-	// Logo styles (backward-compat aliases for app.go helpers)
-	styleLogo     = lipgloss.NewStyle().Foreground(mauve).Bold(true)
-	styleLogoIcon = lipgloss.NewStyle().Foreground(mauve)
-	styleLogoSlash = lipgloss.NewStyle().Foreground(overlay)
-
 	styleSplashStatus = lipgloss.NewStyle().Foreground(subtext)
 
 	// Reusable text presets
-	styleBanner = lipgloss.NewStyle().Bold(true).Foreground(mauve).Padding(0, 1)
 	styleKey    = lipgloss.NewStyle().Foreground(overlay).Width(16)
 	styleVal    = lipgloss.NewStyle().Foreground(lavender).Bold(true)
 	styleMuted  = lipgloss.NewStyle().Foreground(overlay)
@@ -231,8 +225,6 @@ var (
 	// Key hints
 	styleHintKey  = lipgloss.NewStyle().Foreground(subtext)
 	styleHintDesc = lipgloss.NewStyle().Foreground(overlay)
-
-	styleSeparator = lipgloss.NewStyle().Foreground(surface)
 )
 
 // ── Monitor Styles ────────────────────────────────────────────────────────────

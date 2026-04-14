@@ -27,7 +27,7 @@ type model struct {
 
 	// splash
 	splashSpinner spinner.Model
-	splashReady   bool // true once PR data has loaded
+	splashReady   bool
 
 	// auto-detected on boot
 	repo          string
@@ -47,6 +47,7 @@ type model struct {
 	prCursor  int
 	prLoading bool
 	prLoadErr string
+	prSpinner spinner.Model // animated spinner for loading state
 
 	// manual PR input
 	input textinput.Model
@@ -136,13 +137,20 @@ func initialModel() model {
 
 	reflectBranch := rc.Branch
 
+	// Splash spinner — MiniDot like Crush
 	sp := spinner.New()
-	sp.Spinner = spinner.Dot
+	sp.Spinner = spinner.MiniDot
 	sp.Style = lipgloss.NewStyle().Foreground(mauve)
+
+	// PR list loading spinner
+	ps := spinner.New()
+	ps.Spinner = spinner.Dot
+	ps.Style = lipgloss.NewStyle().Foreground(lavender)
 
 	return model{
 		view:          viewSplash,
 		splashSpinner: sp,
+		prSpinner:     ps,
 		repo:          repo,
 		path:          path,
 		defaultBranch: "main",
@@ -166,8 +174,8 @@ func initialModel() model {
 func (m model) Init() tea.Cmd {
 	cmds := []tea.Cmd{
 		m.splashSpinner.Tick,
-		// Minimum splash duration so the branding is visible.
-		tea.Tick(1500*time.Millisecond, func(t time.Time) tea.Msg { return splashDoneMsg{} }),
+		m.prSpinner.Tick,
+		tea.Tick(1200*time.Millisecond, func(t time.Time) tea.Msg { return splashDoneMsg{} }),
 	}
 	if m.repo != "" {
 		cmds = append(cmds,
@@ -189,16 +197,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case spinner.TickMsg:
+		var cmds []tea.Cmd
 		if m.view == viewSplash {
 			var cmd tea.Cmd
 			m.splashSpinner, cmd = m.splashSpinner.Update(msg)
-			return m, cmd
+			cmds = append(cmds, cmd)
 		}
-		return m, nil
+		if m.prLoading {
+			var cmd tea.Cmd
+			m.prSpinner, cmd = m.prSpinner.Update(msg)
+			cmds = append(cmds, cmd)
+		}
+		return m, tea.Batch(cmds...)
 
 	case splashDoneMsg:
 		m.splashReady = true
-		// Data already arrived while splash was showing → transition now.
 		if !m.prLoading {
 			m.view = viewPRPicker
 		}
@@ -216,7 +229,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		// Splash timer already elapsed → transition.
 		if m.view == viewSplash && m.splashReady {
 			m.view = viewPRPicker
 		}
@@ -225,7 +237,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case prListErrMsg:
 		m.prLoading = false
 		m.prLoadErr = msg.err.Error()
-		// Transition even on error.
 		if m.view == viewSplash && m.splashReady {
 			m.view = viewPRPicker
 		}
@@ -295,7 +306,6 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if key == "q" {
 			return m, tea.Quit
 		}
-		// Any key skips the splash.
 		m.view = viewPRPicker
 		return m, nil
 
@@ -325,7 +335,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.prLoading = true
 				m.prs = nil
 				m.prLoadErr = ""
-				return m, fetchPRs(m.repo)
+				return m, tea.Batch(fetchPRs(m.repo), m.prSpinner.Tick)
 			}
 		case "up", "k":
 			if len(m.prs) > 0 && m.prCursor > 0 {
@@ -535,8 +545,6 @@ func (m model) buildCmd() ([]string, error) {
 			return nil, fmt.Errorf("could not determine script directory: %w", err)
 		}
 		binDir := filepath.Dir(exe)
-		// Scripts live in pr-review/ which is a sibling of tui/ (the binary's dir).
-		// Search: <binDir>/pr-review/, <binDir>/../pr-review/, <binDir> itself.
 		candidates := []string{
 			filepath.Join(binDir, "pr-review"),
 			filepath.Join(binDir, "..", "pr-review"),
@@ -629,13 +637,11 @@ func (m model) renderSplash() string {
 
 	var b strings.Builder
 
-	// Big wordmark with diagonal field lines and gradient.
-	b.WriteString("\n")
 	b.WriteString(renderWordmark(w))
 	b.WriteString("\n\n")
 
-	// Tagline
-	tagline := styleMuted.Render("    lather") +
+	// Tagline — centered under the logo
+	tagline := styleMuted.Render("       lather") +
 		styleTeal.Render(" " + IconSep + " ") +
 		styleMuted.Render("rinse") +
 		styleTeal.Render(" " + IconSep + " ") +
@@ -643,25 +649,28 @@ func (m model) renderSplash() string {
 	b.WriteString(tagline)
 	b.WriteString("\n\n")
 
-	// Loading status with spinner
-	status := m.splashSpinner.View() + " "
+	// Loading status with animated spinner
+	status := "       " + m.splashSpinner.View() + " "
 	if m.repo != "" {
-		status += styleSplashStatus.Render("loading " + m.repo + "…")
+		status += styleSplashStatus.Render(m.repo)
 	} else {
 		status += styleSplashStatus.Render("detecting repository…")
 	}
-	b.WriteString("    " + status)
+	b.WriteString(status)
+	b.WriteString("\n\n")
+
+	// Skip hint
+	b.WriteString(styleMuted.Render("       press any key to skip"))
 
 	return b.String()
 }
 
-// ── PR Picker (home screen) ───────────────────────────────────────────────────
-// Redesigned with Crush-style thick left border and cleaner layout.
+// ── PR Picker ─────────────────────────────────────────────────────────────────
 
 func (m model) renderPRPicker(w int) string {
 	var b strings.Builder
 
-	// ── Compact brand header with repo context ────────────────────────────────
+	// ── Compact brand header ──────────────────────────────────────────────────
 	details := ""
 	if m.repo != "" {
 		details = m.repo
@@ -670,11 +679,11 @@ func (m model) renderPRPicker(w int) string {
 		}
 	}
 	b.WriteString(renderCompactBrandWithDetails(w, details))
-	b.WriteString("\n")
+	b.WriteString("\n\n")
 
 	// ── PR list ───────────────────────────────────────────────────────────────
 	if m.prLoading {
-		b.WriteString(styleMuted.Render("  Loading PRs…") + "\n")
+		b.WriteString("  " + m.prSpinner.View() + " " + styleMuted.Render("Fetching open PRs…") + "\n")
 	} else if m.prLoadErr != "" {
 		b.WriteString(styleErr.Render("  "+IconCross+" "+m.prLoadErr) + "\n")
 		b.WriteString(styleMuted.Render("  Press # to enter a PR number manually") + "\n")
@@ -682,10 +691,14 @@ func (m model) renderPRPicker(w int) string {
 		if m.repo == "" {
 			b.WriteString(styleMuted.Render("  No repo detected. Run from inside a git checkout.") + "\n")
 		} else {
-			b.WriteString(styleMuted.Render("  No open PRs") + "\n")
+			b.WriteString(styleMuted.Render("  No open PRs found.") + "\n")
 		}
 		b.WriteString(styleMuted.Render("  Press # to enter a PR number manually") + "\n")
 	} else {
+		// Section title with count
+		count := styleMuted.Render(fmt.Sprintf("  %d open", len(m.prs)))
+		b.WriteString(count + "\n")
+
 		branchW := 28
 		titleW := w - branchW - 18
 		if titleW < 16 {
@@ -699,7 +712,6 @@ func (m model) renderPRPicker(w int) string {
 			isCurrent := p.HeadRefName == m.currentBranch
 
 			if i == m.prCursor {
-				// ▌ selected item — thick left bar (Crush-style)
 				bar := styleSelectedBar.Render(IconThickBar)
 				sNum := stylePRNum.Render(fmt.Sprintf("%-6s", num))
 				sBranch := styleSelected.Render(fmt.Sprintf("%-*s", branchW, branch))
@@ -709,11 +721,10 @@ func (m model) renderPRPicker(w int) string {
 				sTitle := lipgloss.NewStyle().Foreground(text).Render(title)
 				marker := ""
 				if isCurrent {
-					marker = " " + styleTeal.Render("←")
+					marker = " " + styleTeal.Render(IconArrow)
 				}
 				b.WriteString(" " + bar + " " + sNum + " " + sBranch + "  " + sTitle + marker)
 			} else {
-				// Normal item — 3-space indent to align with ▌ items
 				uNum := stylePRNumMuted.Render(fmt.Sprintf("%-6s", num))
 				uBranch := styleUnselected.Render(fmt.Sprintf("%-*s", branchW, branch))
 				if isCurrent {
@@ -722,7 +733,7 @@ func (m model) renderPRPicker(w int) string {
 				uTitle := styleMuted.Render(title)
 				marker := ""
 				if isCurrent {
-					marker = " " + styleTeal.Render("←")
+					marker = " " + styleTeal.Render(IconArrow)
 				}
 				b.WriteString("    " + uNum + " " + uBranch + "  " + uTitle + marker)
 			}
@@ -739,6 +750,7 @@ func (m model) renderPRPicker(w int) string {
 	b.WriteString(m.renderRibbon(w))
 
 	// ── Key hints ─────────────────────────────────────────────────────────────
+	dot := styleMuted.Render(" " + IconSep + " ")
 	hints := strings.Join([]string{
 		renderKeyHint("enter", "launch"),
 		renderKeyHint("s", "settings"),
@@ -746,7 +758,7 @@ func (m model) renderPRPicker(w int) string {
 		renderKeyHint("r", "refresh"),
 		renderKeyHint("?", "help"),
 		renderKeyHint("q", "quit"),
-	}, "  ")
+	}, dot)
 	b.WriteString("\n  " + hints)
 
 	return b.String()
@@ -760,52 +772,67 @@ func (m model) renderRibbon(w int) string {
 		modelStr = runners[m.runnerIdx].defaultModel
 	}
 
-	sep := styleMuted.Render(" " + IconSep + " ")
+	dot := styleMuted.Render(" " + IconSep + " ")
 
 	parts := []string{
 		styleVal.Render(rName),
-		styleVal.Render(truncate(modelStr, 30)),
+		styleMuted.Render(truncate(modelStr, 30)),
 	}
 	if m.reflect {
 		branch := m.reflectBranch
 		if branch == "" {
 			branch = m.defaultBranch
 		}
-		parts = append(parts, styleMuted.Render("reflect ")+styleTeal.Render("on "+IconArrow+" "+branch))
+		parts = append(parts, styleTeal.Render("reflect "+IconArrow+" "+branch))
 	} else {
 		parts = append(parts, styleMuted.Render("reflect off"))
 	}
 	if m.autoMerge {
-		parts = append(parts, styleMuted.Render("auto-merge ")+styleTeal.Render("on"))
+		parts = append(parts, styleTeal.Render("auto-merge on"))
 	} else {
 		parts = append(parts, styleMuted.Render("auto-merge off"))
 	}
 
 	ribbonW := clamp(w-2, 0, 200)
-	return "\n" + styleRibbon.Width(ribbonW).Render(strings.Join(parts, sep))
+	return "\n" + styleRibbon.Width(ribbonW).Render(strings.Join(parts, dot))
 }
 
 // ── Manual PR ─────────────────────────────────────────────────────────────────
 
 func (m model) renderManualPR(w, h int) string {
-	content := "\n" + styleStep.Render("  Enter PR number") + "\n\n" +
-		m.input.View() + "\n"
+	var b strings.Builder
+
+	// Brand header
+	b.WriteString(renderCompactBrand(w))
+	b.WriteString("\n\n")
+
+	b.WriteString(styleStep.Render("  Enter PR number"))
+	b.WriteString("\n\n")
+	b.WriteString(m.input.View())
+	b.WriteString("\n")
+
 	if m.errMsg != "" {
-		content += "\n" + styleErr.Render("  "+IconCross+" "+m.errMsg)
+		b.WriteString("\n" + styleErr.Render("  "+IconCross+" "+m.errMsg) + "\n")
 	}
-	hints := "  " + renderKeyHint("enter", "launch") + "  " + renderKeyHint("esc", "back")
-	content += "\n\n" + hints
-	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, content)
+
+	dot := styleMuted.Render(" " + IconSep + " ")
+	hints := renderKeyHint("enter", "launch") + dot + renderKeyHint("esc", "back")
+	b.WriteString("\n  " + hints)
+
+	return lipgloss.Place(w, h, lipgloss.Left, lipgloss.Top, b.String())
 }
 
 // ── Settings overlay ──────────────────────────────────────────────────────────
 
 func (m model) renderSettings() string {
-	title := styleStep.Render(IconDiamond + "  settings")
+	title := gradientString("SETTINGS", mauve, lavender, true)
 
 	// Runner — show name + description
 	r := runners[m.settingsRunnerIdx]
-	runnerVal := styleMuted.Render("◂ ") + styleVal.Render(r.name) + styleMuted.Render(" — "+r.desc) + styleMuted.Render(" ▸")
+	runnerVal := styleMuted.Render("◂ ") +
+		styleVal.Render(r.name) +
+		styleMuted.Render("  "+r.desc) +
+		styleMuted.Render(" ▸")
 
 	// Model
 	var modelVal string
@@ -814,7 +841,8 @@ func (m model) renderSettings() string {
 	} else {
 		v := m.settingsModelInput.Value()
 		if v == "" {
-			modelVal = styleMuted.Render(runners[m.settingsRunnerIdx].defaultModel + " (default)")
+			modelVal = styleMuted.Render(runners[m.settingsRunnerIdx].defaultModel) +
+				styleMuted.Render("  (default)")
 		} else {
 			modelVal = styleVal.Render(v)
 		}
@@ -823,7 +851,8 @@ func (m model) renderSettings() string {
 	// Reflect toggle
 	reflectVal := styleMuted.Render(IconRadioOff + " off")
 	if m.settingsReflect {
-		reflectVal = styleTeal.Render(IconRadioOn + " on")
+		reflectVal = styleTeal.Render(IconRadioOn + " on") +
+			styleMuted.Render("  extract coding rules after each cycle")
 	}
 
 	// Branch
@@ -841,7 +870,8 @@ func (m model) renderSettings() string {
 	// Auto-merge toggle
 	amVal := styleMuted.Render(IconRadioOff + " off")
 	if m.settingsAutoMerge {
-		amVal = styleTeal.Render(IconRadioOn + " on")
+		amVal = styleTeal.Render(IconRadioOn + " on") +
+			styleMuted.Render("  merge PR automatically when approved")
 	}
 
 	type srow struct {
@@ -853,7 +883,7 @@ func (m model) renderSettings() string {
 	rows := []srow{
 		{"runner", runnerVal, sfRunner},
 		{"model", modelVal, sfModel},
-		{"reflection", reflectVal, sfReflect},
+		{"reflect", reflectVal, sfReflect},
 	}
 	if m.settingsReflect {
 		rows = append(rows, srow{"  branch", branchVal, sfReflectBranch})
@@ -879,16 +909,17 @@ func (m model) renderSettings() string {
 	if m.settingsFocus == sfCancel {
 		cancelCursor = styleSelected.Render(IconArrow + " ")
 	}
-	lines = append(lines, saveCursor+styleTeal.Render(IconCheck+" Save"))
-	lines = append(lines, cancelCursor+styleMuted.Render(IconCross+" Cancel"))
+	lines = append(lines, saveCursor+styleTeal.Render(IconCheck+" save"))
+	lines = append(lines, cancelCursor+styleMuted.Render(IconCross+" cancel"))
 
+	dot := styleMuted.Render(" " + IconSep + " ")
 	hints := "\n  " + strings.Join([]string{
 		renderKeyHint("↑↓", "move"),
-		renderKeyHint("←→", "cycle runner"),
+		renderKeyHint("←→", "cycle"),
 		renderKeyHint("space", "toggle"),
 		renderKeyHint("enter", "edit"),
-		renderKeyHint("esc", "cancel"),
-	}, "  ")
+		renderKeyHint("esc", "back"),
+	}, dot)
 
 	return styleSettingsBox.Render(title + "\n\n" + strings.Join(lines, "\n") + hints)
 }
@@ -898,26 +929,27 @@ func (m model) renderSettings() string {
 func (m model) renderHelp() string {
 	helpStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(mauve).
+		BorderForeground(surface).
 		Padding(1, 4)
 
-	title := styleStep.Render(IconDiamond + "  keyboard shortcuts")
+	title := gradientString("KEYBOARD SHORTCUTS", mauve, lavender, true)
 
 	type krow struct{ key, desc string }
 	rows := []krow{
-		{"enter", "launch PR review cycle"},
+		{"enter", "launch review cycle on selected PR"},
 		{"↑↓ / jk", "navigate PR list"},
 		{"s", "open settings"},
 		{"#", "type PR number manually"},
-		{"r", "refresh PR list"},
-		{"?", "this help (any key to close)"},
-		{"q / ^C", "quit"},
+		{"r", "refresh PR list from GitHub"},
+		{"?", "toggle this help"},
+		{"q / ^C", "quit rinse"},
 	}
 
 	var lines []string
 	for _, r := range rows {
 		lines = append(lines,
-			styleHintKey.Render(fmt.Sprintf("%-10s", r.key))+"  "+styleVal.Render(r.desc))
+			styleHintKey.Render(fmt.Sprintf("  %-10s", r.key))+"  "+
+				lipgloss.NewStyle().Foreground(subtext).Render(r.desc))
 	}
 
 	return helpStyle.Render(title + "\n\n" + strings.Join(lines, "\n"))

@@ -298,7 +298,7 @@ func (m monitorModel) renderPhaseBreadcrumb() string {
 		parts = append(parts, part)
 	}
 
-	sep := styleMuted.Render("  ›  ")
+	sep := styleMuted.Render(" › ")
 	return "  " + strings.Join(parts, sep)
 }
 
@@ -307,10 +307,10 @@ func (m monitorModel) renderPhaseBreadcrumb() string {
 func (m monitorModel) renderHelp() string {
 	helpStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(mauve).
+		BorderForeground(surface).
 		Padding(1, 4)
 
-	title := styleStep.Render(IconDiamond + "  keyboard shortcuts")
+	title := gradientString("MONITOR SHORTCUTS", mauve, lavender, true)
 
 	type krow struct{ key, desc string }
 	rows := []krow{
@@ -318,16 +318,17 @@ func (m monitorModel) renderHelp() string {
 		{"↓ / j", "scroll down"},
 		{"g", "jump to top"},
 		{"G", "jump to bottom"},
-		{"S", "save full session log to file"},
-		{"s", "save reflect log to file"},
+		{"S", "save full session log"},
+		{"s", "save reflect log"},
 		{"?", "toggle this help"},
-		{"q / ^C", "quit"},
+		{"q / ^C", "quit rinse"},
 	}
 
 	var lines []string
 	for _, r := range rows {
 		lines = append(lines,
-			styleHintKey.Render(fmt.Sprintf("%-10s", r.key))+"  "+styleVal.Render(r.desc))
+			styleHintKey.Render(fmt.Sprintf("  %-10s", r.key))+"  "+
+				lipgloss.NewStyle().Foreground(subtext).Render(r.desc))
 	}
 
 	return helpStyle.Render(title + "\n\n" + strings.Join(lines, "\n"))
@@ -730,8 +731,8 @@ func (m monitorModel) renderWaitProgress() string {
 	}
 	pct := elapsed * 100 / max
 
-	bar := stylePhaseWaiting.Render(strings.Repeat("█", filled)) +
-		styleMuted.Render(strings.Repeat("░", empty))
+	bar := stylePhaseWaiting.Render(strings.Repeat("━", filled)) +
+		styleMuted.Render(strings.Repeat("─", empty))
 
 	return m.spinner.View() + " " +
 		stylePhaseWaiting.Render(label) + "  " +
@@ -912,16 +913,17 @@ func (m monitorModel) View() string {
 
 	scrollHint := ""
 	if !m.atBottom {
-		scrollHint = styleMuted.Render("  ↑ scrolled  G" + IconArrow + "bottom")
+		scrollHint = styleMuted.Render("  ↑ scrolled  G=bottom")
 	}
 
+	dot := styleMuted.Render(" " + IconSep + " ")
 	keys := "  " + strings.Join([]string{
 		renderKeyHint("q", "quit"),
 		renderKeyHint("↑↓/jk", "scroll"),
 		renderKeyHint("s", "save reflect"),
 		renderKeyHint("S", "save all"),
 		renderKeyHint("?", "help"),
-	}, "  ")
+	}, dot)
 
 	statusBarWidth := totalW - 2
 	if statusBarWidth < 0 {
@@ -953,12 +955,13 @@ func (m monitorModel) renderIterTimeline() string {
 			parts = append(parts, styleTimelineCurrent.Render(IconRunning))
 		}
 	}
-	return styleMuted.Render("history ") + strings.Join(parts, styleMuted.Render(IconArrow))
+	return styleMuted.Render("history ") + strings.Join(parts, styleMuted.Render("›"))
 }
 
 // renderPostCycleMenu renders the post-cycle action menu with rounded border.
 func (m monitorModel) renderPostCycleMenu() string {
-	title := styleTeal.Render(IconCheck + "  PR ready to merge — what would you like to do?")
+	title := gradientString("PR READY TO MERGE", mauve, lavender, true)
+	subtitle := styleMuted.Render("  What would you like to do?")
 
 	var lines []string
 	for i, opt := range m.postCycleOptions {
@@ -969,13 +972,14 @@ func (m monitorModel) renderPostCycleMenu() string {
 		}
 	}
 
+	dot := styleMuted.Render(" " + IconSep + " ")
 	hints := "  " + strings.Join([]string{
 		renderKeyHint("↑↓/jk", "move"),
 		renderKeyHint("enter", "confirm"),
 		renderKeyHint("q", "quit"),
-	}, "  ")
+	}, dot)
 
-	content := title + "\n\n" + strings.Join(lines, "\n") + "\n" + hints
+	content := title + "\n" + subtitle + "\n\n" + strings.Join(lines, "\n") + "\n" + hints
 	return styleMenuBox.Render(content)
 }
 
