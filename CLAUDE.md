@@ -32,6 +32,9 @@ Project instructions for AI coding agents.
 - When surfacing errors for a specific sub-process, tail that component's dedicated log file, not a shared log that receives interleaved output from multiple sources.
 - Under `set -u`, never read an associative array key that may be absent; guard with `[[ -v arr[$key] ]]` or use `${arr[$key]:-}` and return early when the key is missing.
 - Never use `git worktree add -B <branch>` with a shared/user-facing branch name in automation; use a uniquely namespaced local branch (e.g., prefixed by PR number) and set its upstream explicitly so pushes still target the correct remote branch.
+- Never trap cleanup solely on `EXIT` when side-effects (kill, sleep, prune) should only run on interruption; use dedicated `handle_sigint`/`handle_sigterm` functions with `trap ... INT TERM` for interruption-specific behavior and `trap 'cleanup false' EXIT` for universal teardown.
+- Guard cleanup side-effects (killing children, sleeping, pruning worktrees) behind a check for active child processes; unconditional cleanup on `EXIT` adds delay and emits misleading log output on clean successful runs.
+- Use a boolean idempotency guard (e.g. `CLEANUP_DONE`) in cleanup functions to prevent double-execution when both an `EXIT` trap and a signal handler fire for the same termination event.
 
 ### Environment & CI Portability
 - Check both git identity pairs (`GIT_AUTHOR_NAME`/`EMAIL` and `GIT_COMMITTER_NAME`/`EMAIL`); a missing pair can pass preflight but fail `git commit`.
