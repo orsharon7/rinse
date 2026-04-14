@@ -35,6 +35,8 @@ Project instructions for AI coding agents.
 - Never trap cleanup solely on `EXIT` when side-effects (kill, sleep, prune) should only run on interruption; use dedicated `handle_sigint`/`handle_sigterm` functions with `trap ... INT TERM` for interruption-specific behavior and `trap 'cleanup false' EXIT` for universal teardown.
 - Guard cleanup side-effects (killing children, sleeping, pruning worktrees) behind a check for active child processes; unconditional cleanup on `EXIT` adds delay and emits misleading log output on clean successful runs.
 - Use a boolean idempotency guard (e.g. `CLEANUP_DONE`) in cleanup functions to prevent double-execution when both an `EXIT` trap and a signal handler fire for the same termination event.
+- When a wrapper subshell spawns a real worker process, trap TERM/INT in the wrapper and forward the signal to the worker before `wait`-ing; never let the wrapper exit while the worker is still running and mutating shared state (repo, worktrees, locks).
+- Never release a dispatch or concurrency lock immediately after `kill`; always `wait` for the child to actually exit (escalating to SIGKILL if needed) before releasing the lock, to prevent a second instance from starting before the first has fully stopped.
 
 ### Environment & CI Portability
 - Check both git identity pairs (`GIT_AUTHOR_NAME`/`EMAIL` and `GIT_COMMITTER_NAME`/`EMAIL`); a missing pair can pass preflight but fail `git commit`.
