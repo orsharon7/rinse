@@ -819,13 +819,20 @@ func (m monitorModel) View() string {
 	}
 	logH := m.logHeight()
 
-	// ── Header line 1: Crush-style slash-separated branding ───────────────────
+	// ── Header line 1: Brand bar with PR context ─────────────────────────────
 	elapsed := time.Since(m.started).Round(time.Second)
 
-	headerLine1 := renderMonitorLogo(m.pr, m.repo, m.runner)
+	prCtx := "#" + m.pr
+	if m.repo != "" {
+		prCtx += " " + IconSep + " " + m.repo
+	}
+	if m.runner != "" {
+		prCtx += " " + IconSep + " " + m.runner
+	}
+	headerLine1 := renderBrandBarWithContext(totalW-2, prCtx)
 	if m.prTitle != "" {
-		headerLine1 += "  " + styleMuted.Render(`"`) +
-			lipgloss.NewStyle().Foreground(text).Italic(true).Render(truncate(m.prTitle, 36)) +
+		headerLine1 += "\n  " + styleMuted.Render(`"`) +
+			lipgloss.NewStyle().Foreground(text).Italic(true).Render(truncate(m.prTitle, 50)) +
 			styleMuted.Render(`"`)
 	}
 

@@ -1,11 +1,12 @@
 package main
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/lipgloss"
 )
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
-// Consistent icon vocabulary inspired by charmbracelet/crush.
 
 const (
 	IconDiamond  = "◇"
@@ -21,18 +22,19 @@ const (
 	IconPending  = "●"
 	IconRunning  = "◌"
 	IconSep      = "·"
+	IconDiag     = "╱"
 )
 
 // ── Splash logo ───────────────────────────────────────────────────────────────
 
 const splashLogo = `
-          ╭─────────────────────────────╮
-          │                             │
-          │    ◇  r i n s e             │
-          │                             │
-          │    lather · rinse · repeat  │
-          │                             │
-          ╰─────────────────────────────╯`
+    ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+    ╱╱                                   ╱╱
+    ╱╱    ◇  r  i  n  s  e              ╱╱
+    ╱╱                                   ╱╱
+    ╱╱    lather · rinse · repeat        ╱╱
+    ╱╱                                   ╱╱
+    ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱`
 
 // ── Palette (Catppuccin Macchiato) ────────────────────────────────────────────
 
@@ -57,16 +59,90 @@ var (
 	crust   = lipgloss.Color("#181926")
 )
 
+// ── Brand bar ─────────────────────────────────────────────────────────────────
+// renderBrandBar produces the consistent header shown on EVERY screen:
+//   ◇ rinse  ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱  v0.1.0
+// The diagonals fill remaining width — the signature Crush-inspired look.
+
+func renderBrandBar(w int) string {
+	brand := styleBrandIcon.Render(IconDiamond) + " " + styleBrandName.Render("rinse")
+	ver := styleBrandVersion.Render("v" + version)
+
+	brandW := lipgloss.Width(brand)
+	verW := lipgloss.Width(ver)
+	diagSpace := w - brandW - verW - 4 // 4 = gaps
+	if diagSpace < 2 {
+		diagSpace = 2
+	}
+	diags := styleBrandDiag.Render(strings.Repeat(IconDiag, diagSpace))
+
+	return brand + "  " + diags + "  " + ver
+}
+
+// renderBrandBarWithContext produces the header with contextual info:
+//   ◇ rinse  ╱╱╱  owner/repo on branch  ╱╱╱  v0.1.0
+func renderBrandBarWithContext(w int, ctx string) string {
+	brand := styleBrandIcon.Render(IconDiamond) + " " + styleBrandName.Render("rinse")
+	ver := styleBrandVersion.Render("v" + version)
+	ctxRendered := ""
+	if ctx != "" {
+		ctxRendered = "  " + styleBrandCtx.Render(ctx) + "  "
+	}
+
+	brandW := lipgloss.Width(brand)
+	verW := lipgloss.Width(ver)
+	ctxW := lipgloss.Width(ctxRendered)
+
+	totalFixed := brandW + verW + ctxW + 4
+	diagSpace := w - totalFixed
+	if diagSpace < 2 {
+		diagSpace = 2
+	}
+
+	// Split diags: left side + context + right side
+	leftDiags := diagSpace * 40 / 100
+	rightDiags := diagSpace - leftDiags
+	if leftDiags < 1 {
+		leftDiags = 1
+	}
+	if rightDiags < 1 {
+		rightDiags = 1
+	}
+
+	left := styleBrandDiag.Render(strings.Repeat(IconDiag, leftDiags))
+	right := styleBrandDiag.Render(strings.Repeat(IconDiag, rightDiags))
+
+	if ctx == "" {
+		return brand + "  " + styleBrandDiag.Render(strings.Repeat(IconDiag, diagSpace)) + "  " + ver
+	}
+	return brand + "  " + left + ctxRendered + right + "  " + ver
+}
+
 // ── Wizard Styles ─────────────────────────────────────────────────────────────
 
 var (
-	// Logo & branding — ◇ rinse
-	styleLogo = lipgloss.NewStyle().
+	// Brand bar components
+	styleBrandIcon = lipgloss.NewStyle().
 			Foreground(mauve).
 			Bold(true)
 
-	styleLogoIcon = lipgloss.NewStyle().
-			Foreground(mauve)
+	styleBrandName = lipgloss.NewStyle().
+			Foreground(mauve).
+			Bold(true)
+
+	styleBrandDiag = lipgloss.NewStyle().
+			Foreground(surface)
+
+	styleBrandVersion = lipgloss.NewStyle().
+				Foreground(overlay)
+
+	styleBrandCtx = lipgloss.NewStyle().
+			Foreground(subtext)
+
+	// Logo styles (kept for backward compat in app.go helpers)
+	styleLogo = styleBrandName
+
+	styleLogoIcon = styleBrandIcon
 
 	styleLogoSlash = lipgloss.NewStyle().
 			Foreground(overlay)
@@ -75,10 +151,6 @@ var (
 	styleSplashBox = lipgloss.NewStyle().
 			Foreground(mauve).
 			Bold(true)
-
-	styleSplashTagline = lipgloss.NewStyle().
-				Foreground(subtext).
-				Italic(true)
 
 	styleSplashVersion = lipgloss.NewStyle().
 				Foreground(overlay)
@@ -99,21 +171,20 @@ var (
 	styleErr   = lipgloss.NewStyle().Foreground(red)
 	styleTeal  = lipgloss.NewStyle().Foreground(teal).Bold(true)
 
-	// PR list items — Crush-style thick left border for selected
+	// PR list: thick left bar for selected, like Crush's message focus border
 	styleSelected   = lipgloss.NewStyle().Foreground(mauve).Bold(true)
 	styleUnselected = lipgloss.NewStyle().Foreground(subtext)
 
 	styleSelectedBar = lipgloss.NewStyle().
 				Foreground(mauve).Bold(true)
 
-	// PR number styling
 	stylePRNum = lipgloss.NewStyle().
 			Foreground(lavender).Bold(true)
 
 	stylePRNumMuted = lipgloss.NewStyle().
 				Foreground(overlay)
 
-	// Settings bar / ribbon
+	// Settings ribbon
 	styleRibbon = lipgloss.NewStyle().
 			Foreground(subtext).
 			BorderStyle(lipgloss.NormalBorder()).

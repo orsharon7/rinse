@@ -622,14 +622,19 @@ func (m model) View() string {
 // ── Splash screen ─────────────────────────────────────────────────────────────
 
 func (m model) renderSplash() string {
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+
 	var b strings.Builder
+
+	// Brand bar at top
+	b.WriteString(renderBrandBar(w))
+	b.WriteString("\n\n")
 
 	// ASCII art logo
 	b.WriteString(styleSplashBox.Render(splashLogo))
-	b.WriteString("\n\n")
-
-	// Version
-	b.WriteString(styleSplashVersion.Render("          v" + version))
 	b.WriteString("\n\n")
 
 	// Loading status with spinner
@@ -639,7 +644,7 @@ func (m model) renderSplash() string {
 	} else {
 		status += styleSplashStatus.Render("detecting repository…")
 	}
-	b.WriteString("          " + status)
+	b.WriteString("    " + status)
 
 	return b.String()
 }
@@ -652,9 +657,15 @@ func (m model) renderPRPicker(w int) string {
 
 	contentW := clamp(w-4, 1, 140)
 
-	// ── Logo header ───────────────────────────────────────────────────────────
-	b.WriteString("\n")
-	b.WriteString(renderLogo(m.repo, m.currentBranch))
+	// ── Brand bar with repo context ───────────────────────────────────────────
+	ctx := ""
+	if m.repo != "" {
+		ctx = m.repo
+		if m.currentBranch != "" {
+			ctx += " on " + m.currentBranch
+		}
+	}
+	b.WriteString(renderBrandBarWithContext(w, ctx))
 	b.WriteString("\n")
 	b.WriteString("  " + renderSeparator(contentW))
 	b.WriteString("\n")
