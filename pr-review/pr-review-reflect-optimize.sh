@@ -242,6 +242,19 @@ if [[ -z "$changed" ]]; then
   exit 0
 fi
 
+# Abort if the agent deleted a file that existed before the rewrite
+for f in "$AGENTS_FILE" "$CLAUDE_FILE"; do
+  file_name=${f##*/}
+
+  if git -C "$WORKTREE_DIR" cat-file -e "HEAD:$file_name" 2>/dev/null; then
+    if [[ ! -f "$f" ]]; then
+      log "⚠️  ${file_name} was deleted by the agent rewrite — aborting"
+      git -C "$WORKTREE_DIR" checkout -- AGENTS.md CLAUDE.md 2>/dev/null
+      exit 1
+    fi
+  fi
+done
+
 # Verify COPILOT-RULES markers survived the rewrite as one well-formed bounded section
 for f in "$AGENTS_FILE" "$CLAUDE_FILE"; do
   if [[ -f "$f" ]]; then
@@ -277,9 +290,7 @@ if [[ -f "$AGENTS_FILE" && -f "$CLAUDE_FILE" ]]; then
     local file="$1"
     awk '/^<!-- BEGIN:COPILOT-RULES -->$/{found=1; next} /^<!-- END:COPILOT-RULES -->$/{found=0} found' "$file"
   }
-  agents_rules=$(extract_rules_section "$AGENTS_FILE")
-  claude_rules=$(extract_rules_section "$CLAUDE_FILE")
-  if [[ "$agents_rules" != "$claude_rules" ]]; then
+  if ! cmp -s <(extract_rules_section "$AGENTS_FILE") <(extract_rules_section "$CLAUDE_FILE"); then
     log "⚠️  COPILOT-RULES sections differ between AGENTS.md and CLAUDE.md after agent rewrite — aborting"
     git -C "$WORKTREE_DIR" checkout -- AGENTS.md CLAUDE.md 2>/dev/null
     exit 1
