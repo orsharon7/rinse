@@ -210,6 +210,56 @@ ui_success_banner() {
 # Called from runners to print a styled one-liner about reflection activity.
 # No cursor tricks — just a clearly prefixed log line in the normal stream.
 
+# ─── Cycle step banners ──────────────────────────────────────────────────────
+#
+# ui_step <step_number> <label>   e.g. ui_step 1 "Requesting Copilot review"
+# Renders a bold, colored banner so cycle actions are visible amid agent output.
+
+ui_step() {
+  local num="$1" label="$2"
+  if [[ "$_UI_GUM" == true && "$_UI_TTY" == true ]]; then
+    local w
+    w=$(tput cols 2>/dev/null || echo 80)
+    local text="  ▸ Step ${num}: ${label}  "
+    local pad=$(( w - ${#text} - 2 ))
+    [[ $pad -lt 0 ]] && pad=0
+    local line=""
+    if [[ $pad -gt 0 ]]; then
+      line=$(printf '─%.0s' $(seq 1 $pad))
+    fi
+    echo ""
+    gum style --bold --foreground "$GUM_ACCENT" "──${text}${line}"
+  else
+    local pad
+    pad=$(printf '─%.0s' $(seq 1 50))
+    echo ""
+    _ui_print "${_B}${_MAGENTA}── ▸ Step ${num}: ${label}  ${pad}${_R}"
+  fi
+}
+
+# ─── Cycle outcome banners ───────────────────────────────────────────────────
+#
+# ui_outcome <emoji> <message> [color]
+# Renders a highlighted single-line outcome so it stands out after agent noise.
+
+ui_outcome() {
+  local emoji="$1" msg="$2" color="${3:-$GUM_SUCCESS}"
+  if [[ "$_UI_GUM" == true && "$_UI_TTY" == true ]]; then
+    echo ""
+    gum style --bold --foreground "$color" "${emoji}  ${msg}"
+  else
+    local ansi="$_GREEN"
+    case "$color" in
+      "$GUM_ERROR"|196)  ansi="$_RED" ;;
+      "$GUM_WARN"|214)   ansi="$_YELLOW" ;;
+      "$GUM_ACCENT"|99)  ansi="$_MAGENTA" ;;
+      *)                 ansi="$_GREEN" ;;
+    esac
+    echo ""
+    _ui_print "${_B}${ansi}${emoji}  ${msg}${_R}"
+  fi
+}
+
 ui_reflect_log() {
   local msg="$1"
   local ok="${2:-true}"  # "true" | "false" | "skip"

@@ -2,7 +2,7 @@
 # pr-review-claude-v2.sh — Autonomous Copilot PR review fix loop
 #
 # Runs until Copilot approves or returns 0 comments (no hard iteration cap).
-# Uses official `gh pr edit --add-reviewer @copilot` (gh CLI v2.88+).
+# Uses REST API to request Copilot reviews (avoids deprecated GraphQL path).
 # Model-agnostic: pass --model to override the Claude model.
 #
 # Usage:
@@ -17,7 +17,7 @@
 #
 # Requirements:
 #   - claude CLI in PATH
-#   - gh CLI v2.88+ authenticated  (gh --version)
+#   - gh CLI authenticated  (gh --version)
 #   - jq
 #
 # Example:
@@ -112,20 +112,27 @@ get_review_comments() {
     2>/dev/null | jq '[.[] | select(.in_reply_to_id == null)]'
 }
 
-# Request Copilot review using official gh CLI method (gh v2.88+)
+# Request Copilot review via REST API
+# Note: gh pr edit --add-reviewer uses GraphQL updatePullRequest which triggers
+# "Projects (classic) is being deprecated" warnings — use REST instead (see #14)
 request_copilot_review() {
-  if gh pr edit "$PR_NUMBER" --repo "$REPO" --add-reviewer "@copilot" 2>/dev/null; then
-    log "   📨 Copilot review requested via gh pr edit --add-reviewer @copilot"
-    return 0
-  fi
-  # Fallback: direct API (for older gh versions)
   if gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
     -X POST --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null 2>&1; then
-    log "   📨 Copilot review requested via API (fallback)"
+    log "   📨 Copilot review requested via REST API"
     return 0
   fi
   log "   ⚠️  Failed to request Copilot review"
   return 1
+}
+
+react_eyes_to_review() {
+  local review_id="$1"
+  local node_id
+  node_id=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews/${review_id}" --jq '.node_id' 2>/dev/null || echo "")
+  [[ -z "$node_id" || "$node_id" == "null" ]] && return
+  gh api graphql -f query="mutation { addReaction(input: {subjectId: \"${node_id}\", content: EYES}) { reaction { content } } }" >/dev/null 2>&1 \
+    && log "   👀 Reacted to review ${review_id}" \
+    || true
 }
 
 # Wait for Copilot to finish reviewing (blocks up to WAIT_MAX seconds)
@@ -266,9 +273,10 @@ log "   Model:       ${MODEL}"
 log "   Wait max:    ${WAIT_MAX}s   (unlimited iterations)"
 log "   Log file:    ${LOGFILE}"
 
-# Check PR state
-pr_state=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.state' 2>/dev/null || echo "unknown")
-merged_at=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.merged_at // ""' 2>/dev/null || echo "")
+# Check PR state (single fetch)
+_pr_json=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" 2>/dev/null || echo '{}')
+pr_state=$(echo "$_pr_json" | jq -r '.state // "unknown"')
+merged_at=$(echo "$_pr_json" | jq -r '.merged_at // ""')
 
 if [[ "$pr_state" == "closed" && -n "$merged_at" ]]; then
   log "🎉 PR already merged — nothing to do."
@@ -330,7 +338,9 @@ while true; do
   iter=$(( iter + 1 ))
   ui_iter_header "$iter"
 
-  # ── Step 1: Ensure a review is in progress / get latest ───────────────────
+  # ── Step 1: Ensure a review is in progress / get latest ───────────────
+
+  ui_step 1 "Check review status"
 
   pending=$(copilot_is_pending)
   latest=$(get_latest_copilot_review)
@@ -348,14 +358,18 @@ while true; do
     fi
   fi
 
-  # ── Step 2: Wait for Copilot to finish ────────────────────────────────────
+  # ── Step 2: Wait for Copilot to finish ────────────────────────────
+
+  ui_step 2 "Wait for Copilot review"
 
   if ! wait_for_review; then
     log "❌ Timed out waiting for Copilot — aborting"
     exit 1
   fi
 
-  # ── Step 3: Read the new review ───────────────────────────────────────────
+  # ── Step 3: Read the new review ───────────────────────────────────
+
+  ui_step 3 "Read review result"
 
   latest=$(get_latest_copilot_review)
   if [[ -z "$latest" ]]; then
@@ -367,15 +381,20 @@ while true; do
   rid=$(echo "$latest" | jq -r '.id')
   rstate=$(echo "$latest" | jq -r '.state')
 
-  # Check PR state (may have been merged/closed while we waited)
-  pr_state=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.state' 2>/dev/null || echo "open")
-  merged_at=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.merged_at // ""' 2>/dev/null || echo "")
+  # Signal on GitHub that we've seen the review
+  react_eyes_to_review "$rid"
+
+  # Check PR state (may have been merged/closed while we waited — single fetch)
+  _pr_json=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" 2>/dev/null || echo '{}')
+  pr_state=$(echo "$_pr_json" | jq -r '.state // "open"')
+  merged_at=$(echo "$_pr_json" | jq -r '.merged_at // ""')
   if [[ "$pr_state" == "closed" ]]; then
     [[ -n "$merged_at" ]] && log "🎉 PR merged!" || log "📕 PR closed."
     exit 0
   fi
 
   if [[ "$rstate" == "APPROVED" ]]; then
+    ui_outcome "✅" "Copilot APPROVED PR #${PR_NUMBER}! Ready to merge."
     log "✅ Copilot APPROVED PR #${PR_NUMBER}! Ready to merge."
     echo "$rid" > "$STATE_FILE"
     ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
@@ -386,15 +405,19 @@ while true; do
   comment_count=$(echo "$comments" | jq 'length')
 
   if [[ "$comment_count" -eq 0 ]]; then
+    ui_outcome "✅" "Clean review — 0 comments. PR #${PR_NUMBER} is ready to merge."
     log "✅ Clean review — 0 comments. PR #${PR_NUMBER} is ready to merge."
     echo "$rid" > "$STATE_FILE"
     ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
     exit 0
   fi
 
+  ui_outcome "💬" "${comment_count} comment(s) in review ${rid}" "$GUM_WARN"
   log "💬 ${comment_count} comment(s) in review ${rid} — invoking Claude (${MODEL})..."
 
-  # ── Step 4: Build prompt and invoke Claude ────────────────────────────────
+  # ── Step 4: Build prompt and invoke Claude ────────────────────────────
+
+  ui_step 4 "Fix comments with Claude (${MODEL})"
 
   comments_json=$(echo "$comments" | jq '.')
 
@@ -427,7 +450,7 @@ Each comment has: id, path (file), line, body (the review text), in_reply_to_id 
 
 3. Request a new Copilot review:
    \`\`\`bash
-   gh pr edit ${PR_NUMBER} --repo ${REPO} --add-reviewer @copilot
+   gh api repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers -X POST --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}'
    \`\`\`
 
 4. Reply to every top-level comment:

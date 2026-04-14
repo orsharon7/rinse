@@ -197,7 +197,7 @@ is_copilot_pending() {
 get_latest_copilot_review() {
   local reviews
   reviews=$(gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/reviews?per_page=100" \
-    --jq '[.[] | select(.user.login | contains("copilot")) | {id: .id, state: .state, submitted_at: .submitted_at}]' 2>/dev/null) || {
+    --jq '[.[] | select(.user.login == "copilot-pull-request-reviewer[bot]" or .user.login == "Copilot") | {id: .id, state: .state, submitted_at: .submitted_at}]' 2>/dev/null) || {
     echo '{"status":"error","message":"Failed to fetch reviews"}' | tr -d '\000'
     return 1
   }
@@ -283,23 +283,28 @@ cmd_status() {
 }
 
 _emit_review_status() {
+  # Fetch all Copilot reviews once — extract both latest and total count
+  local all_reviews
+  all_reviews=$(gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/reviews?per_page=100" \
+    --jq '[.[] | select(.user.login == "copilot-pull-request-reviewer[bot]" or .user.login == "Copilot") | {id: .id, state: .state, submitted_at: .submitted_at}]' 2>/dev/null \
+    | jq -s 'add // []') || {
+    jq -n '{"status":"error","message":"Failed to fetch reviews"}' | tr -d '\000'
+    return
+  }
+
   local latest
-  latest=$(get_latest_copilot_review) || return
+  latest=$(echo "$all_reviews" | jq 'sort_by(.submitted_at) | last // empty')
 
   if [[ -z "$latest" || "$latest" == "null" ]]; then
     echo '{"status":"no_reviews"}' | tr -d '\000'
     return
   fi
 
-  local rid rstate rat
+  local rid rstate rat total
   rid=$(echo "$latest" | jq -r '.id')
   rstate=$(echo "$latest" | jq -r '.state')
   rat=$(echo "$latest" | jq -r '.submitted_at')
-
-  # Count total reviews
-  local total
-  total=$(gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/reviews?per_page=100" \
-    --jq '[.[] | select(.user.login | contains("copilot"))] | length' 2>/dev/null | jq -s 'add')
+  total=$(echo "$all_reviews" | jq 'length')
 
   if [[ "$rstate" == "APPROVED" ]]; then
     jq -n --arg rid "$rid" --arg rat "$rat" --argjson total "$total" \

@@ -20,7 +20,7 @@
 # Requirements:
 #   - opencode CLI in PATH (opencode --version)
 #   - opencode authenticated with GitHub Copilot (opencode providers)
-#   - gh CLI v2.88+ authenticated
+#   - gh CLI authenticated
 #   - jq
 #
 # Example:
@@ -132,17 +132,25 @@ get_review_comments() {
 }
 
 request_copilot_review() {
-  if gh pr edit "$PR_NUMBER" --repo "$REPO" --add-reviewer "@copilot" 2>/dev/null; then
-    log "   📨 Copilot review requested via gh pr edit --add-reviewer @copilot"
-    return 0
-  fi
+  # Use REST API directly — gh pr edit --add-reviewer uses GraphQL updatePullRequest
+  # which triggers "Projects (classic) is being deprecated" warnings (see #14)
   if gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
     -X POST --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' >/dev/null 2>&1; then
-    log "   📨 Copilot review requested via API (fallback)"
+    log "   📨 Copilot review requested via REST API"
     return 0
   fi
   log "   ⚠️  Failed to request Copilot review"
   return 1
+}
+
+react_eyes_to_review() {
+  local review_id="$1"
+  local node_id
+  node_id=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews/${review_id}" --jq '.node_id' 2>/dev/null || echo "")
+  [[ -z "$node_id" || "$node_id" == "null" ]] && return
+  gh api graphql -f query="mutation { addReaction(input: {subjectId: \"${node_id}\", content: EYES}) { reaction { content } } }" >/dev/null 2>&1 \
+    && log "   👀 Reacted to review ${review_id}" \
+    || true
 }
 
 wait_for_review() {
@@ -328,6 +336,8 @@ while true; do
 
   # ── Step 1: Request review if needed ──────────────────────────────────────
 
+  ui_step 1 "Check review status"
+
   pending=$(copilot_is_pending)
   latest=$(get_latest_copilot_review)
   saved=$(cat "$STATE_FILE" 2>/dev/null || echo "")
@@ -342,6 +352,8 @@ while true; do
 
   # ── Step 2: Wait for review ───────────────────────────────────────────────
 
+  ui_step 2 "Wait for Copilot review"
+
   if ! wait_for_review; then
     log "❌ Timed out waiting for Copilot — aborting"
     exit 1
@@ -349,26 +361,34 @@ while true; do
 
   # ── Step 3: Read result ───────────────────────────────────────────────────
 
+  ui_step 3 "Read review result"
+
   latest=$(get_latest_copilot_review)
   [[ -z "$latest" ]] && { log "⚠️  No review found — retrying"; sleep 10; continue; }
 
   rid=$(echo "$latest" | jq -r '.id')
   rstate=$(echo "$latest" | jq -r '.state')
 
-  pr_state=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.state' 2>/dev/null || echo "open")
-  merged_at=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.merged_at // ""' 2>/dev/null || echo "")
+  # Signal on GitHub that we've seen the review
+  react_eyes_to_review "$rid"
+
+  # Check PR state (single fetch for state, merged_at, base.ref)
+  _pr_json=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" 2>/dev/null || echo '{}')
+  pr_state=$(echo "$_pr_json" | jq -r '.state // "open"')
+  merged_at=$(echo "$_pr_json" | jq -r '.merged_at // ""')
+  base_branch=$(echo "$_pr_json" | jq -r '.base.ref // "main"')
   if [[ "$pr_state" == "closed" ]]; then
     [[ -n "$merged_at" ]] && log "🎉 PR merged!" || log "📕 PR closed."
     exit 0
   fi
 
   if [[ "$rstate" == "APPROVED" ]]; then
+    ui_outcome "✅" "Copilot APPROVED PR #${PR_NUMBER}! Ready to merge."
     log "✅ Copilot APPROVED PR #${PR_NUMBER}! Ready to merge."
     echo "$rid" > "$STATE_FILE"
     if [[ "$AUTO_MERGE" == true ]]; then
       log "🔀 Auto-merging and deleting branch..."
       local_branch=$(git -C "$CWD" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-      base_branch=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.base.ref' 2>/dev/null || echo "main")
       gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch
       _local_deleted=false
       if [[ -n "$local_branch" && "$local_branch" != "$base_branch" ]]; then
@@ -400,12 +420,12 @@ while true; do
   comment_count=$(echo "$comments" | jq 'length')
 
   if [[ "$comment_count" -eq 0 ]]; then
+    ui_outcome "✅" "Clean review — 0 comments. PR #${PR_NUMBER} is ready to merge."
     log "✅ Clean review — 0 comments. PR #${PR_NUMBER} is ready to merge."
     echo "$rid" > "$STATE_FILE"
     if [[ "$AUTO_MERGE" == true ]]; then
       log "🔀 Auto-merging and deleting branch..."
       local_branch=$(git -C "$CWD" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-      base_branch=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.base.ref' 2>/dev/null || echo "main")
       gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch
       _local_deleted=false
       if [[ -n "$local_branch" && "$local_branch" != "$base_branch" ]]; then
@@ -433,9 +453,12 @@ while true; do
     exit 0
   fi
 
+  ui_outcome "💬" "${comment_count} comment(s) in review ${rid}" "$GUM_WARN"
   log "💬 ${comment_count} comment(s) in review ${rid} — invoking opencode (${MODEL})..."
 
   # ── Step 4: Build prompt and invoke opencode ──────────────────────────────
+
+  ui_step 4 "Fix comments with opencode (${MODEL})"
 
   comments_json=$(echo "$comments" | jq '.')
 
@@ -468,7 +491,7 @@ Each comment has: id, path (file), line, body (the review text), in_reply_to_id 
 
 3. Request a new Copilot review:
    \`\`\`bash
-   gh pr edit ${PR_NUMBER} --repo ${REPO} --add-reviewer @copilot
+   gh api repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers -X POST --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}'
    \`\`\`
 
 4. Reply to every top-level comment:
