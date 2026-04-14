@@ -337,7 +337,9 @@ while true; do
   iter=$(( iter + 1 ))
   ui_iter_header "$iter"
 
-  # ── Step 1: Ensure a review is in progress / get latest ───────────────────
+  # ── Step 1: Ensure a review is in progress / get latest ───────────────
+
+  ui_step 1 "Check review status"────
 
   pending=$(copilot_is_pending)
   latest=$(get_latest_copilot_review)
@@ -355,14 +357,18 @@ while true; do
     fi
   fi
 
-  # ── Step 2: Wait for Copilot to finish ────────────────────────────────────
+  # ── Step 2: Wait for Copilot to finish ────────────────────────────
+
+  ui_step 2 "Wait for Copilot review"────────
 
   if ! wait_for_review; then
     log "❌ Timed out waiting for Copilot — aborting"
     exit 1
   fi
 
-  # ── Step 3: Read the new review ───────────────────────────────────────────
+  # ── Step 3: Read the new review ───────────────────────────────────
+
+  ui_step 3 "Read review result"────────
 
   latest=$(get_latest_copilot_review)
   if [[ -z "$latest" ]]; then
@@ -387,6 +393,7 @@ while true; do
   fi
 
   if [[ "$rstate" == "APPROVED" ]]; then
+    ui_outcome "✅" "Copilot APPROVED PR #${PR_NUMBER}! Ready to merge."
     log "✅ Copilot APPROVED PR #${PR_NUMBER}! Ready to merge."
     echo "$rid" > "$STATE_FILE"
     ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
@@ -397,15 +404,19 @@ while true; do
   comment_count=$(echo "$comments" | jq 'length')
 
   if [[ "$comment_count" -eq 0 ]]; then
+    ui_outcome "✅" "Clean review — 0 comments. PR #${PR_NUMBER} is ready to merge."
     log "✅ Clean review — 0 comments. PR #${PR_NUMBER} is ready to merge."
     echo "$rid" > "$STATE_FILE"
     ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
     exit 0
   fi
 
+  ui_outcome "💬" "${comment_count} comment(s) in review ${rid}" "$GUM_WARN"
   log "💬 ${comment_count} comment(s) in review ${rid} — invoking Claude (${MODEL})..."
 
-  # ── Step 4: Build prompt and invoke Claude ────────────────────────────────
+  # ── Step 4: Build prompt and invoke Claude ────────────────────────────
+
+  ui_step 4 "Fix comments with Claude (${MODEL})"────
 
   comments_json=$(echo "$comments" | jq '.')
 

@@ -336,6 +336,8 @@ while true; do
 
   # ── Step 1: Request review if needed ──────────────────────────────────────
 
+  ui_step 1 "Check review status"
+
   pending=$(copilot_is_pending)
   latest=$(get_latest_copilot_review)
   saved=$(cat "$STATE_FILE" 2>/dev/null || echo "")
@@ -350,12 +352,16 @@ while true; do
 
   # ── Step 2: Wait for review ───────────────────────────────────────────────
 
+  ui_step 2 "Wait for Copilot review"
+
   if ! wait_for_review; then
     log "❌ Timed out waiting for Copilot — aborting"
     exit 1
   fi
 
   # ── Step 3: Read result ───────────────────────────────────────────────────
+
+  ui_step 3 "Read review result"
 
   latest=$(get_latest_copilot_review)
   [[ -z "$latest" ]] && { log "⚠️  No review found — retrying"; sleep 10; continue; }
@@ -377,6 +383,7 @@ while true; do
   fi
 
   if [[ "$rstate" == "APPROVED" ]]; then
+    ui_outcome "✅" "Copilot APPROVED PR #${PR_NUMBER}! Ready to merge."
     log "✅ Copilot APPROVED PR #${PR_NUMBER}! Ready to merge."
     echo "$rid" > "$STATE_FILE"
     if [[ "$AUTO_MERGE" == true ]]; then
@@ -413,6 +420,7 @@ while true; do
   comment_count=$(echo "$comments" | jq 'length')
 
   if [[ "$comment_count" -eq 0 ]]; then
+    ui_outcome "✅" "Clean review — 0 comments. PR #${PR_NUMBER} is ready to merge."
     log "✅ Clean review — 0 comments. PR #${PR_NUMBER} is ready to merge."
     echo "$rid" > "$STATE_FILE"
     if [[ "$AUTO_MERGE" == true ]]; then
@@ -445,9 +453,12 @@ while true; do
     exit 0
   fi
 
+  ui_outcome "💬" "${comment_count} comment(s) in review ${rid}" "$GUM_WARN"
   log "💬 ${comment_count} comment(s) in review ${rid} — invoking opencode (${MODEL})..."
 
   # ── Step 4: Build prompt and invoke opencode ──────────────────────────────
+
+  ui_step 4 "Fix comments with opencode (${MODEL})"
 
   comments_json=$(echo "$comments" | jq '.')
 
