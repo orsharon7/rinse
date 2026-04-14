@@ -463,11 +463,10 @@ cleanup_daemon() {
       log "   Killing ${key} (PID ${pid})"
       kill "$pid" 2>/dev/null || true
     fi
-    # Release on-disk lock for this key
-    local repo pr
-    repo="${key%%#*}"
-    pr="${key##*#}"
-    release_dispatch_lock "$repo" "$pr"
+    # Do not release the on-disk dispatch lock here: the wrapper/runner may
+    # still be exiting after SIGTERM, and clearing the lock early can allow a
+    # duplicate dispatch for the same repo#PR. Let normal stale-PID detection
+    # recover the lock if the daemon exits before the job fully stops.
   done
   rm -f "$PIDFILE"
 }
