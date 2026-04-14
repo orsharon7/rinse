@@ -242,19 +242,49 @@ if [[ -z "$changed" ]]; then
   exit 0
 fi
 
-# Verify COPILOT-RULES markers survived the rewrite
+# Verify COPILOT-RULES markers survived the rewrite as one well-formed bounded section
 for f in "$AGENTS_FILE" "$CLAUDE_FILE"; do
-  if [[ -f "$f" ]] && ! grep -q 'BEGIN:COPILOT-RULES' "$f"; then
-    log "⚠️  ${f##*/} is missing BEGIN:COPILOT-RULES marker after agent rewrite — aborting"
-    git -C "$WORKTREE_DIR" checkout -- AGENTS.md CLAUDE.md 2>/dev/null
-    exit 1
-  fi
-  if [[ -f "$f" ]] && ! grep -q 'END:COPILOT-RULES' "$f"; then
-    log "⚠️  ${f##*/} is missing END:COPILOT-RULES marker after agent rewrite — aborting"
-    git -C "$WORKTREE_DIR" checkout -- AGENTS.md CLAUDE.md 2>/dev/null
-    exit 1
+  if [[ -f "$f" ]]; then
+    begin_count=$(grep -Fxc '<!-- BEGIN:COPILOT-RULES -->' "$f" 2>/dev/null || true)
+    end_count=$(grep -Fxc '<!-- END:COPILOT-RULES -->' "$f" 2>/dev/null || true)
+
+    if [[ "$begin_count" -ne 1 ]]; then
+      log "⚠️  ${f##*/} must contain exactly one '<!-- BEGIN:COPILOT-RULES -->' marker after agent rewrite — aborting"
+      git -C "$WORKTREE_DIR" checkout -- AGENTS.md CLAUDE.md 2>/dev/null
+      exit 1
+    fi
+
+    if [[ "$end_count" -ne 1 ]]; then
+      log "⚠️  ${f##*/} must contain exactly one '<!-- END:COPILOT-RULES -->' marker after agent rewrite — aborting"
+      git -C "$WORKTREE_DIR" checkout -- AGENTS.md CLAUDE.md 2>/dev/null
+      exit 1
+    fi
+
+    begin_line=$(grep -nFx '<!-- BEGIN:COPILOT-RULES -->' "$f" | cut -d: -f1)
+    end_line=$(grep -nFx '<!-- END:COPILOT-RULES -->' "$f" | cut -d: -f1)
+
+    if [[ "$begin_line" -ge "$end_line" ]]; then
+      log "⚠️  ${f##*/} has COPILOT-RULES markers out of order after agent rewrite — aborting"
+      git -C "$WORKTREE_DIR" checkout -- AGENTS.md CLAUDE.md 2>/dev/null
+      exit 1
+    fi
   fi
 done
+
+# Verify both files have identical COPILOT-RULES content (prompt requires this)
+if [[ -f "$AGENTS_FILE" && -f "$CLAUDE_FILE" ]]; then
+  extract_rules_section() {
+    local file="$1"
+    awk '/^<!-- BEGIN:COPILOT-RULES -->$/{found=1; next} /^<!-- END:COPILOT-RULES -->$/{found=0} found' "$file"
+  }
+  agents_rules=$(extract_rules_section "$AGENTS_FILE")
+  claude_rules=$(extract_rules_section "$CLAUDE_FILE")
+  if [[ "$agents_rules" != "$claude_rules" ]]; then
+    log "⚠️  COPILOT-RULES sections differ between AGENTS.md and CLAUDE.md after agent rewrite — aborting"
+    git -C "$WORKTREE_DIR" checkout -- AGENTS.md CLAUDE.md 2>/dev/null
+    exit 1
+  fi
+fi
 
 log "Committing optimized rules to ${MAIN_BRANCH}..."
 git -C "$WORKTREE_DIR" add AGENTS.md CLAUDE.md
