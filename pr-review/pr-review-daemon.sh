@@ -20,6 +20,12 @@
 #
 set -euo pipefail
 
+# Require Bash 4+ for associative arrays (declare -A)
+if [[ "${BASH_VERSINFO[0]}" -lt 4 ]]; then
+  echo "Error: pr-review-daemon.sh requires Bash 4+ (found ${BASH_VERSION}). On macOS, install via: brew install bash" >&2
+  exit 1
+fi
+
 POLL_INTERVAL="${POLL_INTERVAL:-300}"
 WATCH_FILE="${WATCH_FILE:-${HOME}/.pr-review-watches.json}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -122,15 +128,59 @@ fire_event() {
   # Hook: add your own notification mechanism here (Slack, webhook, etc.)
 }
 
+# ─── On-disk lock (atomic mkdir) for cross-process dispatch de-duplication ────
+
+DAEMON_LOCK_DIR="${HOME}/.pr-review/daemon-locks"
+mkdir -p "$DAEMON_LOCK_DIR"
+
+acquire_dispatch_lock() {
+  local repo="$1" pr="$2"
+  local key="${repo//\//_}#${pr}"
+  local lockdir="${DAEMON_LOCK_DIR}/${key}.lock"
+  local pidfile="${lockdir}/pid"
+  local pid
+
+  if mkdir "$lockdir" 2>/dev/null; then
+    echo "$$" > "$pidfile"
+    return 0
+  fi
+
+  pid=$(cat "$pidfile" 2>/dev/null || echo "")
+  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+    return 1  # Another runner is active for this PR
+  fi
+
+  # Stale lock — remove and retry atomic acquisition once
+  rm -rf "$lockdir"
+  if mkdir "$lockdir" 2>/dev/null; then
+    echo "$$" > "$pidfile"
+    return 0
+  fi
+
+  return 1
+}
+
+release_dispatch_lock() {
+  local repo="$1" pr="$2"
+  local key="${repo//\//_}#${pr}"
+  rm -rf "${DAEMON_LOCK_DIR}/${key}.lock"
+}
+
 # ─── Dispatch runner (launch a review cycle for a PR) ─────────────────────────
 
 dispatch_runner() {
   local repo="$1" pr="$2"
   local key="${repo}#${pr}"
 
-  # Skip if a runner is already active for this PR
+  # Skip if a runner is already active for this PR (in-memory check)
   if is_job_running "$key"; then
     log "   ⏭  PR ${key} already has an active runner — skipping"
+    return 0
+  fi
+
+  # Acquire on-disk atomic lock to prevent cross-process duplicates
+  if ! acquire_dispatch_lock "$repo" "$pr"; then
+    log "   ⏭  PR ${key} is locked by another process — skipping"
     return 0
   fi
 
@@ -162,13 +212,16 @@ dispatch_runner() {
   mkdir -p "$(dirname "$pr_log")"
 
   log "🚀 Dispatching runner for ${key} (runner: ${RUNNER})"
-  bash "$script" "$pr" \
-    --repo "$repo" \
-    --cwd "$repo_path" \
-    --worktree \
-    --repo-root "$repo_path" \
-    --no-interactive \
-    >> "$pr_log" 2>&1 &
+  (
+    bash "$script" "$pr" \
+      --repo "$repo" \
+      --cwd "$repo_path" \
+      --worktree \
+      --repo-root "$repo_path" \
+      --no-interactive \
+      >/dev/null 2>&1
+    release_dispatch_lock "$repo" "$pr"
+  ) &
 
   JOB_PIDS["$key"]=$!
   log "   PID ${JOB_PIDS[$key]} → log: ${pr_log}"
@@ -330,6 +383,11 @@ cleanup_daemon() {
       log "   Killing ${key} (PID ${pid})"
       kill "$pid" 2>/dev/null || true
     fi
+    # Release on-disk lock for this key
+    local repo pr
+    repo="${key%%#*}"
+    pr="${key##*#}"
+    release_dispatch_lock "$repo" "$pr"
   done
   rm -f "$PIDFILE"
 }

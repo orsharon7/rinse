@@ -41,6 +41,12 @@
 #
 set -euo pipefail
 
+# Require Bash 4+ for associative arrays (declare -A)
+if [[ "${BASH_VERSINFO[0]}" -lt 4 ]]; then
+  echo "Error: pr-review-parallel.sh requires Bash 4+ (found ${BASH_VERSION}). On macOS, install via: brew install bash" >&2
+  exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
@@ -137,6 +143,12 @@ if ! [[ "$MAX_PARALLEL" =~ ^[0-9]+$ ]] || [[ "$MAX_PARALLEL" -lt 1 ]]; then
   exit 1
 fi
 
+# Validate STAGGER is numeric and >= 0
+if ! [[ "$STAGGER" =~ ^[0-9]+$ ]]; then
+  >&2 echo "--stagger must be a non-negative integer"
+  exit 1
+fi
+
 # ─── Repo detection ──────────────────────────────────────────────────────────
 
 if [[ -z "$REPO" ]]; then
@@ -210,7 +222,8 @@ build_runner_cmd() {
   [[ "$RUNNER_AUTO_MERGE" == true ]] && cmd+=(--auto-merge)
   [[ -n "$RUNNER_WAIT_MAX" ]]       && cmd+=(--wait-max "$RUNNER_WAIT_MAX")
 
-  echo "${cmd[@]}"
+  # Print each element on its own line (for safe reconstitution as an array)
+  printf '%s\n' "${cmd[@]}"
 }
 
 # ─── Lock helpers (prevent duplicate runs of same PR) ─────────────────────────
@@ -220,25 +233,33 @@ mkdir -p "$LOCK_DIR"
 
 acquire_lock() {
   local pr_num="$1"
-  local lockfile="${LOCK_DIR}/pr-${pr_num}.lock"
+  local lockdir="${LOCK_DIR}/pr-${pr_num}.lock"
+  local pidfile="${lockdir}/pid"
+  local pid
 
-  if [[ -f "$lockfile" ]]; then
-    local pid
-    pid=$(cat "$lockfile" 2>/dev/null || echo "")
-    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-      return 1  # Another runner is active for this PR
-    fi
-    # Stale lock — remove it
-    rm -f "$lockfile"
+  if mkdir "$lockdir" 2>/dev/null; then
+    echo "$$" > "$pidfile"
+    return 0
   fi
 
-  echo $$ > "$lockfile"
-  return 0
+  pid=$(cat "$pidfile" 2>/dev/null || echo "")
+  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+    return 1  # Another runner is active for this PR
+  fi
+
+  # Stale lock — remove it and retry atomic acquisition once
+  rm -rf "$lockdir"
+  if mkdir "$lockdir" 2>/dev/null; then
+    echo "$$" > "$pidfile"
+    return 0
+  fi
+
+  return 1
 }
 
 release_lock() {
   local pr_num="$1"
-  rm -f "${LOCK_DIR}/pr-${pr_num}.lock"
+  rm -rf "${LOCK_DIR}/pr-${pr_num}.lock"
 }
 
 # ─── Startup ─────────────────────────────────────────────────────────────────
@@ -254,7 +275,7 @@ log "Repo path:   ${CWD}"
 if [[ "$DRY_RUN" == true ]]; then
   log "[DRY RUN] Commands that would run:"
   for pr in "${PR_NUMBERS[@]}"; do
-    log "  PR #${pr}: $(build_runner_cmd "$pr")"
+    log "  PR #${pr}: $(build_runner_cmd "$pr" | tr '\n' ' ')"
   done
   exit 0
 fi
@@ -298,11 +319,14 @@ run_single_pr() {
   local pr_log="${HOME}/.pr-review/logs/${REPO_SLUG}-pr-${pr_num}.log"
   PR_LOG_FILES["$pr_num"]="$pr_log"
 
-  local cmd
-  cmd=$(build_runner_cmd "$pr_num")
+  # Build the command as a proper array (no eval, safe for paths with spaces)
+  local cmd_args=()
+  while IFS= read -r arg; do
+    cmd_args+=("$arg")
+  done < <(build_runner_cmd "$pr_num")
 
   log "🚀 Launching PR #${pr_num}..."
-  eval "$cmd" &
+  "${cmd_args[@]}" &
   local pid=$!
   CHILD_PIDS["$pr_num"]=$pid
   log "   PID ${pid} → log: ${pr_log}"
@@ -366,7 +390,7 @@ else
     while [[ $(active_jobs) -ge $MAX_PARALLEL ]]; do
       # Reap any completed jobs
       for running_pr in "${!CHILD_PIDS[@]}"; do
-        local pid="${CHILD_PIDS[$running_pr]}"
+        pid="${CHILD_PIDS[$running_pr]}"
         if ! kill -0 "$pid" 2>/dev/null; then
           wait_for_pr "$running_pr"
         fi

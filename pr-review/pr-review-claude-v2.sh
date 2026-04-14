@@ -13,6 +13,8 @@
 #   --cwd   <path>         Local repo path (default: current directory)
 #   --model <model-id>     Claude model to use (default: claude-sonnet-4-6)
 #   --wait-max <seconds>   Max seconds to wait per Copilot review cycle (default: 300)
+#   --worktree             Use a git worktree for isolation (used by orchestrator)
+#   --repo-root <path>     Original repo root when --worktree is active
 #   --dry-run              Print startup state and exit without running Claude
 #
 # Requirements:
@@ -130,20 +132,22 @@ if [[ "$USE_WORKTREE" == true ]]; then
 
   # Fetch and create the worktree
   log "Creating worktree for PR #${PR_NUMBER} (branch: ${PR_BRANCH})..."
-  git -C "$REPO_ROOT" fetch origin "$PR_BRANCH" 2>/dev/null || true
+  git -C "$REPO_ROOT" fetch origin "$PR_BRANCH" 2>/dev/null || {
+    >&2 echo "Fatal: could not fetch origin/${PR_BRANCH}"
+    exit 1
+  }
   if [[ -d "$WORKTREE_DIR" ]]; then
     git -C "$REPO_ROOT" worktree remove --force "$WORKTREE_DIR" 2>/dev/null || true
     rm -rf "$WORKTREE_DIR" 2>/dev/null || true
   fi
-  git -C "$REPO_ROOT" worktree add "$WORKTREE_DIR" "origin/${PR_BRANCH}" 2>/dev/null || {
-    >&2 echo "Failed to create worktree — trying detached HEAD..."
-    git -C "$REPO_ROOT" worktree add --detach "$WORKTREE_DIR" "origin/${PR_BRANCH}" 2>/dev/null || {
-      >&2 echo "Fatal: could not create worktree for ${PR_BRANCH}"
-      exit 1
-    }
+  git -C "$REPO_ROOT" worktree add -B "$PR_BRANCH" "$WORKTREE_DIR" "origin/${PR_BRANCH}" 2>/dev/null || {
+    >&2 echo "Fatal: could not create worktree for branch ${PR_BRANCH}"
+    exit 1
   }
-  # Checkout the actual branch (not detached) so pushes work
-  git -C "$WORKTREE_DIR" checkout "$PR_BRANCH" 2>/dev/null || true
+  git -C "$WORKTREE_DIR" branch --set-upstream-to="origin/${PR_BRANCH}" "$PR_BRANCH" 2>/dev/null || {
+    >&2 echo "Fatal: could not set upstream for ${PR_BRANCH}"
+    exit 1
+  }
 
   CWD="$WORKTREE_DIR"
   log "   Worktree ready: ${WORKTREE_DIR}"
@@ -561,10 +565,10 @@ PROMPT_EOF
       reflect_summary=$(grep -E '\[reflect\].*(Reflection complete|No changes|No top-level)' "$LOGFILE" 2>/dev/null | tail -1 | sed 's/^.*\[reflect\] //' || echo "done")
       ui_reflect_log "$reflect_summary"
     else
-      # Surface the last error from the reflect log so it's visible in the TUI
+      # Surface the last error from the per-PR reflect log so it's visible in the TUI
       reflect_err=""
-      reflect_err=$(tail -1 "${HOME}/.pr-review-reflect.log" 2>/dev/null | tr -d '\n' || echo "")
-      ui_reflect_log "exited non-zero — ${reflect_err:-check ~/.pr-review-reflect.log}" false
+      reflect_err=$(tail -1 "$LOGFILE" 2>/dev/null | tr -d '\n' || echo "")
+      ui_reflect_log "exited non-zero — ${reflect_err:-check ${LOGFILE}}" false
     fi
   fi
 
