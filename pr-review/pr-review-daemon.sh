@@ -34,6 +34,10 @@ ONCE=false
 PIDFILE="${HOME}/.pr-review-daemon.pid"
 LOGFILE="${HOME}/.pr-review-daemon.log"
 MAX_CONCURRENT="${MAX_CONCURRENT:-3}"
+if ! [[ "$MAX_CONCURRENT" =~ ^[0-9]+$ ]] || (( MAX_CONCURRENT < 1 )); then
+  echo "Error: MAX_CONCURRENT must be an integer >= 1 (got: '${MAX_CONCURRENT}')" >&2
+  exit 1
+fi
 RUNNER="${PR_REVIEW_RUNNER:-opencode}"
 
 # ─── Job table (tracking running PIDs per repo#pr) ───────────────────────────
@@ -133,30 +137,28 @@ fire_event() {
 DAEMON_LOCK_DIR="${HOME}/.pr-review/daemon-locks"
 mkdir -p "$DAEMON_LOCK_DIR"
 
-# Write owner PID and PGID to the dispatch lock pidfile so stale detection
-# can check the entire process group, not just the daemon's own PID.
+# Write owner PID to the dispatch lock pidfile. PGID is intentionally not stored:
+# the dispatched background job inherits the daemon's process group, so a PGID
+# check would consider a stale lock active as long as the daemon is alive.
 _write_dispatch_lock_metadata() {
   local pidfile="$1"
-  local pgid
-  pgid=$(ps -o pgid= -p "$$" 2>/dev/null | tr -d '[:space:]') || pgid=""
   cat > "$pidfile" <<EOF
 owner_pid=$$
-pgid=${pgid:-$$}
 EOF
 }
 
-# Returns 0 (active) if the PGID or owner_pid recorded in the pidfile is still alive.
+# Returns 0 (active) if the owner_pid recorded in the pidfile is still alive.
 # Also accepts legacy single-integer pidfiles written by older versions.
 _dispatch_lock_is_active() {
   local pidfile="$1"
-  local line owner_pid="" pgid=""
+  local line owner_pid=""
 
   [[ -f "$pidfile" ]] || return 1
 
   while IFS= read -r line; do
     case "$line" in
       owner_pid=*) owner_pid="${line#owner_pid=}" ;;
-      pgid=*)      pgid="${line#pgid=}" ;;
+      pgid=*) ;;  # ignored: PGID check removed (see _write_dispatch_lock_metadata)
       *)
         # Legacy: plain integer
         if [[ -z "$owner_pid" && "$line" =~ ^[0-9]+$ ]]; then
@@ -166,9 +168,6 @@ _dispatch_lock_is_active() {
     esac
   done < "$pidfile"
 
-  if [[ -n "$pgid" ]] && kill -0 -- "-${pgid}" 2>/dev/null; then
-    return 0
-  fi
   if [[ -n "$owner_pid" ]] && kill -0 "$owner_pid" 2>/dev/null; then
     return 0
   fi
@@ -266,15 +265,14 @@ dispatch_runner() {
   ) &
 
   JOB_PIDS["$key"]=$!
-  # Overwrite the pidfile with the child subshell PID (and its PGID) so stale-lock
-  # detection reflects the running job, not the daemon's own PID/PGID.
+  # Overwrite the pidfile with the child subshell PID so stale-lock detection
+  # reflects the running job, not the daemon. Do not persist PGID here: the
+  # background job typically inherits the daemon's process group, which can
+  # outlive the job itself and make stale locks appear active indefinitely.
   local lockdir="${DAEMON_LOCK_DIR}/${repo//\//_}#${pr}.lock"
   local child_pid="${JOB_PIDS[$key]}"
-  local child_pgid
-  child_pgid=$(ps -o pgid= -p "$child_pid" 2>/dev/null | tr -d '[:space:]') || child_pgid=""
   cat > "${lockdir}/pid" <<EOF
 owner_pid=${child_pid}
-pgid=${child_pgid:-${child_pid}}
 EOF
   log "   PID ${JOB_PIDS[$key]} → log: ${pr_log}"
 }

@@ -231,29 +231,28 @@ build_runner_cmd() {
 LOCK_DIR="/tmp/pr-review-locks/${REPO_SLUG}"
 mkdir -p "$LOCK_DIR"
 
-# Write owner PID and PGID to the pidfile so stale detection can check either.
+# Write owner PID to the pidfile. PGID is intentionally not stored: background
+# jobs inherit the orchestrator's process group, so a PGID check would consider
+# a stale lock active as long as the orchestrator is running.
 _write_lock_metadata() {
   local pidfile="$1"
-  local pgid
-  pgid=$(ps -o pgid= -p "$$" 2>/dev/null | tr -d '[:space:]') || pgid=""
   cat > "$pidfile" <<EOF
 owner_pid=$$
-pgid=${pgid:-$$}
 EOF
 }
 
-# Returns 0 (active) if the PGID or owner_pid in the pidfile is still alive.
+# Returns 0 (active) if the owner_pid in the pidfile is still alive.
 # Also accepts legacy single-integer pidfiles written by older versions.
 _lock_is_active() {
   local pidfile="$1"
-  local line owner_pid="" pgid=""
+  local line owner_pid=""
 
   [[ -f "$pidfile" ]] || return 1
 
   while IFS= read -r line; do
     case "$line" in
       owner_pid=*) owner_pid="${line#owner_pid=}" ;;
-      pgid=*)      pgid="${line#pgid=}" ;;
+      pgid=*) ;;  # ignored: PGID check removed (see _write_lock_metadata)
       *)
         # Legacy: plain integer
         if [[ -z "$owner_pid" && "$line" =~ ^[0-9]+$ ]]; then
@@ -263,9 +262,6 @@ _lock_is_active() {
     esac
   done < "$pidfile"
 
-  if [[ -n "$pgid" ]] && kill -0 -- "-${pgid}" 2>/dev/null; then
-    return 0
-  fi
   if [[ -n "$owner_pid" ]] && kill -0 "$owner_pid" 2>/dev/null; then
     return 0
   fi
@@ -368,13 +364,11 @@ run_single_pr() {
   "${cmd_args[@]}" &
   local pid=$!
   CHILD_PIDS["$pr_num"]=$pid
-  # Overwrite the pidfile with the child runner's PID and PGID so stale-lock
-  # detection reflects the running job rather than the orchestrator's own PID.
-  local child_pgid
-  child_pgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d '[:space:]') || child_pgid=""
+  # Overwrite the pidfile with the child runner's PID so stale-lock detection
+  # reflects the running job. PGID is not stored: the child inherits the
+  # orchestrator's process group, so a PGID check would keep stale locks alive.
   cat > "${LOCK_DIR}/pr-${pr_num}.lock/pid" <<EOF
 owner_pid=${pid}
-pgid=${child_pgid:-${pid}}
 EOF
   log "   PID ${pid} → log: ${pr_log}"
 
