@@ -189,6 +189,7 @@ dispatch_runner() {
   active=$(running_job_count)
   if [[ "$active" -ge "$MAX_CONCURRENT" ]]; then
     log "   ⏸  Concurrency limit reached (${active}/${MAX_CONCURRENT}) — deferring ${key}"
+    release_dispatch_lock "$repo" "$pr"
     return 0
   fi
 
@@ -197,6 +198,7 @@ dispatch_runner() {
   if [[ -z "$repo_path" ]]; then
     log "   ⚠️  No repo path configured for ${repo} — cannot dispatch runner"
     fire_event "⚠️ ${key}: no local path configured — manual fix needed"
+    release_dispatch_lock "$repo" "$pr"
     return 1
   fi
 
@@ -224,6 +226,10 @@ dispatch_runner() {
   ) &
 
   JOB_PIDS["$key"]=$!
+  # Overwrite the pidfile with the actual runner (child subshell) PID so stale-lock
+  # detection reflects the running job, not the daemon's own PID.
+  local lockdir="${DAEMON_LOCK_DIR}/${repo//\//_}#${pr}.lock"
+  echo "${JOB_PIDS[$key]}" > "${lockdir}/pid"
   log "   PID ${JOB_PIDS[$key]} → log: ${pr_log}"
 }
 

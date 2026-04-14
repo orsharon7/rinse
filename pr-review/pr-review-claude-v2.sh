@@ -533,8 +533,10 @@ PROMPT_EOF
 
   # Launch reflection agent in background alongside fix agent
   reflect_pid=""
+  reflect_log=""
   if [[ "$REFLECT" == true ]]; then
     reflect_model="${REFLECT_MODEL:-github-copilot/claude-sonnet-4.6}"
+    reflect_log="${HOME}/.pr-review/logs/${REPO_SLUG}-pr-${PR_NUMBER}-reflect.log"
     ui_reflect_log "starting  (model: ${reflect_model} → ${REFLECT_MAIN_BRANCH})"
     export REFLECT_COMMENTS_JSON="$comments_json"
     bash "${SCRIPT_DIR}/pr-review-reflect.sh" "$PR_NUMBER" \
@@ -543,7 +545,7 @@ PROMPT_EOF
       --main-branch "$REFLECT_MAIN_BRANCH" \
       --model "$reflect_model" \
       --agent opencode \
-      >> "$LOGFILE" 2>&1 &
+      >> "$reflect_log" 2>&1 &
     reflect_pid=$!
   fi
 
@@ -562,13 +564,13 @@ PROMPT_EOF
 
   if [[ -n "$reflect_pid" ]]; then
     if wait "$reflect_pid"; then
-      reflect_summary=$(grep -E '\[reflect\].*(Reflection complete|No changes|No top-level)' "$LOGFILE" 2>/dev/null | tail -1 | sed 's/^.*\[reflect\] //' || echo "done")
+      reflect_summary=$(grep -E '\[reflect\].*(Reflection complete|No changes|No top-level)' "$reflect_log" 2>/dev/null | tail -1 | sed 's/^.*\[reflect\] //' || echo "done")
       ui_reflect_log "$reflect_summary"
     else
       # Surface the last error from the per-PR reflect log so it's visible in the TUI
       reflect_err=""
-      reflect_err=$(tail -1 "$LOGFILE" 2>/dev/null | tr -d '\n' || echo "")
-      ui_reflect_log "exited non-zero — ${reflect_err:-check ${LOGFILE}}" false
+      reflect_err=$(tail -1 "$reflect_log" 2>/dev/null | tr -d '\n' || echo "")
+      ui_reflect_log "exited non-zero — ${reflect_err:-check ${reflect_log}}" false
     fi
   fi
 

@@ -231,26 +231,65 @@ build_runner_cmd() {
 LOCK_DIR="/tmp/pr-review-locks/${REPO_SLUG}"
 mkdir -p "$LOCK_DIR"
 
+# Write owner PID and PGID to the pidfile so stale detection can check either.
+_write_lock_metadata() {
+  local pidfile="$1"
+  local pgid
+  pgid=$(ps -o pgid= -p "$$" 2>/dev/null | tr -d '[:space:]') || pgid=""
+  cat > "$pidfile" <<EOF
+owner_pid=$$
+pgid=${pgid:-$$}
+EOF
+}
+
+# Returns 0 (active) if the PGID or owner_pid in the pidfile is still alive.
+# Also accepts legacy single-integer pidfiles written by older versions.
+_lock_is_active() {
+  local pidfile="$1"
+  local line owner_pid="" pgid=""
+
+  [[ -f "$pidfile" ]] || return 1
+
+  while IFS= read -r line; do
+    case "$line" in
+      owner_pid=*) owner_pid="${line#owner_pid=}" ;;
+      pgid=*)      pgid="${line#pgid=}" ;;
+      *)
+        # Legacy: plain integer
+        if [[ -z "$owner_pid" && "$line" =~ ^[0-9]+$ ]]; then
+          owner_pid="$line"
+        fi
+        ;;
+    esac
+  done < "$pidfile"
+
+  if [[ -n "$pgid" ]] && kill -0 -- "-${pgid}" 2>/dev/null; then
+    return 0
+  fi
+  if [[ -n "$owner_pid" ]] && kill -0 "$owner_pid" 2>/dev/null; then
+    return 0
+  fi
+  return 1
+}
+
 acquire_lock() {
   local pr_num="$1"
   local lockdir="${LOCK_DIR}/pr-${pr_num}.lock"
   local pidfile="${lockdir}/pid"
-  local pid
 
   if mkdir "$lockdir" 2>/dev/null; then
-    echo "$$" > "$pidfile"
+    _write_lock_metadata "$pidfile"
     return 0
   fi
 
-  pid=$(cat "$pidfile" 2>/dev/null || echo "")
-  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+  if _lock_is_active "$pidfile"; then
     return 1  # Another runner is active for this PR
   fi
 
   # Stale lock — remove it and retry atomic acquisition once
   rm -rf "$lockdir"
   if mkdir "$lockdir" 2>/dev/null; then
-    echo "$$" > "$pidfile"
+    _write_lock_metadata "$pidfile"
     return 0
   fi
 
