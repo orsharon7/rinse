@@ -340,6 +340,19 @@ cleanup_all() {
       fi
       log "   Killing PR #${pr} (PID ${pid})"
       kill "$pid" 2>/dev/null || true
+      # Wait up to 10 s for graceful exit, then escalate to SIGKILL before
+      # releasing the lock — prevents another instance from starting a duplicate
+      # run while the first runner is still alive and mutating the worktree.
+      local waited=0
+      while kill -0 "$pid" 2>/dev/null && [[ $waited -lt 10 ]]; do
+        sleep 1
+        waited=$((waited + 1))
+      done
+      if kill -0 "$pid" 2>/dev/null; then
+        log "   PR #${pr} (PID ${pid}) did not exit; sending SIGKILL"
+        kill -9 "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+      fi
     fi
     release_lock "$pr"
   done

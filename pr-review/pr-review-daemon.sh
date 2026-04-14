@@ -252,29 +252,53 @@ dispatch_runner() {
   local pr_log="${HOME}/.pr-review/logs/${repo_slug}-pr-${pr}.log"
   mkdir -p "$(dirname "$pr_log")"
 
+  local lockdir="${DAEMON_LOCK_DIR}/${repo//\//_}#${pr}.lock"
+
   log "🚀 Dispatching runner for ${key} (runner: ${RUNNER})"
   (
+    runner_pid=""
+
+    forward_runner_signal() {
+      local sig="$1"
+      if [[ -n "$runner_pid" ]] && kill -0 "$runner_pid" 2>/dev/null; then
+        kill "-${sig}" "$runner_pid" 2>/dev/null || kill "$runner_pid" 2>/dev/null || true
+      fi
+    }
+
+    trap 'forward_runner_signal TERM; wait "$runner_pid" 2>/dev/null || true; exit 143' TERM
+    trap 'forward_runner_signal INT; wait "$runner_pid" 2>/dev/null || true; exit 130' INT
+
     bash "$script" "$pr" \
       --repo "$repo" \
       --cwd "$repo_path" \
       --worktree \
       --repo-root "$repo_path" \
       --no-interactive \
-      >/dev/null 2>&1
+      >/dev/null 2>&1 &
+    runner_pid=$!
+
+    cat > "${lockdir}/pid" <<EOF
+owner_pid=${runner_pid}
+wrapper_pid=${BASHPID}
+EOF
+
+    if wait "$runner_pid"; then
+      runner_status=0
+    else
+      runner_status=$?
+    fi
+
     release_dispatch_lock "$repo" "$pr"
+    exit "$runner_status"
   ) &
 
-  JOB_PIDS["$key"]=$!
-  # Overwrite the pidfile with the child subshell PID so stale-lock detection
-  # reflects the running job, not the daemon. Do not persist PGID here: the
-  # background job typically inherits the daemon's process group, which can
-  # outlive the job itself and make stale locks appear active indefinitely.
-  local lockdir="${DAEMON_LOCK_DIR}/${repo//\//_}#${pr}.lock"
-  local child_pid="${JOB_PIDS[$key]}"
-  cat > "${lockdir}/pid" <<EOF
-owner_pid=${child_pid}
-EOF
-  log "   PID ${JOB_PIDS[$key]} → log: ${pr_log}"
+  local child_pid=$!
+  JOB_PIDS["$key"]=$child_pid
+  # Store the wrapper PID in memory for daemon cleanup; the wrapper now traps
+  # termination and forwards it to the real runner process before waiting for
+  # shutdown. The on-disk pidfile is updated inside the wrapper with the real
+  # runner PID for stale-lock detection.
+  log "   PID ${child_pid} (wrapper) → log: ${pr_log}"
 }
 
 # ─── Build agent task for a review ────────────────────────────────────────────
