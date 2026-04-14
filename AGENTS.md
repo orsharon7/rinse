@@ -94,5 +94,7 @@ Project instructions for AI coding agents.
 - When validating paired markers, assert each appears exactly once AND that BEGIN precedes END; a count-only check does not guarantee correct ordering.
 - When a script writes the same content to multiple files that must be identical, add a post-write diff/comparison step (e.g. `diff <(extract A) <(extract B)`) and fail loudly if they diverge.
 - On structured-section validation failure, revert the affected files (e.g. `git checkout -- <file>`) and abort; never continue with a corrupt or inconsistent section.
+- After any agent or subprocess run that may modify tracked files, assert that files which existed beforehand still exist; if a required file is missing, revert and abort rather than silently skipping validation.
+- Never use string equality on `$()` command-substitution output to compare file sections — bash strips trailing newlines, making sections that differ only by trailing blank lines compare equal; use `cmp -s <(extract A) <(extract B)` instead.
 
 <!-- END:COPILOT-RULES -->
