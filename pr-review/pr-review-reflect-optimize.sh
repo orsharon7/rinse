@@ -170,17 +170,24 @@ A practice is a single imperative sentence that an agent can follow without need
 - When writing Go code that builds strings iteratively, you should always use strings.Builder instead of using += because += creates a new string allocation on every iteration which leads to O(n²) performance.
 - It's important to validate numeric CLI parameters. Parameters like --stagger should be validated as integers that are greater than or equal to zero before they are used in arithmetic operations or passed to sleep, since invalid values can cause unexpected behavior.
 
-## Transformation rules
+## Phase 1 — Per-rule transformation
 
 1. **Convert to practices** — rewrite each rule as a terse imperative. Strip preambles, hedge words, and explanations that restate the imperative.
 2. **Deduplicate** — if two bullets say the same thing, keep the clearest one.
 3. **Merge overlapping rules** — if two rules cover the same root concern, combine into one concise practice.
 4. **Compact examples** — inline short code examples with backticks. Drop multi-line code blocks unless the pattern genuinely needs them.
 5. **Use sub-bullets sparingly** — bold-labeled sub-bullets (e.g. \`**Locking:**\`) are fine for grouping 2-3 tightly related practices under a theme. Never nest deeper than one level.
-6. **Regroup** — organize under the most logical category headers; merge headers if that reduces repetition.
-7. **Reorder** — highest-impact / most frequently relevant practices first within each category.
-8. **Preserve substance** — do NOT drop guidance that is meaningfully distinct. When in doubt, keep it.
-9. **Update the datestamp** — change the "*Last updated: ...*" line to: $(date '+%Y-%m-%d') from PR #${PR_NUMBER} review (optimized)
+
+## Phase 2 — Holistic structural pass
+
+After converting individual rules, step back and look at the **entire section as a whole**:
+
+6. **Merge small categories** — if a category has only 1-2 bullets, fold it into the nearest related category. E.g. "CLI, Installers & Packaging" (2 bullets) → merge into "Shell Scripting" or "Environment & CI Portability".
+7. **Eliminate cross-cutting duplication** — the same principle (e.g. "validate before use", "keep X in sync with Y", "never silently discard") may appear in multiple categories. Deduplicate: keep the strongest statement, remove weaker echoes elsewhere.
+8. **Regroup** — organize under the most logical category headers; rename or merge headers if that reduces repetition. Aim for 6-10 categories, not 12+.
+9. **Reorder** — highest-impact / most frequently relevant practices first within each category.
+10. **Preserve substance** — do NOT drop guidance that is meaningfully distinct. When in doubt, keep it.
+11. **Update the datestamp** — change the "*Last updated: ...*" line to: $(date '+%Y-%m-%d') from PR #${PR_NUMBER} review (optimized)
 
 ## Current AGENTS.md:
 \`\`\`markdown
