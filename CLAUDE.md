@@ -5,7 +5,7 @@ Project instructions for AI coding agents.
 <!-- BEGIN:COPILOT-RULES -->
 ## Coding Guidelines (AI-maintained)
 *Auto-updated by pr-review-reflect — do not edit this section manually.*
-*Last updated: 2026-04-13 from PR #12 review*
+*Last updated: 2026-04-14 from PR #12 review*
 
 ### Shell Scripting
 - Read interactive input from `/dev/tty`; render UI output to stderr.
@@ -59,6 +59,7 @@ Project instructions for AI coding agents.
 - **Config persistence:** Never persist a config field without also reading it back and applying it at load time; remove unused persisted fields rather than leaving misleading dead config.
 - **State sequencing:** Parse structured input into its canonical representation and update mutable state before deriving any values from it; never read a field before the parsing step that updates it.
 - **Map writes:** Guard map writes against empty/zero-value keys; validate that the key is non-empty before writing to avoid creating phantom entries.
+- **Log/text parsing:** Never scan all whitespace-delimited tokens to find a numeric value in a log line — use a regexp or substring anchored to a known prefix/suffix (e.g. a sentinel emoji or keyword like `"comment(s)"`) so timestamps and incidental numbers cannot be misidentified as the target value.
 
 ### Python
 - **Safety & initialization:** Guard boolean aggregates against empty collections (`all_failed = bool(collection)`). Initialize all closure-captured accumulator variables before the first iteration that reads them. If a docstring asserts "Never raises", wrap all code paths including pre-`try` operations.
