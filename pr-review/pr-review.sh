@@ -210,7 +210,7 @@ get_latest_copilot_review() {
     echo '{"status":"error","message":"Failed to fetch reviews"}' | tr -d '\000'
     return 1
   }
-  echo "$reviews" | jq -s 'add | sort_by(.submitted_at) | last // empty'
+  echo "$reviews" | jq -s 'add // [] | sort_by(.submitted_at) | last // empty'
 }
 
 get_review_comments() {

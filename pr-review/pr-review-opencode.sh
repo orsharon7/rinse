@@ -185,14 +185,14 @@ copilot_is_pending() {
 get_latest_copilot_review() {
   gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/reviews?per_page=100" \
     --jq '[.[] | select(.user.login | test("copilot"; "i")) | {id: .id, state: .state, submitted_at: .submitted_at}]' \
-    2>/dev/null | jq -s 'add | sort_by(.submitted_at) | last // empty'
+    2>/dev/null | jq -s 'add // [] | sort_by(.submitted_at) | last // empty'
 }
 
 get_review_comments() {
   local rid="$1"
   gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/reviews/${rid}/comments" \
     --jq '[.[] | {id: .id, path: .path, line: .original_line, body: .body, in_reply_to_id: .in_reply_to_id}]' \
-    2>/dev/null | jq '[.[] | select(.in_reply_to_id == null)]'
+    2>/dev/null | jq -s 'add // [] | [.[] | select(.in_reply_to_id == null)]'
 }
 
 request_copilot_review() {
