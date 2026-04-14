@@ -25,6 +25,9 @@ Project instructions for AI coding agents.
 - Keep `--help`/usage comment blocks in sync with actual arg-parsing; update documented flags whenever options are added or removed.
 - Use atomic lock primitives (`mkdir`-based lock directory or `noclobber` redirection) for cross-process mutual exclusion; never rely on racy pidfile checks (`-f` test followed by write).
 - Capture dynamically constructed paths (e.g. per-PR log file paths) into variables at creation time and reference those variables consistently; never fall back to a hardcoded legacy path in error-reporting paths.
+- Always release a lock on every exit path (early return, error, concurrency-limit exceeded); acquire the lock only after all precondition checks pass, or use a `trap`/`finally` pattern to guarantee release.
+- Never write the orchestrator/parent PID to a pidfile that tracks a child/worker process — write the actual worker PID or process-group ID (PGID) so stale-lock detection reflects the live job.
+- When surfacing errors for a specific sub-process, tail that component's dedicated log file, not a shared log that receives interleaved output from multiple sources.
 
 ### Environment & CI Portability
 - Check both git identity pairs (`GIT_AUTHOR_NAME`/`EMAIL` and `GIT_COMMITTER_NAME`/`EMAIL`); a missing pair can pass preflight but fail `git commit`.
