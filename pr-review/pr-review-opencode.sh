@@ -15,6 +15,8 @@
 #   --reflect                     After each fix, run reflection agent to update AGENTS.md + CLAUDE.md
 #   --reflect-model <model>       Model for reflection agent (default: same as --model)
 #   --reflect-optimize            After auto-merge, run an optimize pass to consolidate rules
+#   --worktree                    Use a git worktree for isolation (used by orchestrator)
+#   --repo-root <path>            Original repo root when --worktree is active
 #   --dry-run                     Print startup state and exit without running opencode
 #
 # Requirements:
@@ -32,8 +34,7 @@ set -euo pipefail
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-STATE_DIR="/tmp/pr-review-state"
-LOGFILE="${HOME}/.pr-review-opencode.log"
+# STATE_DIR and LOGFILE are scoped per-repo after REPO is known (see below)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ─── UI ───────────────────────────────────────────────────────────────────────
@@ -61,6 +62,8 @@ REFLECT_MODEL=""
 REFLECT_MAIN_BRANCH="main"
 REFLECT_OPTIMIZE=false  # auto-enabled when REFLECT=true
 AUTO_MERGE=false
+USE_WORKTREE=false
+REPO_ROOT=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -74,6 +77,8 @@ while [[ $# -gt 0 ]]; do
     --wait-max)            WAIT_MAX="$2";            shift 2 ;;
     --no-interactive)      export PR_REVIEW_NO_INTERACTIVE=true; shift ;;
     --auto-merge)          AUTO_MERGE=true; shift ;;
+    --worktree)            USE_WORKTREE=true;        shift ;;
+    --repo-root)           REPO_ROOT="$2";           shift 2 ;;
     --dry-run)             DRY_RUN=true;             shift ;;
     *) >&2 echo "Unknown arg: $1"; exit 1 ;;
   esac
@@ -90,7 +95,7 @@ run_reflect_optimize() {
   local skip_flag="${1:-}"
   log "🔧 Running reflection optimize pass (model: ${reflect_model}, target branch: ${REFLECT_MAIN_BRANCH})..."
   bash "${SCRIPT_DIR}/pr-review-reflect-optimize.sh" "$PR_NUMBER" \
-    --repo "$REPO" --cwd "$CWD" \
+    --repo "$REPO" --cwd "$REPO_ROOT" \
     --main-branch "$REFLECT_MAIN_BRANCH" \
     --model "$reflect_model" \
     --agent opencode \
@@ -108,7 +113,66 @@ if [[ -z "$REPO" ]]; then
   fi
 fi
 
+# ─── Scoped state & logs (per-repo isolation for parallel runs) ───────────────
+
+REPO_SLUG="${REPO//\//_}"  # owner/repo → owner_repo
+STATE_DIR="/tmp/pr-review-state/${REPO_SLUG}"
+LOGFILE="${HOME}/.pr-review/logs/${REPO_SLUG}-pr-${PR_NUMBER}.log"
+mkdir -p "$STATE_DIR" "$(dirname "$LOGFILE")"
 STATE_FILE="${STATE_DIR}/pr-${PR_NUMBER}-last-review"
+
+# ─── Worktree isolation (optional — used by orchestrator for parallel runs) ───
+
+WORKTREE_DIR=""
+# REPO_ROOT: the original git clone path, used for reflect to avoid worktree-of-worktree.
+[[ -z "$REPO_ROOT" ]] && REPO_ROOT="$CWD"
+
+if [[ "$USE_WORKTREE" == true ]]; then
+  # Fetch PR branch name
+  PR_BRANCH=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.head.ref' 2>/dev/null || echo "")
+  if [[ -z "$PR_BRANCH" ]]; then
+    >&2 echo "Could not determine PR branch — cannot create worktree"
+    exit 1
+  fi
+
+  WORKTREE_DIR="/tmp/pr-review-worktrees/${REPO_SLUG}/pr-${PR_NUMBER}"
+  mkdir -p "$(dirname "$WORKTREE_DIR")"
+
+  cleanup_pr_worktree() {
+    if [[ -n "$WORKTREE_DIR" && -d "$WORKTREE_DIR" ]]; then
+      log "Cleaning up worktree at ${WORKTREE_DIR}..."
+      git -C "$REPO_ROOT" worktree remove --force "$WORKTREE_DIR" 2>/dev/null || true
+      rm -rf "$WORKTREE_DIR" 2>/dev/null || true
+    fi
+  }
+  trap cleanup_pr_worktree EXIT
+
+  git -C "$REPO_ROOT" worktree prune 2>/dev/null || true
+
+  log "Creating worktree for PR #${PR_NUMBER} (branch: ${PR_BRANCH})..."
+  git -C "$REPO_ROOT" fetch origin "$PR_BRANCH" 2>/dev/null || {
+    >&2 echo "Fatal: could not fetch origin/${PR_BRANCH}"
+    exit 1
+  }
+  if [[ -d "$WORKTREE_DIR" ]]; then
+    git -C "$REPO_ROOT" worktree remove --force "$WORKTREE_DIR" 2>/dev/null || true
+    rm -rf "$WORKTREE_DIR" 2>/dev/null || true
+  fi
+  # Use a PR-number-namespaced local branch to avoid clobbering an existing
+  # local branch with the same name as the PR head branch.
+  local_wt_branch="pr-review/${PR_NUMBER}/${PR_BRANCH}"
+  git -C "$REPO_ROOT" worktree add -B "$local_wt_branch" "$WORKTREE_DIR" "origin/${PR_BRANCH}" 2>/dev/null || {
+    >&2 echo "Fatal: could not create worktree for branch ${PR_BRANCH}"
+    exit 1
+  }
+  git -C "$WORKTREE_DIR" branch --set-upstream-to="origin/${PR_BRANCH}" "$local_wt_branch" 2>/dev/null || {
+    >&2 echo "Fatal: could not set upstream for local branch ${local_wt_branch} to origin/${PR_BRANCH}"
+    exit 1
+  }
+
+  CWD="$WORKTREE_DIR"
+  log "   Worktree ready: ${WORKTREE_DIR}"
+fi
 
 # ─── GitHub helpers ───────────────────────────────────────────────────────────
 
@@ -510,17 +574,19 @@ PROMPT_EOF
   # Launch reflection agent in background BEFORE fix agent so rules update
   # while Copilot re-reviews (zero wait cost). Reflect uses same comments.
   reflect_pid=""
+  reflect_log=""
   if [[ "$REFLECT" == true ]]; then
     reflect_model="${REFLECT_MODEL:-$MODEL}"
+    reflect_log="${HOME}/.pr-review/logs/${REPO_SLUG}-pr-${PR_NUMBER}-reflect.log"
     ui_reflect_log "starting  (model: ${reflect_model} → ${REFLECT_MAIN_BRANCH})"
     export REFLECT_COMMENTS_JSON="$comments_json"
     bash "${SCRIPT_DIR}/pr-review-reflect.sh" "$PR_NUMBER" \
-      --repo "$REPO" --cwd "$CWD" \
+      --repo "$REPO" --cwd "$REPO_ROOT" \
       --review-id "$rid" \
       --main-branch "$REFLECT_MAIN_BRANCH" \
       --model "$reflect_model" \
       --agent opencode \
-      >> "$LOGFILE" 2>&1 &
+      >/dev/null 2>&1 &
     reflect_pid=$!
     ui_reflect_start "$LOGFILE"
   fi
@@ -541,13 +607,13 @@ PROMPT_EOF
   # Wait for reflection to finish (it should complete well before next Copilot review)
   if [[ -n "$reflect_pid" ]]; then
     if wait "$reflect_pid"; then
-      reflect_summary=$(grep -E '\[reflect\].*(Reflection complete|No changes|No top-level)' "$LOGFILE" 2>/dev/null | tail -1 | sed 's/^.*\[reflect\] //' || echo "done")
+      reflect_summary=$(grep -E '\[reflect\].*(Reflection complete|No changes|No top-level)' "$reflect_log" 2>/dev/null | tail -1 | sed 's/^.*\[reflect\] //' || echo "done")
       ui_reflect_log "$reflect_summary"
     else
-      # Surface the last error from the reflect log so it's visible in the TUI
+      # Surface the last error from the per-PR reflect log so it's visible in the TUI
       reflect_err=""
-      reflect_err=$(tail -1 "${HOME}/.pr-review-reflect.log" 2>/dev/null | tr -d '\n' || echo "")
-      ui_reflect_log "exited non-zero — ${reflect_err:-check ~/.pr-review-reflect.log}" false
+      reflect_err=$(tail -1 "$reflect_log" 2>/dev/null | tr -d '\n' || echo "")
+      ui_reflect_log "exited non-zero — ${reflect_err:-check ${reflect_log}}" false
     fi
   fi
 

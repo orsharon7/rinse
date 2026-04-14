@@ -55,8 +55,7 @@ set -uo pipefail
 # ─── Constants ────────────────────────────────────────────────────────────────
 
 WATCH_FILE="${PR_REVIEW_WATCH_FILE:-${HOME}/.pr-review-watches.json}"
-STATE_DIR="/tmp/pr-review-state"
-mkdir -p "$STATE_DIR"
+# STATE_DIR is scoped per-repo after REPO is known (see below)
 
 # ─── Arg parsing ──────────────────────────────────────────────────────────────
 
@@ -119,6 +118,16 @@ if [[ "$SUBCOMMAND" != "poll-all" && -z "$REPO" ]]; then
     exit 1
   fi
 fi
+
+# ─── Scoped state (per-repo isolation for parallel runs) ──────────────────────
+
+if [[ "$SUBCOMMAND" != "poll-all" ]]; then
+  REPO_SLUG="${REPO//\//_}"  # owner/repo → owner_repo
+  STATE_DIR="/tmp/pr-review-state/${REPO_SLUG}"
+else
+  STATE_DIR="/tmp/pr-review-state"
+fi
+mkdir -p "$STATE_DIR"
 
 # ─── State file helpers ───────────────────────────────────────────────────────
 

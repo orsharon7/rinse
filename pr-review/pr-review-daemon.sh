@@ -20,6 +20,12 @@
 #
 set -euo pipefail
 
+# Require Bash 4+ for associative arrays (declare -A)
+if [[ "${BASH_VERSINFO[0]}" -lt 4 ]]; then
+  echo "Error: pr-review-daemon.sh requires Bash 4+ (found ${BASH_VERSION}). On macOS, install via: brew install bash" >&2
+  exit 1
+fi
+
 POLL_INTERVAL="${POLL_INTERVAL:-300}"
 WATCH_FILE="${WATCH_FILE:-${HOME}/.pr-review-watches.json}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -27,6 +33,34 @@ PR_REVIEW_SCRIPT="${PR_REVIEW_SCRIPT:-${SCRIPT_DIR}/pr-review.sh}"
 ONCE=false
 PIDFILE="${HOME}/.pr-review-daemon.pid"
 LOGFILE="${HOME}/.pr-review-daemon.log"
+MAX_CONCURRENT="${MAX_CONCURRENT:-3}"
+if ! [[ "$MAX_CONCURRENT" =~ ^[0-9]+$ ]] || (( MAX_CONCURRENT < 1 )); then
+  echo "Error: MAX_CONCURRENT must be an integer >= 1 (got: '${MAX_CONCURRENT}')" >&2
+  exit 1
+fi
+RUNNER="${PR_REVIEW_RUNNER:-opencode}"
+
+# ─── Job table (tracking running PIDs per repo#pr) ───────────────────────────
+declare -A JOB_PIDS  # key: "repo#pr" → PID
+
+is_job_running() {
+  local key="$1"
+  local pid="${JOB_PIDS[$key]:-}"
+  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+}
+
+running_job_count() {
+  local count=0
+  for key in "${!JOB_PIDS[@]}"; do
+    local pid="${JOB_PIDS[$key]}"
+    if kill -0 "$pid" 2>/dev/null; then
+      count=$((count + 1))
+    else
+      unset 'JOB_PIDS[$key]'
+    fi
+  done
+  echo "$count"
+}
 
 # Repo path mapping (repo → local path)
 # Add entries here for repos you work with locally, or leave empty to use --cwd auto-detection.
@@ -96,7 +130,181 @@ fire_event() {
   local text="$1"
   log "🔔 Event: ${text}"
   # Hook: add your own notification mechanism here (Slack, webhook, etc.)
-  # Example: curl -s -X POST "$WEBHOOK_URL" -d "{\"text\":\"${text}\"}"
+}
+
+# ─── On-disk lock (atomic mkdir) for cross-process dispatch de-duplication ────
+
+DAEMON_LOCK_DIR="${HOME}/.pr-review/daemon-locks"
+mkdir -p "$DAEMON_LOCK_DIR"
+
+# Write owner PID to the dispatch lock pidfile. PGID is intentionally not stored:
+# the dispatched background job inherits the daemon's process group, so a PGID
+# check would consider a stale lock active as long as the daemon is alive.
+_write_dispatch_lock_metadata() {
+  local pidfile="$1"
+  cat > "$pidfile" <<EOF
+owner_pid=$$
+EOF
+}
+
+# Returns 0 (active) if the owner_pid recorded in the pidfile is still alive.
+# Also accepts legacy single-integer pidfiles written by older versions.
+_dispatch_lock_is_active() {
+  local pidfile="$1"
+  local line owner_pid=""
+
+  [[ -f "$pidfile" ]] || return 1
+
+  while IFS= read -r line; do
+    case "$line" in
+      owner_pid=*) owner_pid="${line#owner_pid=}" ;;
+      pgid=*) ;;  # ignored: PGID check removed (see _write_dispatch_lock_metadata)
+      *)
+        # Legacy: plain integer
+        if [[ -z "$owner_pid" && "$line" =~ ^[0-9]+$ ]]; then
+          owner_pid="$line"
+        fi
+        ;;
+    esac
+  done < "$pidfile"
+
+  if [[ -n "$owner_pid" ]] && kill -0 "$owner_pid" 2>/dev/null; then
+    return 0
+  fi
+  return 1
+}
+
+acquire_dispatch_lock() {
+  local repo="$1" pr="$2"
+  local key="${repo//\//_}#${pr}"
+  local lockdir="${DAEMON_LOCK_DIR}/${key}.lock"
+  local pidfile="${lockdir}/pid"
+
+  if mkdir "$lockdir" 2>/dev/null; then
+    _write_dispatch_lock_metadata "$pidfile"
+    return 0
+  fi
+
+  if _dispatch_lock_is_active "$pidfile"; then
+    return 1  # Another runner is active for this PR
+  fi
+
+  # Stale lock — remove and retry atomic acquisition once
+  rm -rf "$lockdir"
+  if mkdir "$lockdir" 2>/dev/null; then
+    _write_dispatch_lock_metadata "$pidfile"
+    return 0
+  fi
+
+  return 1
+}
+
+release_dispatch_lock() {
+  local repo="$1" pr="$2"
+  local key="${repo//\//_}#${pr}"
+  rm -rf "${DAEMON_LOCK_DIR}/${key}.lock"
+}
+
+# ─── Dispatch runner (launch a review cycle for a PR) ─────────────────────────
+
+dispatch_runner() {
+  local repo="$1" pr="$2"
+  local key="${repo}#${pr}"
+
+  # Skip if a runner is already active for this PR (in-memory check)
+  if is_job_running "$key"; then
+    log "   ⏭  PR ${key} already has an active runner — skipping"
+    return 0
+  fi
+
+  # Acquire on-disk atomic lock to prevent cross-process duplicates
+  if ! acquire_dispatch_lock "$repo" "$pr"; then
+    log "   ⏭  PR ${key} is locked by another process — skipping"
+    return 0
+  fi
+
+  # Check concurrency limit
+  local active
+  active=$(running_job_count)
+  if [[ "$active" -ge "$MAX_CONCURRENT" ]]; then
+    log "   ⏸  Concurrency limit reached (${active}/${MAX_CONCURRENT}) — deferring ${key}"
+    release_dispatch_lock "$repo" "$pr"
+    return 0
+  fi
+
+  local repo_path
+  repo_path=$(get_repo_path "$repo")
+  if [[ -z "$repo_path" ]]; then
+    log "   ⚠️  No repo path configured for ${repo} — cannot dispatch runner"
+    fire_event "⚠️ ${key}: no local path configured — manual fix needed"
+    release_dispatch_lock "$repo" "$pr"
+    return 1
+  fi
+
+  local script
+  case "$RUNNER" in
+    opencode) script="${SCRIPT_DIR}/pr-review-opencode.sh" ;;
+    claude)   script="${SCRIPT_DIR}/pr-review-claude-v2.sh" ;;
+    *) log "   ⚠️  Unknown runner: $RUNNER"; release_dispatch_lock "$repo" "$pr"; return 1 ;;
+  esac
+
+  local repo_slug="${repo//\//_}"
+  local pr_log="${HOME}/.pr-review/logs/${repo_slug}-pr-${pr}.log"
+  mkdir -p "$(dirname "$pr_log")"
+
+  local lockdir="${DAEMON_LOCK_DIR}/${repo//\//_}#${pr}.lock"
+
+  log "🚀 Dispatching runner for ${key} (runner: ${RUNNER})"
+  (
+    runner_pid=""
+
+    cleanup_dispatch_wrapper() {
+      release_dispatch_lock "$repo" "$pr"
+    }
+
+    trap 'cleanup_dispatch_wrapper' EXIT
+
+    forward_runner_signal() {
+      local sig="$1"
+      if [[ -n "$runner_pid" ]] && kill -0 "$runner_pid" 2>/dev/null; then
+        kill "-${sig}" "$runner_pid" 2>/dev/null || kill "$runner_pid" 2>/dev/null || true
+      fi
+    }
+
+    trap 'forward_runner_signal TERM; wait "$runner_pid" 2>/dev/null || true; exit 143' TERM
+    trap 'forward_runner_signal INT; wait "$runner_pid" 2>/dev/null || true; exit 130' INT
+
+    bash "$script" "$pr" \
+      --repo "$repo" \
+      --cwd "$repo_path" \
+      --worktree \
+      --repo-root "$repo_path" \
+      --no-interactive \
+      >/dev/null 2>&1 &
+    runner_pid=$!
+
+    cat > "${lockdir}/pid" <<EOF
+owner_pid=${runner_pid}
+wrapper_pid=${BASHPID}
+EOF
+
+    if wait "$runner_pid"; then
+      runner_status=0
+    else
+      runner_status=$?
+    fi
+
+    release_dispatch_lock "$repo" "$pr"
+    exit "$runner_status"
+  ) &
+
+  local child_pid=$!
+  JOB_PIDS["$key"]=$child_pid
+  # Store the wrapper PID in memory for daemon cleanup; the wrapper now traps
+  # termination and forwards it to the real runner process before waiting for
+  # shutdown. The on-disk pidfile is updated inside the wrapper with the real
+  # runner PID for stale-lock detection.
+  log "   PID ${child_pid} (wrapper) → log: ${pr_log}"
 }
 
 # ─── Build agent task for a review ────────────────────────────────────────────
@@ -196,6 +404,9 @@ poll_once() {
         task=$(build_fix_task "$repo" "$pr" "$review_id" "$comment_count" "$comments")
         event_parts+=("$task")
         log "🆕 ${repo}#${pr}: ${comment_count} new comments"
+
+        # Dispatch a runner to fix the comments
+        dispatch_runner "$repo" "$pr" || true
         ;;
       approved)
         has_actionable=true
@@ -243,6 +454,26 @@ poll_once() {
 
 # ─── Main loop ────────────────────────────────────────────────────────────────
 
+# Cleanup trap: kill all dispatched runners on daemon exit
+cleanup_daemon() {
+  log "🛑 Daemon shutting down — killing dispatched runners..."
+  for key in "${!JOB_PIDS[@]}"; do
+    local pid="${JOB_PIDS[$key]}"
+    if kill -0 "$pid" 2>/dev/null; then
+      log "   Killing ${key} (PID ${pid})"
+      kill "$pid" 2>/dev/null || true
+    fi
+    # Do not release the on-disk dispatch lock here: the wrapper/runner may
+    # still be exiting after SIGTERM, and clearing the lock early can allow a
+    # duplicate dispatch for the same repo#PR. Let normal stale-PID detection
+    # recover the lock if the daemon exits before the job fully stops.
+  done
+  rm -f "$PIDFILE"
+}
+if [[ "$ONCE" != true ]]; then
+  trap cleanup_daemon EXIT
+fi
+
 if [[ "$ONCE" == true ]]; then
   poll_once
   exit 0
@@ -251,9 +482,12 @@ fi
 log "🚀 PR Review Daemon started (PID $$, interval ${POLL_INTERVAL}s)"
 log "   Watch file: ${WATCH_FILE}"
 log "   Script: ${PR_REVIEW_SCRIPT}"
+log "   Max concurrent: ${MAX_CONCURRENT}"
+log "   Runner: ${RUNNER}"
 
 while true; do
   poll_once
-  log "💤 Sleeping ${POLL_INTERVAL}s..."
+  active=$(running_job_count)
+  log "💤 Sleeping ${POLL_INTERVAL}s... (${active} active runner(s))"
   sleep "$POLL_INTERVAL"
 done
