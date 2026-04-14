@@ -133,27 +133,67 @@ fire_event() {
 DAEMON_LOCK_DIR="${HOME}/.pr-review/daemon-locks"
 mkdir -p "$DAEMON_LOCK_DIR"
 
+# Write owner PID and PGID to the dispatch lock pidfile so stale detection
+# can check the entire process group, not just the daemon's own PID.
+_write_dispatch_lock_metadata() {
+  local pidfile="$1"
+  local pgid
+  pgid=$(ps -o pgid= -p "$$" 2>/dev/null | tr -d '[:space:]') || pgid=""
+  cat > "$pidfile" <<EOF
+owner_pid=$$
+pgid=${pgid:-$$}
+EOF
+}
+
+# Returns 0 (active) if the PGID or owner_pid recorded in the pidfile is still alive.
+# Also accepts legacy single-integer pidfiles written by older versions.
+_dispatch_lock_is_active() {
+  local pidfile="$1"
+  local line owner_pid="" pgid=""
+
+  [[ -f "$pidfile" ]] || return 1
+
+  while IFS= read -r line; do
+    case "$line" in
+      owner_pid=*) owner_pid="${line#owner_pid=}" ;;
+      pgid=*)      pgid="${line#pgid=}" ;;
+      *)
+        # Legacy: plain integer
+        if [[ -z "$owner_pid" && "$line" =~ ^[0-9]+$ ]]; then
+          owner_pid="$line"
+        fi
+        ;;
+    esac
+  done < "$pidfile"
+
+  if [[ -n "$pgid" ]] && kill -0 -- "-${pgid}" 2>/dev/null; then
+    return 0
+  fi
+  if [[ -n "$owner_pid" ]] && kill -0 "$owner_pid" 2>/dev/null; then
+    return 0
+  fi
+  return 1
+}
+
 acquire_dispatch_lock() {
   local repo="$1" pr="$2"
   local key="${repo//\//_}#${pr}"
   local lockdir="${DAEMON_LOCK_DIR}/${key}.lock"
   local pidfile="${lockdir}/pid"
-  local pid
 
   if mkdir "$lockdir" 2>/dev/null; then
-    echo "$$" > "$pidfile"
+    _write_dispatch_lock_metadata "$pidfile"
     return 0
   fi
 
-  pid=$(cat "$pidfile" 2>/dev/null || echo "")
-  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+  if _dispatch_lock_is_active "$pidfile"; then
     return 1  # Another runner is active for this PR
   fi
 
   # Stale lock — remove and retry atomic acquisition once
   rm -rf "$lockdir"
   if mkdir "$lockdir" 2>/dev/null; then
-    echo "$$" > "$pidfile"
+    _write_dispatch_lock_metadata "$pidfile"
     return 0
   fi
 
@@ -206,7 +246,7 @@ dispatch_runner() {
   case "$RUNNER" in
     opencode) script="${SCRIPT_DIR}/pr-review-opencode.sh" ;;
     claude)   script="${SCRIPT_DIR}/pr-review-claude-v2.sh" ;;
-    *) log "   ⚠️  Unknown runner: $RUNNER"; return 1 ;;
+    *) log "   ⚠️  Unknown runner: $RUNNER"; release_dispatch_lock "$repo" "$pr"; return 1 ;;
   esac
 
   local repo_slug="${repo//\//_}"
@@ -226,10 +266,16 @@ dispatch_runner() {
   ) &
 
   JOB_PIDS["$key"]=$!
-  # Overwrite the pidfile with the actual runner (child subshell) PID so stale-lock
-  # detection reflects the running job, not the daemon's own PID.
+  # Overwrite the pidfile with the child subshell PID (and its PGID) so stale-lock
+  # detection reflects the running job, not the daemon's own PID/PGID.
   local lockdir="${DAEMON_LOCK_DIR}/${repo//\//_}#${pr}.lock"
-  echo "${JOB_PIDS[$key]}" > "${lockdir}/pid"
+  local child_pid="${JOB_PIDS[$key]}"
+  local child_pgid
+  child_pgid=$(ps -o pgid= -p "$child_pid" 2>/dev/null | tr -d '[:space:]') || child_pgid=""
+  cat > "${lockdir}/pid" <<EOF
+owner_pid=${child_pid}
+pgid=${child_pgid:-${child_pid}}
+EOF
   log "   PID ${JOB_PIDS[$key]} → log: ${pr_log}"
 }
 

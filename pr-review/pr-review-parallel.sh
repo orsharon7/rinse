@@ -368,6 +368,14 @@ run_single_pr() {
   "${cmd_args[@]}" &
   local pid=$!
   CHILD_PIDS["$pr_num"]=$pid
+  # Overwrite the pidfile with the child runner's PID and PGID so stale-lock
+  # detection reflects the running job rather than the orchestrator's own PID.
+  local child_pgid
+  child_pgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d '[:space:]') || child_pgid=""
+  cat > "${LOCK_DIR}/pr-${pr_num}.lock/pid" <<EOF
+owner_pid=${pid}
+pgid=${child_pgid:-${pid}}
+EOF
   log "   PID ${pid} → log: ${pr_log}"
 
   return 0
