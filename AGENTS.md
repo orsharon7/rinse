@@ -27,6 +27,8 @@ Project instructions for AI coding agents.
 - Capture dynamically constructed paths (e.g. per-PR log file paths) into variables at creation time and reference those variables consistently; never fall back to a hardcoded legacy path in error-reporting paths.
 - Always release a lock on every exit path (early return, error, concurrency-limit exceeded); acquire the lock only after all precondition checks pass, or use a `trap`/`finally` pattern to guarantee release.
 - Never write the orchestrator/parent PID to a pidfile that tracks a child/worker process — write the actual worker PID or process-group ID (PGID) so stale-lock detection reflects the live job.
+- Never use a process group ID (PGID) as a liveness signal for a background job unless the job was explicitly started in its own process group (e.g. via `setsid`); inherited PGIDs outlive the child job, causing stale locks to appear permanently active.
+- Validate env vars used in numeric comparisons (e.g. `MAX_CONCURRENT`) as integers ≥ 1 at daemon/script startup with a clear error message; a non-integer or empty value will silently abort under `set -euo pipefail`.
 - When surfacing errors for a specific sub-process, tail that component's dedicated log file, not a shared log that receives interleaved output from multiple sources.
 
 ### Environment & CI Portability
