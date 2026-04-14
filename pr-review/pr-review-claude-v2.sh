@@ -31,8 +31,7 @@ set -euo pipefail
 # ─── Constants ────────────────────────────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-STATE_DIR="/tmp/pr-review-state"
-LOGFILE="${HOME}/.pr-review-claude.log"
+# STATE_DIR and LOGFILE are scoped per-repo after REPO is known (see below)
 
 # ─── UI ───────────────────────────────────────────────────────────────────────
 
@@ -57,6 +56,8 @@ DRY_RUN=false
 REFLECT=false
 REFLECT_MODEL=""
 REFLECT_MAIN_BRANCH="main"
+USE_WORKTREE=false
+REPO_ROOT=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -68,6 +69,8 @@ while [[ $# -gt 0 ]]; do
     --reflect-model)       REFLECT_MODEL="$2";       shift 2 ;;
     --reflect-main-branch) REFLECT_MAIN_BRANCH="$2"; shift 2 ;;
     --no-interactive)      export PR_REVIEW_NO_INTERACTIVE=true; shift ;;
+    --worktree)            USE_WORKTREE=true;        shift ;;
+    --repo-root)           REPO_ROOT="$2";           shift 2 ;;
     --dry-run)             DRY_RUN=true;             shift ;;
     *) >&2 echo "Unknown arg: $1"; exit 1 ;;
   esac
@@ -86,7 +89,65 @@ if [[ -z "$REPO" ]]; then
   fi
 fi
 
+# ─── Scoped state & logs (per-repo isolation for parallel runs) ───────────────
+
+REPO_SLUG="${REPO//\//_}"  # owner/repo → owner_repo
+STATE_DIR="/tmp/pr-review-state/${REPO_SLUG}"
+LOGFILE="${HOME}/.pr-review/logs/${REPO_SLUG}-pr-${PR_NUMBER}.log"
+mkdir -p "$STATE_DIR" "$(dirname "$LOGFILE")"
 STATE_FILE="${STATE_DIR}/pr-${PR_NUMBER}-last-review"
+
+# ─── Worktree isolation (optional — used by orchestrator for parallel runs) ───
+
+WORKTREE_DIR=""
+# REPO_ROOT: the original git clone path, used for reflect to avoid worktree-of-worktree.
+# When --worktree is active, CWD is redirected to the worktree, REPO_ROOT stays at the clone.
+[[ -z "$REPO_ROOT" ]] && REPO_ROOT="$CWD"
+
+if [[ "$USE_WORKTREE" == true ]]; then
+  # Fetch PR branch name
+  PR_BRANCH=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.head.ref' 2>/dev/null || echo "")
+  if [[ -z "$PR_BRANCH" ]]; then
+    >&2 echo "Could not determine PR branch — cannot create worktree"
+    exit 1
+  fi
+
+  WORKTREE_DIR="/tmp/pr-review-worktrees/${REPO_SLUG}/pr-${PR_NUMBER}"
+  mkdir -p "$(dirname "$WORKTREE_DIR")"
+
+  # Cleanup trap — remove the worktree on exit / signal
+  cleanup_pr_worktree() {
+    if [[ -n "$WORKTREE_DIR" && -d "$WORKTREE_DIR" ]]; then
+      log "Cleaning up worktree at ${WORKTREE_DIR}..."
+      git -C "$REPO_ROOT" worktree remove --force "$WORKTREE_DIR" 2>/dev/null || true
+      rm -rf "$WORKTREE_DIR" 2>/dev/null || true
+    fi
+  }
+  trap cleanup_pr_worktree EXIT
+
+  # Prune stale worktree references from previous crashed runs
+  git -C "$REPO_ROOT" worktree prune 2>/dev/null || true
+
+  # Fetch and create the worktree
+  log "Creating worktree for PR #${PR_NUMBER} (branch: ${PR_BRANCH})..."
+  git -C "$REPO_ROOT" fetch origin "$PR_BRANCH" 2>/dev/null || true
+  if [[ -d "$WORKTREE_DIR" ]]; then
+    git -C "$REPO_ROOT" worktree remove --force "$WORKTREE_DIR" 2>/dev/null || true
+    rm -rf "$WORKTREE_DIR" 2>/dev/null || true
+  fi
+  git -C "$REPO_ROOT" worktree add "$WORKTREE_DIR" "origin/${PR_BRANCH}" 2>/dev/null || {
+    >&2 echo "Failed to create worktree — trying detached HEAD..."
+    git -C "$REPO_ROOT" worktree add --detach "$WORKTREE_DIR" "origin/${PR_BRANCH}" 2>/dev/null || {
+      >&2 echo "Fatal: could not create worktree for ${PR_BRANCH}"
+      exit 1
+    }
+  }
+  # Checkout the actual branch (not detached) so pushes work
+  git -C "$WORKTREE_DIR" checkout "$PR_BRANCH" 2>/dev/null || true
+
+  CWD="$WORKTREE_DIR"
+  log "   Worktree ready: ${WORKTREE_DIR}"
+fi
 
 # ─── GitHub helpers ───────────────────────────────────────────────────────────
 
@@ -473,7 +534,7 @@ PROMPT_EOF
     ui_reflect_log "starting  (model: ${reflect_model} → ${REFLECT_MAIN_BRANCH})"
     export REFLECT_COMMENTS_JSON="$comments_json"
     bash "${SCRIPT_DIR}/pr-review-reflect.sh" "$PR_NUMBER" \
-      --repo "$REPO" --cwd "$CWD" \
+      --repo "$REPO" --cwd "$REPO_ROOT" \
       --review-id "$rid" \
       --main-branch "$REFLECT_MAIN_BRANCH" \
       --model "$reflect_model" \

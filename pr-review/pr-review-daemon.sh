@@ -27,6 +27,30 @@ PR_REVIEW_SCRIPT="${PR_REVIEW_SCRIPT:-${SCRIPT_DIR}/pr-review.sh}"
 ONCE=false
 PIDFILE="${HOME}/.pr-review-daemon.pid"
 LOGFILE="${HOME}/.pr-review-daemon.log"
+MAX_CONCURRENT="${MAX_CONCURRENT:-3}"
+RUNNER="${PR_REVIEW_RUNNER:-opencode}"
+
+# ─── Job table (tracking running PIDs per repo#pr) ───────────────────────────
+declare -A JOB_PIDS  # key: "repo#pr" → PID
+
+is_job_running() {
+  local key="$1"
+  local pid="${JOB_PIDS[$key]:-}"
+  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+}
+
+running_job_count() {
+  local count=0
+  for key in "${!JOB_PIDS[@]}"; do
+    local pid="${JOB_PIDS[$key]}"
+    if kill -0 "$pid" 2>/dev/null; then
+      count=$((count + 1))
+    else
+      unset 'JOB_PIDS[$key]'
+    fi
+  done
+  echo "$count"
+}
 
 # Repo path mapping (repo → local path)
 # Add entries here for repos you work with locally, or leave empty to use --cwd auto-detection.
@@ -96,7 +120,58 @@ fire_event() {
   local text="$1"
   log "🔔 Event: ${text}"
   # Hook: add your own notification mechanism here (Slack, webhook, etc.)
-  # Example: curl -s -X POST "$WEBHOOK_URL" -d "{\"text\":\"${text}\"}"
+}
+
+# ─── Dispatch runner (launch a review cycle for a PR) ─────────────────────────
+
+dispatch_runner() {
+  local repo="$1" pr="$2"
+  local key="${repo}#${pr}"
+
+  # Skip if a runner is already active for this PR
+  if is_job_running "$key"; then
+    log "   ⏭  PR ${key} already has an active runner — skipping"
+    return 0
+  fi
+
+  # Check concurrency limit
+  local active
+  active=$(running_job_count)
+  if [[ "$active" -ge "$MAX_CONCURRENT" ]]; then
+    log "   ⏸  Concurrency limit reached (${active}/${MAX_CONCURRENT}) — deferring ${key}"
+    return 0
+  fi
+
+  local repo_path
+  repo_path=$(get_repo_path "$repo")
+  if [[ -z "$repo_path" ]]; then
+    log "   ⚠️  No repo path configured for ${repo} — cannot dispatch runner"
+    fire_event "⚠️ ${key}: no local path configured — manual fix needed"
+    return 1
+  fi
+
+  local script
+  case "$RUNNER" in
+    opencode) script="${SCRIPT_DIR}/pr-review-opencode.sh" ;;
+    claude)   script="${SCRIPT_DIR}/pr-review-claude-v2.sh" ;;
+    *) log "   ⚠️  Unknown runner: $RUNNER"; return 1 ;;
+  esac
+
+  local repo_slug="${repo//\//_}"
+  local pr_log="${HOME}/.pr-review/logs/${repo_slug}-pr-${pr}.log"
+  mkdir -p "$(dirname "$pr_log")"
+
+  log "🚀 Dispatching runner for ${key} (runner: ${RUNNER})"
+  bash "$script" "$pr" \
+    --repo "$repo" \
+    --cwd "$repo_path" \
+    --worktree \
+    --repo-root "$repo_path" \
+    --no-interactive \
+    >> "$pr_log" 2>&1 &
+
+  JOB_PIDS["$key"]=$!
+  log "   PID ${JOB_PIDS[$key]} → log: ${pr_log}"
 }
 
 # ─── Build agent task for a review ────────────────────────────────────────────
@@ -196,6 +271,9 @@ poll_once() {
         task=$(build_fix_task "$repo" "$pr" "$review_id" "$comment_count" "$comments")
         event_parts+=("$task")
         log "🆕 ${repo}#${pr}: ${comment_count} new comments"
+
+        # Dispatch a runner to fix the comments
+        dispatch_runner "$repo" "$pr" || true
         ;;
       approved)
         has_actionable=true
@@ -243,6 +321,20 @@ poll_once() {
 
 # ─── Main loop ────────────────────────────────────────────────────────────────
 
+# Cleanup trap: kill all dispatched runners on daemon exit
+cleanup_daemon() {
+  log "🛑 Daemon shutting down — killing dispatched runners..."
+  for key in "${!JOB_PIDS[@]}"; do
+    local pid="${JOB_PIDS[$key]}"
+    if kill -0 "$pid" 2>/dev/null; then
+      log "   Killing ${key} (PID ${pid})"
+      kill "$pid" 2>/dev/null || true
+    fi
+  done
+  rm -f "$PIDFILE"
+}
+trap cleanup_daemon EXIT
+
 if [[ "$ONCE" == true ]]; then
   poll_once
   exit 0
@@ -251,9 +343,12 @@ fi
 log "🚀 PR Review Daemon started (PID $$, interval ${POLL_INTERVAL}s)"
 log "   Watch file: ${WATCH_FILE}"
 log "   Script: ${PR_REVIEW_SCRIPT}"
+log "   Max concurrent: ${MAX_CONCURRENT}"
+log "   Runner: ${RUNNER}"
 
 while true; do
   poll_once
-  log "💤 Sleeping ${POLL_INTERVAL}s..."
+  active=$(running_job_count)
+  log "💤 Sleeping ${POLL_INTERVAL}s... (${active} active runner(s))"
   sleep "$POLL_INTERVAL"
 done

@@ -32,8 +32,7 @@ set -euo pipefail
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-STATE_DIR="/tmp/pr-review-state"
-LOGFILE="${HOME}/.pr-review-opencode.log"
+# STATE_DIR and LOGFILE are scoped per-repo after REPO is known (see below)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ─── UI ───────────────────────────────────────────────────────────────────────
@@ -61,6 +60,8 @@ REFLECT_MODEL=""
 REFLECT_MAIN_BRANCH="main"
 REFLECT_OPTIMIZE=false  # auto-enabled when REFLECT=true
 AUTO_MERGE=false
+USE_WORKTREE=false
+REPO_ROOT=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -74,6 +75,8 @@ while [[ $# -gt 0 ]]; do
     --wait-max)            WAIT_MAX="$2";            shift 2 ;;
     --no-interactive)      export PR_REVIEW_NO_INTERACTIVE=true; shift ;;
     --auto-merge)          AUTO_MERGE=true; shift ;;
+    --worktree)            USE_WORKTREE=true;        shift ;;
+    --repo-root)           REPO_ROOT="$2";           shift 2 ;;
     --dry-run)             DRY_RUN=true;             shift ;;
     *) >&2 echo "Unknown arg: $1"; exit 1 ;;
   esac
@@ -90,7 +93,7 @@ run_reflect_optimize() {
   local skip_flag="${1:-}"
   log "🔧 Running reflection optimize pass (model: ${reflect_model}, target branch: ${REFLECT_MAIN_BRANCH})..."
   bash "${SCRIPT_DIR}/pr-review-reflect-optimize.sh" "$PR_NUMBER" \
-    --repo "$REPO" --cwd "$CWD" \
+    --repo "$REPO" --cwd "$REPO_ROOT" \
     --main-branch "$REFLECT_MAIN_BRANCH" \
     --model "$reflect_model" \
     --agent opencode \
@@ -108,7 +111,60 @@ if [[ -z "$REPO" ]]; then
   fi
 fi
 
+# ─── Scoped state & logs (per-repo isolation for parallel runs) ───────────────
+
+REPO_SLUG="${REPO//\//_}"  # owner/repo → owner_repo
+STATE_DIR="/tmp/pr-review-state/${REPO_SLUG}"
+LOGFILE="${HOME}/.pr-review/logs/${REPO_SLUG}-pr-${PR_NUMBER}.log"
+mkdir -p "$STATE_DIR" "$(dirname "$LOGFILE")"
 STATE_FILE="${STATE_DIR}/pr-${PR_NUMBER}-last-review"
+
+# ─── Worktree isolation (optional — used by orchestrator for parallel runs) ───
+
+WORKTREE_DIR=""
+# REPO_ROOT: the original git clone path, used for reflect to avoid worktree-of-worktree.
+[[ -z "$REPO_ROOT" ]] && REPO_ROOT="$CWD"
+
+if [[ "$USE_WORKTREE" == true ]]; then
+  # Fetch PR branch name
+  PR_BRANCH=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.head.ref' 2>/dev/null || echo "")
+  if [[ -z "$PR_BRANCH" ]]; then
+    >&2 echo "Could not determine PR branch — cannot create worktree"
+    exit 1
+  fi
+
+  WORKTREE_DIR="/tmp/pr-review-worktrees/${REPO_SLUG}/pr-${PR_NUMBER}"
+  mkdir -p "$(dirname "$WORKTREE_DIR")"
+
+  cleanup_pr_worktree() {
+    if [[ -n "$WORKTREE_DIR" && -d "$WORKTREE_DIR" ]]; then
+      log "Cleaning up worktree at ${WORKTREE_DIR}..."
+      git -C "$REPO_ROOT" worktree remove --force "$WORKTREE_DIR" 2>/dev/null || true
+      rm -rf "$WORKTREE_DIR" 2>/dev/null || true
+    fi
+  }
+  trap cleanup_pr_worktree EXIT
+
+  git -C "$REPO_ROOT" worktree prune 2>/dev/null || true
+
+  log "Creating worktree for PR #${PR_NUMBER} (branch: ${PR_BRANCH})..."
+  git -C "$REPO_ROOT" fetch origin "$PR_BRANCH" 2>/dev/null || true
+  if [[ -d "$WORKTREE_DIR" ]]; then
+    git -C "$REPO_ROOT" worktree remove --force "$WORKTREE_DIR" 2>/dev/null || true
+    rm -rf "$WORKTREE_DIR" 2>/dev/null || true
+  fi
+  git -C "$REPO_ROOT" worktree add "$WORKTREE_DIR" "origin/${PR_BRANCH}" 2>/dev/null || {
+    >&2 echo "Failed to create worktree — trying detached HEAD..."
+    git -C "$REPO_ROOT" worktree add --detach "$WORKTREE_DIR" "origin/${PR_BRANCH}" 2>/dev/null || {
+      >&2 echo "Fatal: could not create worktree for ${PR_BRANCH}"
+      exit 1
+    }
+  }
+  git -C "$WORKTREE_DIR" checkout "$PR_BRANCH" 2>/dev/null || true
+
+  CWD="$WORKTREE_DIR"
+  log "   Worktree ready: ${WORKTREE_DIR}"
+fi
 
 # ─── GitHub helpers ───────────────────────────────────────────────────────────
 
@@ -515,7 +571,7 @@ PROMPT_EOF
     ui_reflect_log "starting  (model: ${reflect_model} → ${REFLECT_MAIN_BRANCH})"
     export REFLECT_COMMENTS_JSON="$comments_json"
     bash "${SCRIPT_DIR}/pr-review-reflect.sh" "$PR_NUMBER" \
-      --repo "$REPO" --cwd "$CWD" \
+      --repo "$REPO" --cwd "$REPO_ROOT" \
       --review-id "$rid" \
       --main-branch "$REFLECT_MAIN_BRANCH" \
       --model "$reflect_model" \

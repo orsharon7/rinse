@@ -34,12 +34,17 @@
 #
 set -euo pipefail
 
-LOGFILE="${HOME}/.pr-review-reflect.log"
+# LOGFILE is scoped per-repo after REPO is known (see below)
+LOGFILE=""
 
 log() {
   local ts
   ts=$(date '+%Y-%m-%d %H:%M:%S')
-  echo "[$ts] [reflect] $*" | tee -a "$LOGFILE"
+  if [[ -n "${LOGFILE:-}" ]]; then
+    echo "[$ts] [reflect] $*" | tee -a "$LOGFILE"
+  else
+    echo "[$ts] [reflect] $*"
+  fi
 }
 
 # Retry a command up to N times with exponential backoff.
@@ -95,6 +100,12 @@ if [[ -z "$REPO" ]]; then
   REPO=$(cd "$CWD" && gh repo view --json nameWithOwner -q '.nameWithOwner' 2>/dev/null || echo "")
   [[ -z "$REPO" ]] && { >&2 echo "Cannot detect repo. Use --repo."; exit 1; }
 fi
+
+# ─── Scoped log (per-repo isolation for parallel runs) ────────────────────────
+
+REPO_SLUG="${REPO//\//_}"  # owner/repo → owner_repo
+LOGFILE="${HOME}/.pr-review/logs/${REPO_SLUG}-pr-${PR_NUMBER}-reflect.log"
+mkdir -p "$(dirname "$LOGFILE")"
 
 # ─── Get comments ─────────────────────────────────────────────────────────────
 
