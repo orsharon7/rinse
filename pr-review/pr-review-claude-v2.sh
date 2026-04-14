@@ -545,7 +545,7 @@ PROMPT_EOF
       --main-branch "$REFLECT_MAIN_BRANCH" \
       --model "$reflect_model" \
       --agent opencode \
-      >> "$reflect_log" 2>&1 &
+      >/dev/null 2>&1 &
     reflect_pid=$!
   fi
 
