@@ -148,24 +148,39 @@ claude_current=""
 # ─── Build optimization prompt ────────────────────────────────────────────────
 
 read -r -d '' PROMPT << PROMPT_EOF || true
-You are a technical editor tasked with compressing AI coding-rule files after PR #${PR_NUMBER} in ${REPO} was merged.
+You are a technical editor tasked with transforming AI coding-rule files into lean, actionable practices after PR #${PR_NUMBER} in ${REPO} was merged.
 
 The files below each contain a rules section bounded by:
   <!-- BEGIN:COPILOT-RULES -->
   ...
   <!-- END:COPILOT-RULES -->
 
-Your job is to rewrite the content *between* those markers (keeping the markers themselves) so that the resulting section is 30-50% shorter in token count while preserving every meaningful, distinct piece of guidance.
+Your job is to rewrite the content *between* those markers (keeping the markers themselves) so that every rule is a **clear, terse practice** — not verbose contextual guidance.
 
-## Optimization rules
+## What a practice looks like
 
-1. **Deduplicate** — if two bullet points say the same thing, keep the clearest one.
-2. **Merge overlapping rules** — if two rules cover the same root concern, combine them into one concise rule.
-3. **Trim wordiness** — cut filler words, redundant qualifications, and over-long examples. Keep the imperative verb + the essential constraint.
-4. **Regroup** — reorganize bullets under the most logical category headers; rename or merge headers if that reduces repetition.
-5. **Reorder** — put the highest-impact / most frequently relevant rules first within each category.
-6. **Preserve substance** — do NOT drop guidance that is meaningfully distinct. When in doubt, keep it.
-7. **Update the datestamp** — change the "*Last updated: ...*" line to: $(date '+%Y-%m-%d') from PR #${PR_NUMBER} review (optimized)
+A practice is a single imperative sentence that an agent can follow without needing surrounding explanation. It states **what to do** (or not do) and **why only when the reason is non-obvious**.
+
+### Good (practice)
+- Use \`strings.Builder\`; never \`+=\` in a loop.
+- Validate numeric CLI params as integers ≥ 0 before arithmetic/\`sleep\`.
+- Close async streams via \`await stream.aclose()\` in \`try/finally\`.
+
+### Bad (verbose context — what to avoid)
+- When writing Go code that builds strings iteratively, you should always use strings.Builder instead of using += because += creates a new string allocation on every iteration which leads to O(n²) performance.
+- It's important to validate numeric CLI parameters. Parameters like --stagger should be validated as integers that are greater than or equal to zero before they are used in arithmetic operations or passed to sleep, since invalid values can cause unexpected behavior.
+
+## Transformation rules
+
+1. **Convert to practices** — rewrite each rule as a terse imperative. Strip preambles, hedge words, and explanations that restate the imperative.
+2. **Deduplicate** — if two bullets say the same thing, keep the clearest one.
+3. **Merge overlapping rules** — if two rules cover the same root concern, combine into one concise practice.
+4. **Compact examples** — inline short code examples with backticks. Drop multi-line code blocks unless the pattern genuinely needs them.
+5. **Use sub-bullets sparingly** — bold-labeled sub-bullets (e.g. \`**Locking:**\`) are fine for grouping 2-3 tightly related practices under a theme. Never nest deeper than one level.
+6. **Regroup** — organize under the most logical category headers; merge headers if that reduces repetition.
+7. **Reorder** — highest-impact / most frequently relevant practices first within each category.
+8. **Preserve substance** — do NOT drop guidance that is meaningfully distinct. When in doubt, keep it.
+9. **Update the datestamp** — change the "*Last updated: ...*" line to: $(date '+%Y-%m-%d') from PR #${PR_NUMBER} review (optimized)
 
 ## Current AGENTS.md:
 \`\`\`markdown
@@ -181,6 +196,7 @@ ${claude_current}
 
 Rewrite **both** files in full, keeping all content outside the COPILOT-RULES markers exactly as-is.
 Only the content *between* the markers (and the datestamp line) should change.
+Both files must have identical COPILOT-RULES content.
 Do NOT run any git commands — the script will handle committing and pushing.
 PROMPT_EOF
 
@@ -195,28 +211,90 @@ fi
 
 log "Running ${AGENT_CLI} optimization pass for ${REPO}#${PR_NUMBER} (model: ${MODEL})..."
 
+agent_exit=0
 case "$AGENT_CLI" in
   opencode)
-    oc_exit=0
-    (cd "$WORKTREE_DIR" && opencode run --model "$MODEL" "$PROMPT") 2>&1 | tee -a "$LOGFILE" || oc_exit=$?
-    [[ $oc_exit -ne 0 ]] && { log "⚠️  opencode exited ${oc_exit}"; exit 1; }
+    (cd "$WORKTREE_DIR" && opencode run --model "$MODEL" "$PROMPT") 2>&1 | tee -a "$LOGFILE" || agent_exit=$?
     ;;
   claude)
-    cl_exit=0
     (cd "$WORKTREE_DIR" && claude --print --dangerously-skip-permissions --model "$MODEL" "$PROMPT") \
-      2>&1 | tee -a "$LOGFILE" || cl_exit=$?
-    [[ $cl_exit -ne 0 ]] && { log "⚠️  claude exited ${cl_exit}"; exit 1; }
+      2>&1 | tee -a "$LOGFILE" || agent_exit=$?
     ;;
   *)
     >&2 echo "Unknown --agent: $AGENT_CLI (use 'opencode' or 'claude')"; exit 1 ;;
 esac
 
-# ─── Commit and push from worktree to main ────────────────────────────────────
+# ─── Validate agent output ────────────────────────────────────────────────────
 
 changed=$(git -C "$WORKTREE_DIR" status --porcelain AGENTS.md CLAUDE.md)
+
+if [[ $agent_exit -ne 0 ]]; then
+  if [[ -n "$changed" ]]; then
+    log "⚠️  ${AGENT_CLI} exited ${agent_exit} but produced file changes — validating output"
+  else
+    log "⚠️  ${AGENT_CLI} exited ${agent_exit} with no file changes"
+    exit 1
+  fi
+fi
+
 if [[ -z "$changed" ]]; then
   log "No changes to AGENTS.md or CLAUDE.md — rules already compact"
   exit 0
+fi
+
+# Abort if the agent deleted a file that existed before the rewrite
+for f in "$AGENTS_FILE" "$CLAUDE_FILE"; do
+  file_name=${f##*/}
+
+  if git -C "$WORKTREE_DIR" cat-file -e "HEAD:$file_name" 2>/dev/null; then
+    if [[ ! -f "$f" ]]; then
+      log "⚠️  ${file_name} was deleted by the agent rewrite — aborting"
+      git -C "$WORKTREE_DIR" checkout -- AGENTS.md CLAUDE.md 2>/dev/null
+      exit 1
+    fi
+  fi
+done
+
+# Verify COPILOT-RULES markers survived the rewrite as one well-formed bounded section
+for f in "$AGENTS_FILE" "$CLAUDE_FILE"; do
+  if [[ -f "$f" ]]; then
+    begin_count=$(grep -Fxc '<!-- BEGIN:COPILOT-RULES -->' "$f" 2>/dev/null || true)
+    end_count=$(grep -Fxc '<!-- END:COPILOT-RULES -->' "$f" 2>/dev/null || true)
+
+    if [[ "$begin_count" -ne 1 ]]; then
+      log "⚠️  ${f##*/} must contain exactly one '<!-- BEGIN:COPILOT-RULES -->' marker after agent rewrite — aborting"
+      git -C "$WORKTREE_DIR" checkout -- AGENTS.md CLAUDE.md 2>/dev/null
+      exit 1
+    fi
+
+    if [[ "$end_count" -ne 1 ]]; then
+      log "⚠️  ${f##*/} must contain exactly one '<!-- END:COPILOT-RULES -->' marker after agent rewrite — aborting"
+      git -C "$WORKTREE_DIR" checkout -- AGENTS.md CLAUDE.md 2>/dev/null
+      exit 1
+    fi
+
+    begin_line=$(grep -nFx '<!-- BEGIN:COPILOT-RULES -->' "$f" | cut -d: -f1)
+    end_line=$(grep -nFx '<!-- END:COPILOT-RULES -->' "$f" | cut -d: -f1)
+
+    if [[ "$begin_line" -ge "$end_line" ]]; then
+      log "⚠️  ${f##*/} has COPILOT-RULES markers out of order after agent rewrite — aborting"
+      git -C "$WORKTREE_DIR" checkout -- AGENTS.md CLAUDE.md 2>/dev/null
+      exit 1
+    fi
+  fi
+done
+
+# Verify both files have identical COPILOT-RULES content (prompt requires this)
+if [[ -f "$AGENTS_FILE" && -f "$CLAUDE_FILE" ]]; then
+  extract_rules_section() {
+    local file="$1"
+    awk '/^<!-- BEGIN:COPILOT-RULES -->$/{found=1; next} /^<!-- END:COPILOT-RULES -->$/{found=0} found' "$file"
+  }
+  if ! cmp -s <(extract_rules_section "$AGENTS_FILE") <(extract_rules_section "$CLAUDE_FILE"); then
+    log "⚠️  COPILOT-RULES sections differ between AGENTS.md and CLAUDE.md after agent rewrite — aborting"
+    git -C "$WORKTREE_DIR" checkout -- AGENTS.md CLAUDE.md 2>/dev/null
+    exit 1
+  fi
 fi
 
 log "Committing optimized rules to ${MAIN_BRANCH}..."
