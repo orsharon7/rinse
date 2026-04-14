@@ -158,11 +158,14 @@ if [[ "$USE_WORKTREE" == true ]]; then
     git -C "$REPO_ROOT" worktree remove --force "$WORKTREE_DIR" 2>/dev/null || true
     rm -rf "$WORKTREE_DIR" 2>/dev/null || true
   fi
-  git -C "$REPO_ROOT" worktree add -B "$PR_BRANCH" "$WORKTREE_DIR" "origin/${PR_BRANCH}" 2>/dev/null || {
+  # Use a PR-number-namespaced local branch to avoid clobbering an existing
+  # local branch with the same name as the PR head branch.
+  local_wt_branch="pr-review/${PR_NUMBER}/${PR_BRANCH}"
+  git -C "$REPO_ROOT" worktree add -B "$local_wt_branch" "$WORKTREE_DIR" "origin/${PR_BRANCH}" 2>/dev/null || {
     >&2 echo "Fatal: could not create worktree for branch ${PR_BRANCH}"
     exit 1
   }
-  git -C "$WORKTREE_DIR" branch --set-upstream-to="origin/${PR_BRANCH}" "$PR_BRANCH" 2>/dev/null || {
+  git -C "$WORKTREE_DIR" branch --set-upstream-to="origin/${PR_BRANCH}" "$local_wt_branch" 2>/dev/null || {
     >&2 echo "Fatal: could not set upstream for ${PR_BRANCH} to origin/${PR_BRANCH}"
     exit 1
   }
@@ -583,7 +586,7 @@ PROMPT_EOF
       --main-branch "$REFLECT_MAIN_BRANCH" \
       --model "$reflect_model" \
       --agent opencode \
-      >> "$reflect_log" 2>&1 &
+      >/dev/null 2>&1 &
     reflect_pid=$!
     ui_reflect_start "$LOGFILE"
   fi

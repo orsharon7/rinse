@@ -378,7 +378,7 @@ EOF
 # Wait for a specific PR to complete
 wait_for_pr() {
   local pr_num="$1"
-  local pid="${CHILD_PIDS[$pr_num]}"
+  local pid="${CHILD_PIDS[$pr_num]:-}"
 
   if [[ -z "$pid" ]]; then
     return 0
