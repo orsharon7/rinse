@@ -197,7 +197,7 @@ is_copilot_pending() {
 get_latest_copilot_review() {
   local reviews
   reviews=$(gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/reviews?per_page=100" \
-    --jq '[.[] | select(.user.login | contains("copilot")) | {id: .id, state: .state, submitted_at: .submitted_at}]' 2>/dev/null) || {
+    --jq '[.[] | select(.user.login == "copilot-pull-request-reviewer[bot]" or .user.login == "Copilot") | {id: .id, state: .state, submitted_at: .submitted_at}]' 2>/dev/null) || {
     echo '{"status":"error","message":"Failed to fetch reviews"}' | tr -d '\000'
     return 1
   }
@@ -286,8 +286,11 @@ _emit_review_status() {
   # Fetch all Copilot reviews once — extract both latest and total count
   local all_reviews
   all_reviews=$(gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/reviews?per_page=100" \
-    --jq '[.[] | select(.user.login | contains("copilot")) | {id: .id, state: .state, submitted_at: .submitted_at}]' 2>/dev/null \
-    | jq -s 'add // []') || return
+    --jq '[.[] | select(.user.login == "copilot-pull-request-reviewer[bot]" or .user.login == "Copilot") | {id: .id, state: .state, submitted_at: .submitted_at}]' 2>/dev/null \
+    | jq -s 'add // []') || {
+    jq -n '{"status":"error","message":"Failed to fetch reviews"}' | tr -d '\000'
+    return
+  }
 
   local latest
   latest=$(echo "$all_reviews" | jq 'sort_by(.submitted_at) | last // empty')

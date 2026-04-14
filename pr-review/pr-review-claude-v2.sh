@@ -339,7 +339,7 @@ while true; do
 
   # ── Step 1: Ensure a review is in progress / get latest ───────────────
 
-  ui_step 1 "Check review status"────
+  ui_step 1 "Check review status"
 
   pending=$(copilot_is_pending)
   latest=$(get_latest_copilot_review)
@@ -359,7 +359,7 @@ while true; do
 
   # ── Step 2: Wait for Copilot to finish ────────────────────────────
 
-  ui_step 2 "Wait for Copilot review"────────
+  ui_step 2 "Wait for Copilot review"
 
   if ! wait_for_review; then
     log "❌ Timed out waiting for Copilot — aborting"
@@ -368,7 +368,7 @@ while true; do
 
   # ── Step 3: Read the new review ───────────────────────────────────
 
-  ui_step 3 "Read review result"────────
+  ui_step 3 "Read review result"
 
   latest=$(get_latest_copilot_review)
   if [[ -z "$latest" ]]; then
@@ -416,7 +416,7 @@ while true; do
 
   # ── Step 4: Build prompt and invoke Claude ────────────────────────────
 
-  ui_step 4 "Fix comments with Claude (${MODEL})"────
+  ui_step 4 "Fix comments with Claude (${MODEL})"
 
   comments_json=$(echo "$comments" | jq '.')
 
