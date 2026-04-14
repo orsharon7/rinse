@@ -319,23 +319,55 @@ fi
 
 declare -A CHILD_PIDS  # PR number → PID
 
+CLEANUP_DONE=false
+
 cleanup_all() {
-  log "🛑 Shutting down — killing all runners..."
+  local interrupted="${1:-false}"
+  local had_active_children=false
+
+  if [[ "$CLEANUP_DONE" == true ]]; then
+    return
+  fi
+  CLEANUP_DONE=true
+
   for pr in "${!CHILD_PIDS[@]}"; do
     local pid="${CHILD_PIDS[$pr]}"
     if kill -0 "$pid" 2>/dev/null; then
+      had_active_children=true
+      if [[ "$interrupted" == true ]]; then
+        log "🛑 Shutting down — killing all runners..."
+        interrupted=logged
+      fi
       log "   Killing PR #${pr} (PID ${pid})"
       kill "$pid" 2>/dev/null || true
     fi
     release_lock "$pr"
   done
-  # Give children a moment to clean up their worktrees
-  sleep 2
-  # Prune any leftover worktrees
-  git -C "$CWD" worktree prune 2>/dev/null || true
-  log "✓ Shutdown complete"
+
+  if [[ "$had_active_children" == true ]]; then
+    # Give children a moment to clean up their worktrees
+    sleep 2
+    # Prune any leftover worktrees
+    git -C "$CWD" worktree prune 2>/dev/null || true
+    if [[ "$interrupted" == logged ]]; then
+      log "✓ Shutdown complete"
+    fi
+  fi
 }
-trap cleanup_all EXIT
+
+handle_sigint() {
+  cleanup_all true
+  exit 130
+}
+
+handle_sigterm() {
+  cleanup_all true
+  exit 143
+}
+
+trap 'cleanup_all false' EXIT
+trap handle_sigint INT
+trap handle_sigterm TERM
 
 # ─── Run a single PR (background) ────────────────────────────────────────────
 
