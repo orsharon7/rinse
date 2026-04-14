@@ -104,6 +104,11 @@ var (
 // ansiRe strips ANSI escape sequences for pattern matching only.
 var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[mK]`)
 
+// commentCountRe matches "N comment(s)" to extract the comment count.
+// Anchoring to the number immediately before "comment(s)" avoids mistaking
+// timestamp digits (e.g. "15:04:05") for the count.
+var commentCountRe = regexp.MustCompile(`(\d+)\s+comment\(s\)`)
+
 func stripANSI(s string) string { return ansiRe.ReplaceAllString(s, "") }
 
 // ── Phase ─────────────────────────────────────────────────────────────────────
@@ -585,11 +590,16 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Track comment counts from log lines.
 		if strings.Contains(plain, "comment(s) in review") {
+			// Parse "N comment(s)" by scanning the substring after "💬" so that
+			// timestamps like "[2006-01-02 15:04:05]" earlier in the line cannot
+			// be mistaken for the count.
 			var n int
-			// Parse "N comment(s)" from lines like "💬 3 comment(s) in review 123"
-			for _, word := range strings.Fields(plain) {
-				if _, err := fmt.Sscanf(word, "%d", &n); err == nil && n > 0 {
-					break
+			if sub := plain; true {
+				if idx := strings.Index(sub, "💬"); idx >= 0 {
+					sub = sub[idx:]
+				}
+				if m := commentCountRe.FindStringSubmatch(sub); len(m) == 2 {
+					fmt.Sscanf(m[1], "%d", &n)
 				}
 			}
 			if n > 0 {
