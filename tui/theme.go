@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -21,168 +22,198 @@ const (
 	IconThickBar = "▌"
 	IconPending  = "●"
 	IconRunning  = "◌"
-	IconSep      = "·"
+	IconSep      = "•"
 	IconDiag     = "╱"
 )
 
-// ── Splash logo ───────────────────────────────────────────────────────────────
+// ── Block-character wordmark ──────────────────────────────────────────────────
+// Built with ▄▀█ half-block characters — same approach as charmbracelet/crush.
+//
+// The logo is 3 rows tall:
+//   ▄▀▀▀▄ ▀█▀ ▄▀▀▄ ▄▀▀▀ ▄▀▀▀▄
+//   █▀▀▄  █  █  █ ▀▀▀▄ █▀▀▀
+//   ▀   ▀ ▀▀▀ ▀  ▀ ▀▀▀  ▀▀▀▀
 
-const splashLogo = `
-    ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
-    ╱╱                                   ╱╱
-    ╱╱    ◇  r  i  n  s  e              ╱╱
-    ╱╱                                   ╱╱
-    ╱╱    lather · rinse · repeat        ╱╱
-    ╱╱                                   ╱╱
-    ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱`
+var logoLines = [3]string{
+	"▄▀▀▀▄ ▀█▀ ▄▀▀▄ ▄▀▀▀ ▄▀▀▀▄",
+	"█▀▀▄   █  █  █ ▀▀▀▄ █▀▀▀ ",
+	"▀   ▀ ▀▀▀ ▀  ▀ ▀▀▀  ▀▀▀▀ ",
+}
 
 // ── Palette (Catppuccin Macchiato) ────────────────────────────────────────────
 
 var (
-	// Brand / primary
 	mauve    = lipgloss.Color("#C6A0F6")
 	lavender = lipgloss.Color("#B7BDF8")
-
-	// Semantic
-	teal   = lipgloss.Color("#8BD5CA")
-	green  = lipgloss.Color("#A6DA95")
-	red    = lipgloss.Color("#ED8796")
-	yellow = lipgloss.Color("#EED49F")
-	peach  = lipgloss.Color("#F5A97F")
-	sky    = lipgloss.Color("#91D7E3")
-
-	// Neutrals
-	text    = lipgloss.Color("#CAD3F5")
-	subtext = lipgloss.Color("#A5ADCB")
-	overlay = lipgloss.Color("#6E738D")
-	surface = lipgloss.Color("#363A4F")
-	crust   = lipgloss.Color("#181926")
+	teal     = lipgloss.Color("#8BD5CA")
+	green    = lipgloss.Color("#A6DA95")
+	red      = lipgloss.Color("#ED8796")
+	yellow   = lipgloss.Color("#EED49F")
+	peach    = lipgloss.Color("#F5A97F")
+	sky      = lipgloss.Color("#91D7E3")
+	text     = lipgloss.Color("#CAD3F5")
+	subtext  = lipgloss.Color("#A5ADCB")
+	overlay  = lipgloss.Color("#6E738D")
+	surface  = lipgloss.Color("#363A4F")
+	crust    = lipgloss.Color("#181926")
 )
 
-// ── Brand bar ─────────────────────────────────────────────────────────────────
-// renderBrandBar produces the consistent header shown on EVERY screen:
-//   ◇ rinse  ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱  v0.1.0
-// The diagonals fill remaining width — the signature Crush-inspired look.
+// ── Gradient rendering ────────────────────────────────────────────────────────
+// Per-character foreground blend from colorA → colorB. Simplified version of
+// what charmbracelet/crush does in styles/grad.go.
 
-func renderBrandBar(w int) string {
-	brand := styleBrandIcon.Render(IconDiamond) + " " + styleBrandName.Render("rinse")
-	ver := styleBrandVersion.Render("v" + version)
-
-	brandW := lipgloss.Width(brand)
-	verW := lipgloss.Width(ver)
-	diagSpace := w - brandW - verW - 4 // 4 = gaps
-	if diagSpace < 2 {
-		diagSpace = 2
+func gradientString(s string, colorA, colorB lipgloss.Color, bold bool) string {
+	runes := []rune(s)
+	n := len(runes)
+	if n == 0 {
+		return ""
 	}
-	diags := styleBrandDiag.Render(strings.Repeat(IconDiag, diagSpace))
 
-	return brand + "  " + diags + "  " + ver
+	// Parse hex colors for blending.
+	rA, gA, bA := hexToRGB(string(colorA))
+	rB, gB, bB := hexToRGB(string(colorB))
+
+	var b strings.Builder
+	for i, r := range runes {
+		t := float64(i) / float64(max(1, n-1))
+		ri := uint8(float64(rA)*(1-t) + float64(rB)*t)
+		gi := uint8(float64(gA)*(1-t) + float64(gB)*t)
+		bi := uint8(float64(bA)*(1-t) + float64(bB)*t)
+		c := lipgloss.Color(fmt.Sprintf("#%02x%02x%02x", ri, gi, bi))
+		style := lipgloss.NewStyle().Foreground(c)
+		if bold {
+			style = style.Bold(true)
+		}
+		b.WriteString(style.Render(string(r)))
+	}
+	return b.String()
 }
 
-// renderBrandBarWithContext produces the header with contextual info:
-//   ◇ rinse  ╱╱╱  owner/repo on branch  ╱╱╱  v0.1.0
-func renderBrandBarWithContext(w int, ctx string) string {
-	brand := styleBrandIcon.Render(IconDiamond) + " " + styleBrandName.Render("rinse")
-	ver := styleBrandVersion.Render("v" + version)
-	ctxRendered := ""
-	if ctx != "" {
-		ctxRendered = "  " + styleBrandCtx.Render(ctx) + "  "
+func hexToRGB(hex string) (uint8, uint8, uint8) {
+	hex = strings.TrimPrefix(hex, "#")
+	if len(hex) != 6 {
+		return 200, 200, 200
 	}
+	var r, g, b uint8
+	fmt.Sscanf(hex, "%02x%02x%02x", &r, &g, &b)
+	return r, g, b
+}
+
+// ── Logo rendering ────────────────────────────────────────────────────────────
+
+// renderWordmark renders the big 3-row RINSE logo with a gradient from mauve
+// to lavender, surrounded by diagonal field lines — exactly like Crush's logo.
+func renderWordmark(width int) string {
+	logoW := len([]rune(logoLines[0]))
+	fieldW := 6
+
+	if width < logoW+fieldW*2+4 {
+		// Narrow terminal — use compact one-line brand.
+		return renderCompactBrand(width)
+	}
+
+	rightW := max(4, width-logoW-fieldW-3)
+
+	var rows []string
+	for _, line := range logoLines {
+		leftField := styleDiag.Render(strings.Repeat(IconDiag, fieldW))
+		rightField := styleDiag.Render(strings.Repeat(IconDiag, rightW))
+		grad := gradientString(line, mauve, lavender, true)
+		rows = append(rows, leftField+" "+grad+" "+rightField)
+	}
+
+	// Version + tagline below the logo
+	meta := styleCharm.Render("rinse™") +
+		strings.Repeat(" ", max(1, logoW-lipgloss.Width("rinse™")-lipgloss.Width(version))) +
+		styleVersion.Render(version)
+
+	return strings.Join(rows, "\n") + "\n" + strings.Repeat(" ", fieldW+1) + meta
+}
+
+// renderCompactBrand renders the one-line header used on all non-splash screens:
+//   rinse™ RINSE ╱╱╱╱╱╱╱╱╱ ~/dir • ctrl+d ╱╱╱╱
+func renderCompactBrand(width int) string {
+	brand := styleCharm.Render("rinse™") + " " +
+		gradientString("RINSE", mauve, lavender, true) + " "
 
 	brandW := lipgloss.Width(brand)
-	verW := lipgloss.Width(ver)
-	ctxW := lipgloss.Width(ctxRendered)
-
-	totalFixed := brandW + verW + ctxW + 4
-	diagSpace := w - totalFixed
-	if diagSpace < 2 {
-		diagSpace = 2
+	remainingW := width - brandW
+	if remainingW < 3 {
+		remainingW = 3
 	}
-
-	// Split diags: left side + context + right side
-	leftDiags := diagSpace * 40 / 100
-	rightDiags := diagSpace - leftDiags
-	if leftDiags < 1 {
-		leftDiags = 1
-	}
-	if rightDiags < 1 {
-		rightDiags = 1
-	}
-
-	left := styleBrandDiag.Render(strings.Repeat(IconDiag, leftDiags))
-	right := styleBrandDiag.Render(strings.Repeat(IconDiag, rightDiags))
-
-	if ctx == "" {
-		return brand + "  " + styleBrandDiag.Render(strings.Repeat(IconDiag, diagSpace)) + "  " + ver
-	}
-	return brand + "  " + left + ctxRendered + right + "  " + ver
+	return brand + styleDiag.Render(strings.Repeat(IconDiag, remainingW))
 }
+
+// renderCompactBrandWithDetails renders the compact header with contextual details:
+//   rinse™ RINSE ╱╱╱╱╱╱ owner/repo • main ╱╱╱╱
+func renderCompactBrandWithDetails(width int, details string) string {
+	brand := styleCharm.Render("rinse™") + " " +
+		gradientString("RINSE", mauve, lavender, true) + " "
+
+	brandW := lipgloss.Width(brand)
+
+	if details == "" {
+		remainingW := width - brandW
+		if remainingW < 3 {
+			remainingW = 3
+		}
+		return brand + styleDiag.Render(strings.Repeat(IconDiag, remainingW))
+	}
+
+	detailsRendered := styleHeaderDetail.Render(details)
+	detailsW := lipgloss.Width(detailsRendered)
+
+	totalFixed := brandW + detailsW + 2 // 2 = spaces around details
+	diagSpace := width - totalFixed
+	if diagSpace < 6 {
+		diagSpace = 6
+	}
+
+	leftDiags := max(3, diagSpace*40/100)
+	rightDiags := max(3, diagSpace-leftDiags)
+
+	return brand +
+		styleDiag.Render(strings.Repeat(IconDiag, leftDiags)) +
+		" " + detailsRendered + " " +
+		styleDiag.Render(strings.Repeat(IconDiag, rightDiags))
+}
+
+// ── Brand styles ──────────────────────────────────────────────────────────────
+
+var (
+	styleCharm   = lipgloss.NewStyle().Foreground(teal)
+	styleVersion = lipgloss.NewStyle().Foreground(overlay)
+	styleDiag    = lipgloss.NewStyle().Foreground(surface)
+
+	styleHeaderDetail = lipgloss.NewStyle().Foreground(subtext)
+)
 
 // ── Wizard Styles ─────────────────────────────────────────────────────────────
 
 var (
-	// Brand bar components
-	styleBrandIcon = lipgloss.NewStyle().
-			Foreground(mauve).
-			Bold(true)
+	// Logo styles (backward-compat aliases for app.go helpers)
+	styleLogo     = lipgloss.NewStyle().Foreground(mauve).Bold(true)
+	styleLogoIcon = lipgloss.NewStyle().Foreground(mauve)
+	styleLogoSlash = lipgloss.NewStyle().Foreground(overlay)
 
-	styleBrandName = lipgloss.NewStyle().
-			Foreground(mauve).
-			Bold(true)
-
-	styleBrandDiag = lipgloss.NewStyle().
-			Foreground(surface)
-
-	styleBrandVersion = lipgloss.NewStyle().
-				Foreground(overlay)
-
-	styleBrandCtx = lipgloss.NewStyle().
-			Foreground(subtext)
-
-	// Logo styles (kept for backward compat in app.go helpers)
-	styleLogo = styleBrandName
-
-	styleLogoIcon = styleBrandIcon
-
-	styleLogoSlash = lipgloss.NewStyle().
-			Foreground(overlay)
-
-	// Splash screen styles
-	styleSplashBox = lipgloss.NewStyle().
-			Foreground(mauve).
-			Bold(true)
-
-	styleSplashVersion = lipgloss.NewStyle().
-				Foreground(overlay)
-
-	styleSplashStatus = lipgloss.NewStyle().
-				Foreground(subtext)
+	styleSplashStatus = lipgloss.NewStyle().Foreground(subtext)
 
 	// Reusable text presets
-	styleBanner = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(mauve).
-			Padding(0, 1)
+	styleBanner = lipgloss.NewStyle().Bold(true).Foreground(mauve).Padding(0, 1)
+	styleKey    = lipgloss.NewStyle().Foreground(overlay).Width(16)
+	styleVal    = lipgloss.NewStyle().Foreground(lavender).Bold(true)
+	styleMuted  = lipgloss.NewStyle().Foreground(overlay)
+	styleStep   = lipgloss.NewStyle().Foreground(mauve).Bold(true)
+	styleErr    = lipgloss.NewStyle().Foreground(red)
+	styleTeal   = lipgloss.NewStyle().Foreground(teal).Bold(true)
 
-	styleKey   = lipgloss.NewStyle().Foreground(overlay).Width(16)
-	styleVal   = lipgloss.NewStyle().Foreground(lavender).Bold(true)
-	styleMuted = lipgloss.NewStyle().Foreground(overlay)
-	styleStep  = lipgloss.NewStyle().Foreground(mauve).Bold(true)
-	styleErr   = lipgloss.NewStyle().Foreground(red)
-	styleTeal  = lipgloss.NewStyle().Foreground(teal).Bold(true)
+	// PR list: thick left bar for selected
+	styleSelected    = lipgloss.NewStyle().Foreground(mauve).Bold(true)
+	styleUnselected  = lipgloss.NewStyle().Foreground(subtext)
+	styleSelectedBar = lipgloss.NewStyle().Foreground(mauve).Bold(true)
 
-	// PR list: thick left bar for selected, like Crush's message focus border
-	styleSelected   = lipgloss.NewStyle().Foreground(mauve).Bold(true)
-	styleUnselected = lipgloss.NewStyle().Foreground(subtext)
-
-	styleSelectedBar = lipgloss.NewStyle().
-				Foreground(mauve).Bold(true)
-
-	stylePRNum = lipgloss.NewStyle().
-			Foreground(lavender).Bold(true)
-
-	stylePRNumMuted = lipgloss.NewStyle().
-				Foreground(overlay)
+	stylePRNum      = lipgloss.NewStyle().Foreground(lavender).Bold(true)
+	stylePRNumMuted = lipgloss.NewStyle().Foreground(overlay)
 
 	// Settings ribbon
 	styleRibbon = lipgloss.NewStyle().
@@ -192,28 +223,21 @@ var (
 			BorderForeground(surface).
 			Padding(0, 1)
 
-	// Settings overlay box
 	styleSettingsBox = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(mauve).
 				Padding(1, 3)
 
-	// Key hint presets
-	styleHintKey = lipgloss.NewStyle().
-			Foreground(subtext)
+	// Key hints
+	styleHintKey  = lipgloss.NewStyle().Foreground(subtext)
+	styleHintDesc = lipgloss.NewStyle().Foreground(overlay)
 
-	styleHintDesc = lipgloss.NewStyle().
-			Foreground(overlay)
-
-	// Separator line
-	styleSeparator = lipgloss.NewStyle().
-			Foreground(surface)
+	styleSeparator = lipgloss.NewStyle().Foreground(surface)
 )
 
 // ── Monitor Styles ────────────────────────────────────────────────────────────
 
 var (
-	// Header: bottom border separates from log area.
 	styleHeader = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(text).
@@ -225,7 +249,6 @@ var (
 	styleHeaderLabel = lipgloss.NewStyle().Foreground(overlay)
 	styleHeaderVal   = lipgloss.NewStyle().Foreground(lavender).Bold(true)
 
-	// Status bar: top border, no background.
 	styleStatusBar = lipgloss.NewStyle().
 			Foreground(subtext).
 			BorderStyle(lipgloss.NormalBorder()).
@@ -233,14 +256,12 @@ var (
 			BorderForeground(surface).
 			Padding(0, 1)
 
-	// Phase indicators
 	stylePhaseWaiting = lipgloss.NewStyle().Foreground(yellow).Bold(true)
 	stylePhaseFixing  = lipgloss.NewStyle().Foreground(mauve).Bold(true)
 	stylePhaseReflect = lipgloss.NewStyle().Foreground(teal).Bold(true)
 	stylePhaseDone    = lipgloss.NewStyle().Foreground(green).Bold(true)
 	stylePhaseErr     = lipgloss.NewStyle().Foreground(red).Bold(true)
 
-	// Log line semantic styles
 	styleLogInfo    = lipgloss.NewStyle().Foreground(text)
 	styleLogDebug   = lipgloss.NewStyle().Foreground(subtext)
 	styleLogWarn    = lipgloss.NewStyle().Foreground(yellow)
@@ -251,14 +272,12 @@ var (
 	styleLogGit     = lipgloss.NewStyle().Foreground(peach)
 	styleLogAPI     = lipgloss.NewStyle().Foreground(sky)
 
-	// Stat badges — compact pill labels
 	styleBadge        = lipgloss.NewStyle().Foreground(crust).Padding(0, 1)
 	styleBadgeIter    = styleBadge.Background(mauve)
 	styleBadgeComment = styleBadge.Background(yellow)
 	styleBadgeRules   = styleBadge.Background(teal)
 	styleBadgeTime    = styleBadge.Background(lavender)
 
-	// Reflect side-panel
 	styleReflectPanel = lipgloss.NewStyle().
 				BorderStyle(lipgloss.NormalBorder()).
 				BorderLeft(true).
@@ -270,13 +289,11 @@ var (
 	styleReflectOK    = lipgloss.NewStyle().Foreground(green)
 	styleReflectFail  = lipgloss.NewStyle().Foreground(red)
 
-	// Iteration timeline dots
 	styleTimelineDot     = lipgloss.NewStyle().Foreground(mauve)
 	styleTimelineDone    = lipgloss.NewStyle().Foreground(green)
 	styleTimelineErr     = lipgloss.NewStyle().Foreground(red)
 	styleTimelineCurrent = lipgloss.NewStyle().Foreground(yellow).Bold(true)
 
-	// Toast notification overlay
 	styleToast = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(green).
@@ -284,7 +301,6 @@ var (
 			Foreground(text).
 			Bold(true)
 
-	// Post-cycle menu
 	styleMenuBox = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(teal).

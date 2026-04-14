@@ -183,49 +183,6 @@ func renderKeyHint(key, desc string) string {
 	return styleHintKey.Render(key) + " " + styleHintDesc.Render(desc)
 }
 
-// renderSeparator renders a horizontal line of width w using ─ characters.
-func renderSeparator(w int) string {
-	if w <= 0 {
-		w = 1
-	}
-	return styleSeparator.Render(strings.Repeat("─", w))
-}
-
-// renderLogo renders the ◇ rinse branding header.
-func renderLogo(repo, branch string) string {
-	logo := styleLogoIcon.Render(IconDiamond) + " " + styleLogo.Render("rinse")
-	ver := styleMuted.Render(" v" + version)
-	right := ""
-	if repo != "" {
-		right = styleVal.Render(repo)
-		if branch != "" {
-			right += styleMuted.Render(" on ") + styleTeal.Render(branch)
-		}
-	}
-	if right != "" {
-		return "  " + logo + ver + styleMuted.Render("  "+IconSep+"  ") + right
-	}
-	return "  " + logo + ver
-}
-
-// renderMonitorLogo renders the slash-separated monitor header brand.
-func renderMonitorLogo(prNum, repo, runnerName string) string {
-	parts := []string{
-		styleLogoIcon.Render(IconDiamond) + " " + styleLogo.Render("rinse"),
-	}
-	if prNum != "" {
-		parts = append(parts, styleHeaderVal.Render("#"+prNum))
-	}
-	if repo != "" {
-		parts = append(parts, styleHeaderVal.Render(repo))
-	}
-	if runnerName != "" {
-		parts = append(parts, styleHeaderLabel.Render(runnerName))
-	}
-	sep := " " + styleLogoSlash.Render(IconSlash) + " "
-	return strings.Join(parts, sep)
-}
-
 // shortRunnerName returns the runner's short name.
 func shortRunnerName(idx int) string {
 	if idx < 0 || idx >= len(runners) {

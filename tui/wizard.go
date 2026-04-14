@@ -629,12 +629,18 @@ func (m model) renderSplash() string {
 
 	var b strings.Builder
 
-	// Brand bar at top
-	b.WriteString(renderBrandBar(w))
+	// Big wordmark with diagonal field lines and gradient.
+	b.WriteString("\n")
+	b.WriteString(renderWordmark(w))
 	b.WriteString("\n\n")
 
-	// ASCII art logo
-	b.WriteString(styleSplashBox.Render(splashLogo))
+	// Tagline
+	tagline := styleMuted.Render("    lather") +
+		styleTeal.Render(" " + IconSep + " ") +
+		styleMuted.Render("rinse") +
+		styleTeal.Render(" " + IconSep + " ") +
+		styleMuted.Render("repeat")
+	b.WriteString(tagline)
 	b.WriteString("\n\n")
 
 	// Loading status with spinner
@@ -655,19 +661,15 @@ func (m model) renderSplash() string {
 func (m model) renderPRPicker(w int) string {
 	var b strings.Builder
 
-	contentW := clamp(w-4, 1, 140)
-
-	// ── Brand bar with repo context ───────────────────────────────────────────
-	ctx := ""
+	// ── Compact brand header with repo context ────────────────────────────────
+	details := ""
 	if m.repo != "" {
-		ctx = m.repo
+		details = m.repo
 		if m.currentBranch != "" {
-			ctx += " on " + m.currentBranch
+			details += " " + IconSep + " " + m.currentBranch
 		}
 	}
-	b.WriteString(renderBrandBarWithContext(w, ctx))
-	b.WriteString("\n")
-	b.WriteString("  " + renderSeparator(contentW))
+	b.WriteString(renderCompactBrandWithDetails(w, details))
 	b.WriteString("\n")
 
 	// ── PR list ───────────────────────────────────────────────────────────────
@@ -726,8 +728,6 @@ func (m model) renderPRPicker(w int) string {
 			}
 			b.WriteString("\n")
 		}
-		b.WriteString("  " + renderSeparator(contentW))
-		b.WriteString("\n")
 	}
 
 	// ── Error ─────────────────────────────────────────────────────────────────

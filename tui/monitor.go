@@ -819,7 +819,7 @@ func (m monitorModel) View() string {
 	}
 	logH := m.logHeight()
 
-	// ── Header line 1: Brand bar with PR context ─────────────────────────────
+	// ── Header line 1: Compact brand with PR context ─────────────────────────
 	elapsed := time.Since(m.started).Round(time.Second)
 
 	prCtx := "#" + m.pr
@@ -829,7 +829,7 @@ func (m monitorModel) View() string {
 	if m.runner != "" {
 		prCtx += " " + IconSep + " " + m.runner
 	}
-	headerLine1 := renderBrandBarWithContext(totalW-2, prCtx)
+	headerLine1 := renderCompactBrandWithDetails(totalW-2, prCtx)
 	if m.prTitle != "" {
 		headerLine1 += "\n  " + styleMuted.Render(`"`) +
 			lipgloss.NewStyle().Foreground(text).Italic(true).Render(truncate(m.prTitle, 50)) +
