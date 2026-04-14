@@ -30,6 +30,8 @@ Project instructions for AI coding agents.
 - Never use a process group ID (PGID) as a liveness signal for a background job unless the job was explicitly started in its own process group (e.g. via `setsid`); inherited PGIDs outlive the child job, causing stale locks to appear permanently active.
 - Validate env vars used in numeric comparisons (e.g. `MAX_CONCURRENT`) as integers ≥ 1 at daemon/script startup with a clear error message; a non-integer or empty value will silently abort under `set -euo pipefail`.
 - When surfacing errors for a specific sub-process, tail that component's dedicated log file, not a shared log that receives interleaved output from multiple sources.
+- Under `set -u`, never read an associative array key that may be absent; guard with `[[ -v arr[$key] ]]` or use `${arr[$key]:-}` and return early when the key is missing.
+- Never use `git worktree add -B <branch>` with a shared/user-facing branch name in automation; use a uniquely namespaced local branch (e.g., prefixed by PR number) and set its upstream explicitly so pushes still target the correct remote branch.
 
 ### Environment & CI Portability
 - Check both git identity pairs (`GIT_AUTHOR_NAME`/`EMAIL` and `GIT_COMMITTER_NAME`/`EMAIL`); a missing pair can pass preflight but fail `git commit`.
