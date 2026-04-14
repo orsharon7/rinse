@@ -18,6 +18,7 @@ Project instructions for AI coding agents.
 - Every output path of a status-accepting function (`true`/`false`/`skip`) must reflect that status visually; never silently discard it.
 - Validate shell script syntax with `bash -n`/`sh -n` before committing; a stray brace or unbalanced delimiter silently prevents the entire script from executing.
 - When piping a function through `tee -a "$LOGFILE"`, suppress or redirect the function's internal `log()` calls to avoid writing each line twice to the logfile.
+- When a pipeline must be retried, wrap it in `bash -c 'set -euo pipefail; … | tee …'`; without `pipefail`, the pipeline exit status is that of the last command (`tee`), so upstream failures are invisible to the retry wrapper.
 
 ### Environment & CI Portability
 - Check both git identity pairs (`GIT_AUTHOR_NAME`/`EMAIL` and `GIT_COMMITTER_NAME`/`EMAIL`); missing one can pass preflight while `git commit` still fails.
@@ -47,7 +48,7 @@ Project instructions for AI coding agents.
 - Never hard-code a UI value that mirrors a backend configurable setting; source it from the backend payload or settings endpoint.
 
 ### Go
-- **Performance:** Use `strings.Builder`; never `+=` in a loop (O(n²)).
+- **Performance:** Use `strings.Builder`; never `+=` in a loop (O(n²)). Pre-compute repeated expressions (e.g. `strings.Fields(s)`) once before a loop; never recompute the same call inside the range header, bounds check, and index separately.
 - **Error handling:** Return errors to `main()` — never `os.Exit()` inside a UI lifecycle. Prefer `strings.Cut()` over `strings.Index()`. Always check `scanner.Err()` after a `bufio.Scanner` loop.
 - **Safety:** Use pointers for non-copy-safe types (`strings.Builder`, `sync.Mutex`) in frequently-copied structs. Drain data channels before acting on a done-channel signal.
 - **Paths & Unicode:** Use `filepath.Dir()`/`filepath.Join()`; rune-aware truncation for user-visible strings.
@@ -57,6 +58,7 @@ Project instructions for AI coding agents.
 - **Config presence:** Use an explicit presence flag (e.g. the `ok` return from a map lookup or loader) to detect missing per-scope config; never treat a zero value as "unset" — `0`, `false`, and `""` are all valid explicit choices.
 - **Config override:** When a scoped config entry exists, use its values verbatim; never combine with globals via `||`/`OR` — a global `true` must not override a scoped `false`.
 - **Config persistence:** Never persist a config field without also reading it back and applying it at load time; remove unused persisted fields rather than leaving misleading dead config.
+- **Config path staleness:** Never use a persisted filesystem path without verifying it matches the current working context; derive the path from the current environment first and fall back to the persisted value only when context-detection fails.
 - **State sequencing:** Parse structured input into its canonical representation and update mutable state before deriving any values from it; never read a field before the parsing step that updates it.
 - **Map writes:** Guard map writes against empty/zero-value keys; validate that the key is non-empty before writing to avoid creating phantom entries.
 - **Log/text parsing:** Never scan all whitespace-delimited tokens to find a numeric value in a log line — use a regexp or substring anchored to a known prefix/suffix (e.g. a sentinel emoji or keyword like `"comment(s)"`) so timestamps and incidental numbers cannot be misidentified as the target value.
