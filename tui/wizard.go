@@ -5,11 +5,17 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// ── Splash timer message ──────────────────────────────────────────────────────
+
+type splashDoneMsg struct{}
 
 // ── Model ─────────────────────────────────────────────────────────────────────
 
@@ -18,6 +24,10 @@ type model struct {
 	height int
 
 	view viewMode
+
+	// splash
+	splashSpinner spinner.Model
+	splashReady   bool // true once PR data has loaded
 
 	// auto-detected on boot
 	repo          string
@@ -126,8 +136,13 @@ func initialModel() model {
 
 	reflectBranch := rc.Branch
 
+	sp := spinner.New()
+	sp.Spinner = spinner.Dot
+	sp.Style = lipgloss.NewStyle().Foreground(mauve)
+
 	return model{
-		view:          viewPRPicker,
+		view:          viewSplash,
+		splashSpinner: sp,
 		repo:          repo,
 		path:          path,
 		defaultBranch: "main",
@@ -149,14 +164,19 @@ func initialModel() model {
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 func (m model) Init() tea.Cmd {
+	cmds := []tea.Cmd{
+		m.splashSpinner.Tick,
+		// Minimum splash duration so the branding is visible.
+		tea.Tick(1500*time.Millisecond, func(t time.Time) tea.Msg { return splashDoneMsg{} }),
+	}
 	if m.repo != "" {
-		return tea.Batch(
+		cmds = append(cmds,
 			fetchPRs(m.repo),
 			fetchDefaultBranch(m.repo),
 			fetchCurrentBranch(),
 		)
 	}
-	return nil
+	return tea.Batch(cmds...)
 }
 
 // ── Update ────────────────────────────────────────────────────────────────────
@@ -166,6 +186,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		return m, nil
+
+	case spinner.TickMsg:
+		if m.view == viewSplash {
+			var cmd tea.Cmd
+			m.splashSpinner, cmd = m.splashSpinner.Update(msg)
+			return m, cmd
+		}
+		return m, nil
+
+	case splashDoneMsg:
+		m.splashReady = true
+		// Data already arrived while splash was showing → transition now.
+		if !m.prLoading {
+			m.view = viewPRPicker
+		}
 		return m, nil
 
 	case prListMsg:
@@ -180,11 +216,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		// Splash timer already elapsed → transition.
+		if m.view == viewSplash && m.splashReady {
+			m.view = viewPRPicker
+		}
 		return m, nil
 
 	case prListErrMsg:
 		m.prLoading = false
 		m.prLoadErr = msg.err.Error()
+		// Transition even on error.
+		if m.view == viewSplash && m.splashReady {
+			m.view = viewPRPicker
+		}
 		return m, nil
 
 	case defaultBranchMsg:
@@ -246,6 +290,14 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch m.view {
+
+	case viewSplash:
+		if key == "q" {
+			return m, tea.Quit
+		}
+		// Any key skips the splash.
+		m.view = viewPRPicker
+		return m, nil
 
 	case viewPRPicker:
 		if m.prLoading {
@@ -554,6 +606,8 @@ func (m model) View() string {
 	}
 
 	switch m.view {
+	case viewSplash:
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, m.renderSplash())
 	case viewHelp:
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, m.renderHelp())
 	case viewSettings:
@@ -563,6 +617,31 @@ func (m model) View() string {
 	default:
 		return m.renderPRPicker(w)
 	}
+}
+
+// ── Splash screen ─────────────────────────────────────────────────────────────
+
+func (m model) renderSplash() string {
+	var b strings.Builder
+
+	// ASCII art logo
+	b.WriteString(styleSplashBox.Render(splashLogo))
+	b.WriteString("\n\n")
+
+	// Version
+	b.WriteString(styleSplashVersion.Render("          v" + version))
+	b.WriteString("\n\n")
+
+	// Loading status with spinner
+	status := m.splashSpinner.View() + " "
+	if m.repo != "" {
+		status += styleSplashStatus.Render("loading " + m.repo + "…")
+	} else {
+		status += styleSplashStatus.Render("detecting repository…")
+	}
+	b.WriteString("          " + status)
+
+	return b.String()
 }
 
 // ── PR Picker (home screen) ───────────────────────────────────────────────────

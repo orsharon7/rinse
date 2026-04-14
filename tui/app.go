@@ -102,7 +102,8 @@ var runners = []runner{
 type viewMode int
 
 const (
-	viewPRPicker viewMode = iota
+	viewSplash viewMode = iota
+	viewPRPicker
 	viewManualPR
 	viewSettings
 	viewHelp

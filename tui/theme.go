@@ -23,6 +23,17 @@ const (
 	IconSep      = "·"
 )
 
+// ── Splash logo ───────────────────────────────────────────────────────────────
+
+const splashLogo = `
+          ╭─────────────────────────────╮
+          │                             │
+          │    ◇  r i n s e             │
+          │                             │
+          │    lather · rinse · repeat  │
+          │                             │
+          ╰─────────────────────────────╯`
+
 // ── Palette (Catppuccin Macchiato) ────────────────────────────────────────────
 
 var (
@@ -49,7 +60,7 @@ var (
 // ── Wizard Styles ─────────────────────────────────────────────────────────────
 
 var (
-	// Logo & branding — ◇ pr-review
+	// Logo & branding — ◇ rinse
 	styleLogo = lipgloss.NewStyle().
 			Foreground(mauve).
 			Bold(true)
@@ -59,6 +70,21 @@ var (
 
 	styleLogoSlash = lipgloss.NewStyle().
 			Foreground(overlay)
+
+	// Splash screen styles
+	styleSplashBox = lipgloss.NewStyle().
+			Foreground(mauve).
+			Bold(true)
+
+	styleSplashTagline = lipgloss.NewStyle().
+				Foreground(subtext).
+				Italic(true)
+
+	styleSplashVersion = lipgloss.NewStyle().
+				Foreground(overlay)
+
+	styleSplashStatus = lipgloss.NewStyle().
+				Foreground(subtext)
 
 	// Reusable text presets
 	styleBanner = lipgloss.NewStyle().
