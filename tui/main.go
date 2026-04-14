@@ -32,17 +32,9 @@ var (
 	styleBanner = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(mauve).
-			Border(lipgloss.DoubleBorder()).
-			BorderForeground(mauve).
-			Padding(1, 4).
-			Align(lipgloss.Center)
+			Padding(0, 1)
 
-	styleSummaryBox = lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(surface).
-			Padding(0, 2)
-
-	styleKey   = lipgloss.NewStyle().Foreground(overlay).Width(18)
+	styleKey   = lipgloss.NewStyle().Foreground(overlay).Width(16)
 	styleVal   = lipgloss.NewStyle().Foreground(lavender).Bold(true)
 	styleMuted = lipgloss.NewStyle().Foreground(overlay)
 	styleStep  = lipgloss.NewStyle().Foreground(mauve).Bold(true)
@@ -52,45 +44,18 @@ var (
 	styleSelected   = lipgloss.NewStyle().Foreground(mauve).Bold(true)
 	styleUnselected = lipgloss.NewStyle().Foreground(subtext)
 
-	styleLaunchBox = lipgloss.NewStyle().
-			Bold(true).
-			Border(lipgloss.DoubleBorder()).
-			BorderForeground(teal).
-			Padding(1, 4).
-			Align(lipgloss.Center)
+	styleRibbon = lipgloss.NewStyle().
+			Foreground(subtext).
+			BorderStyle(lipgloss.NormalBorder()).
+			BorderTop(true).
+			BorderForeground(overlay).
+			Padding(0, 1)
 
-	styleConfirmBox = lipgloss.NewStyle().
-			Border(lipgloss.DoubleBorder()).
-			BorderForeground(mauve).
-			Padding(1, 2)
+	styleSettingsBox = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(mauve).
+				Padding(1, 3)
 )
-
-// ── Step definitions ──────────────────────────────────────────────────────────
-
-type step int
-
-const (
-	stepRepo step = iota
-	stepPR
-	stepPath
-	stepRunner
-	stepModel
-	stepReflect
-	stepAutoMerge
-	stepConfirm
-	stepDone
-)
-
-var stepLabels = map[step]string{
-	stepRepo:      "repository",
-	stepPR:        "pull request",
-	stepPath:      "local clone path",
-	stepRunner:    "runner",
-	stepModel:     "model",
-	stepReflect:   "reflection",
-	stepAutoMerge: "on-approval action",
-	stepConfirm:   "review & launch",
-}
 
 // ── PR list (fetched async) ───────────────────────────────────────────────────
 
@@ -103,13 +68,14 @@ type pr struct {
 type prListMsg []pr
 type prListErrMsg struct{ err error }
 type defaultBranchMsg string
+type currentBranchMsg string
 
 func fetchPRs(repo string) tea.Cmd {
 	return func() tea.Msg {
 		out, err := exec.Command("gh", "pr", "list",
 			"--repo", repo,
 			"--json", "number,title,headRefName",
-			"--limit", "15",
+			"--limit", "20",
 		).Output()
 		if err != nil {
 			return prListErrMsg{err}
@@ -132,6 +98,16 @@ func fetchDefaultBranch(repo string) tea.Cmd {
 			return defaultBranchMsg("main")
 		}
 		return defaultBranchMsg(strings.TrimSpace(string(out)))
+	}
+}
+
+func fetchCurrentBranch() tea.Cmd {
+	return func() tea.Msg {
+		out, err := exec.Command("git", "branch", "--show-current").Output()
+		if err != nil {
+			return currentBranchMsg("")
+		}
+		return currentBranchMsg(strings.TrimSpace(string(out)))
 	}
 }
 
@@ -160,10 +136,35 @@ type runner struct {
 }
 
 var runners = []runner{
-	{"opencode  — GitHub Copilot · no API key needed  ✦", "pr-review-opencode.sh", "github-copilot/claude-sonnet-4.6"},
-	{"claude v2 — Claude Code · requires Anthropic key", "pr-review-claude-v2.sh", "claude-sonnet-4-6"},
-	{"claude v1 — legacy runner", "pr-review-claude.sh", ""},
+	{"opencode — GitHub Copilot · no API key needed  ✦", "pr-review-opencode.sh", "github-copilot/claude-sonnet-4.6"},
+	{"claude  — Claude Code · requires Anthropic key", "pr-review-claude-v2.sh", "claude-sonnet-4-6"},
 }
+
+// ── View mode ─────────────────────────────────────────────────────────────────
+
+type viewMode int
+
+const (
+	viewPRPicker viewMode = iota
+	viewManualPR
+	viewSettings
+	viewHelp
+	viewDone
+)
+
+// ── Settings field focus ──────────────────────────────────────────────────────
+
+type settingsField int
+
+const (
+	sfRunner settingsField = iota
+	sfModel
+	sfReflect
+	sfReflectBranch
+	sfAutoMerge
+	sfSave
+	sfCancel
+)
 
 // ── Model ─────────────────────────────────────────────────────────────────────
 
@@ -171,115 +172,160 @@ type model struct {
 	width  int
 	height int
 
-	step step
+	view viewMode
 
-	// fields
+	// auto-detected on boot
 	repo          string
-	prNum         string
-	prTitle       string // title of the selected PR (empty if typed manually)
 	path          string
-	pathDefault   string // pre-loaded from config, used as path input default
+	currentBranch string
+	defaultBranch string
+
+	// settings (persisted per-repo)
 	runnerIdx     int
 	modelOverride string
 	reflect       bool
 	reflectBranch string
 	autoMerge     bool
 
-	// UI state
-	showHelp bool
-
-	// text inputs
-	input    textinput.Model
-	inputFor step // which field the input is currently editing
-
 	// PR picker
 	prs       []pr
 	prCursor  int
 	prLoading bool
 	prLoadErr string
-	prManual  bool // user chose "type manually"
 
-	// runner picker cursor
-	runnerCursor int
+	// manual PR input
+	input textinput.Model
 
-	// reflect picker cursor (0=yes 1=no)
-	reflectCursor int
+	// settings overlay state
+	settingsFocus         settingsField
+	settingsRunnerIdx     int
+	settingsModelInput    textinput.Model
+	settingsReflect       bool
+	settingsAutoMerge     bool
+	settingsBranchInput   textinput.Model
+	settingsEditingModel  bool
+	settingsEditingBranch bool
+	settingsBranchEdited  bool // true once the user has entered branch edit mode
 
-	// auto-merge picker cursor (0=yes 1=no)
-	autoMergeCursor int
+	// selected PR
+	prNum   string
+	prTitle string
 
-	// confirm picker cursor
-	confirmCursor int
-
-	// async data
-	defaultBranch string
-
-	// error message to show inline
+	// error
 	errMsg string
 
-	// final command to exec (set at stepDone)
+	// final command
 	finalCmd []string
 }
 
 func initialModel() model {
+	repo := detectRepo()
+
 	cfg := LoadConfig()
+	var rc RepoConfig
+	hasRepoConfig := false
+	if repo != "" {
+		if loaded, ok := LoadRepoConfig(repo); ok {
+			rc = loaded
+			hasRepoConfig = true
+		}
+	}
+	if !hasRepoConfig && cfg.LastRunner > 0 && cfg.LastRunner < len(runners) {
+		rc.Runner = cfg.LastRunner
+	}
+	if rc.Model == "" {
+		rc.Model = cfg.LastModel
+	}
+
+	// When repo detection succeeded, it was derived from the current checkout,
+	// so keep path aligned with the current working directory. Only fall back
+	// to a persisted path when no repo was detected from CWD.
+	path := detectCWD()
+	if repo == "" {
+		path = rc.Path
+		if path == "" {
+			path = detectCWD()
+		}
+	}
 
 	ti := textinput.New()
 	ti.Cursor.Style = lipgloss.NewStyle().Foreground(mauve)
 	ti.PromptStyle = lipgloss.NewStyle().Foreground(mauve)
 	ti.TextStyle = lipgloss.NewStyle().Foreground(text)
-	ti.Prompt = "  ❯ "
-	ti.CharLimit = 256
-	ti.Focus()
+	ti.Prompt = "  PR# ❯ "
+	ti.CharLimit = 10
+	ti.Placeholder = "e.g. 42"
 
-	// Auto-detect repo from git/gh; fall back to saved config.
-	repo := detectRepo()
-	if repo == "" {
-		repo = cfg.LastRepo
-	}
-	ti.SetValue(repo)
+	mi := textinput.New()
+	mi.Cursor.Style = lipgloss.NewStyle().Foreground(mauve)
+	mi.PromptStyle = lipgloss.NewStyle().Foreground(mauve)
+	mi.TextStyle = lipgloss.NewStyle().Foreground(text)
+	mi.Prompt = "  ❯ "
+	mi.CharLimit = 80
 
-	reflectCursor := 1 // default: "No"
-	if cfg.LastReflect {
-		reflectCursor = 0
+	bi := textinput.New()
+	bi.Cursor.Style = lipgloss.NewStyle().Foreground(mauve)
+	bi.PromptStyle = lipgloss.NewStyle().Foreground(mauve)
+	bi.TextStyle = lipgloss.NewStyle().Foreground(text)
+	bi.Prompt = "  ❯ "
+	bi.CharLimit = 80
+
+	// If a repo config exists, use its values verbatim; otherwise fall back to
+	// the global last-used values so a repo with reflect:false isn't forced on.
+	reflectDefault := rc.Reflect
+	autoMergeDefault := rc.AutoMerge
+	if !hasRepoConfig {
+		reflectDefault = cfg.LastReflect
+		autoMergeDefault = cfg.LastAutoMerge
 	}
 
-	autoMergeCursor := 1 // default: "No"
-	if cfg.LastAutoMerge {
-		autoMergeCursor = 0
+	runnerIdx := rc.Runner
+	if runnerIdx < 0 || runnerIdx >= len(runners) {
+		runnerIdx = 0
 	}
+
+	// Use per-repo branch if set; leave empty so the detected defaultBranch
+	// will be applied once defaultBranchMsg arrives — never borrow a branch
+	// from a different repo via cfg.LastBranch.
+	reflectBranch := rc.Branch
 
 	return model{
-		step:            stepRepo,
-		repo:            "",
-		path:            "",
-		pathDefault:     cfg.LastPath,
-		runnerIdx:       0,
-		runnerCursor:    cfg.LastRunner,
-		modelOverride:   cfg.LastModel,
-		reflect:         false,
-		reflectCursor:   reflectCursor,
-		reflectBranch:   cfg.LastBranch,
-		autoMerge:       false,
-		autoMergeCursor: autoMergeCursor,
-		defaultBranch:   "main",
-		input:           ti,
-		inputFor:        stepRepo,
-		prLoading:       false,
+		view:          viewPRPicker,
+		repo:          repo,
+		path:          path,
+		defaultBranch: "main",
+
+		runnerIdx:     runnerIdx,
+		modelOverride: rc.Model,
+		reflect:       reflectDefault,
+		reflectBranch: reflectBranch,
+		autoMerge:     autoMergeDefault,
+
+		prLoading: repo != "",
+
+		input:               ti,
+		settingsModelInput:  mi,
+		settingsBranchInput: bi,
 	}
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 func (m model) Init() tea.Cmd {
-	return textinput.Blink
+	if m.repo != "" {
+		return tea.Batch(
+			fetchPRs(m.repo),
+			fetchDefaultBranch(m.repo),
+			fetchCurrentBranch(),
+		)
+	}
+	return nil
 }
 
 // ── Update ────────────────────────────────────────────────────────────────────
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -289,20 +335,47 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.prs = []pr(msg)
 		m.prLoading = false
 		m.prCursor = 0
+		if m.currentBranch != "" {
+			for i, p := range m.prs {
+				if p.HeadRefName == m.currentBranch {
+					m.prCursor = i
+					break
+				}
+			}
+		}
 		return m, nil
 
 	case prListErrMsg:
 		m.prLoading = false
 		m.prLoadErr = msg.err.Error()
-		m.prManual = true
-		m.input.SetValue(m.prNum)
-		m.input.Focus()
-		return m, textinput.Blink
+		return m, nil
 
 	case defaultBranchMsg:
 		m.defaultBranch = string(msg)
 		if m.reflectBranch == "" {
 			m.reflectBranch = m.defaultBranch
+		}
+		// If the settings overlay is already open, sync the branch input so the
+		// user sees the correct default rather than the "main" placeholder that
+		// was set at init time.
+		if m.view == viewSettings {
+			m.settingsBranchInput.Placeholder = m.defaultBranch
+			// Only auto-fill when the user has not explicitly edited the branch field.
+			if !m.settingsBranchEdited && m.settingsBranchInput.Value() == "" {
+				m.settingsBranchInput.SetValue(m.defaultBranch)
+			}
+		}
+		return m, nil
+
+	case currentBranchMsg:
+		m.currentBranch = string(msg)
+		if len(m.prs) > 0 && m.currentBranch != "" {
+			for i, p := range m.prs {
+				if p.HeadRefName == m.currentBranch {
+					m.prCursor = i
+					break
+				}
+			}
 		}
 		return m, nil
 
@@ -310,364 +383,323 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 	}
 
-	// Forward to textinput when it's active.
-	if m.isInputActive() {
+	// Forward to text inputs when active
+	if m.view == viewManualPR {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		return m, cmd
 	}
+	if m.view == viewSettings {
+		if m.settingsEditingModel {
+			var cmd tea.Cmd
+			m.settingsModelInput, cmd = m.settingsModelInput.Update(msg)
+			return m, cmd
+		}
+		if m.settingsEditingBranch {
+			var cmd tea.Cmd
+			m.settingsBranchInput, cmd = m.settingsBranchInput.Update(msg)
+			return m, cmd
+		}
+	}
 
 	return m, nil
-}
-
-func (m model) isInputActive() bool {
-	switch m.step {
-	case stepRepo, stepPath, stepModel:
-		return true
-	case stepReflect:
-		// Only active when the branch text input is shown (not during the Yes/No picker).
-		return m.inputFor == stepReflect
-	case stepPR:
-		return m.prManual || len(m.prs) == 0
-	}
-	return false
 }
 
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
-	// Global: quit.
 	if key == "ctrl+c" {
 		return m, tea.Quit
 	}
 
-	// Global: toggle help overlay.
-	if key == "?" {
-		m.showHelp = !m.showHelp
-		return m, nil
-	}
+	switch m.view {
 
-	// Any key dismisses the help overlay.
-	if m.showHelp {
-		m.showHelp = false
-		return m, nil
-	}
-
-	switch m.step {
-
-	// ── Repo input ────────────────────────────────────────────────────────────
-	case stepRepo:
-		if key == "enter" {
-			val := strings.TrimSpace(m.input.Value())
-			if val == "" {
-				m.errMsg = "repository is required"
-				return m, nil
-			}
-			m.repo = val
-			m.errMsg = ""
-			m.step = stepPR
-			m.prLoading = true
-			m.prs = nil
-			m.prManual = false
-			return m, tea.Batch(fetchPRs(val), fetchDefaultBranch(val))
-		}
-		if key == "esc" {
-			return m, tea.Quit
-		}
-
-	// ── PR picker ─────────────────────────────────────────────────────────────
-	case stepPR:
+	// ── PR Picker (home) ──────────────────────────────────────────────────────
+	case viewPRPicker:
 		if m.prLoading {
-			if key == "esc" {
-				m.step = stepRepo
-				m.input.SetValue(m.repo)
-				m.input.Focus()
-				return m, textinput.Blink
+			if key == "q" {
+				return m, tea.Quit
 			}
 			return m, nil
 		}
-
-		if m.prManual || len(m.prs) == 0 {
-			// text input mode
-			if key == "enter" {
-				val := strings.TrimSpace(m.input.Value())
-				if val == "" {
-					m.errMsg = "PR number is required"
-					return m, nil
-				}
-				m.prNum = val
-				m.prTitle = "" // no title when entered manually
-				m.errMsg = ""
-				m.step = stepPath
-				pathDefault := m.pathDefault
-				if pathDefault == "" {
-					pathDefault = detectCWD()
-				}
-				m.input.SetValue(pathDefault)
-				m.input.Focus()
-				return m, textinput.Blink
+		switch key {
+		case "q":
+			return m, tea.Quit
+		case "?":
+			m.view = viewHelp
+			return m, nil
+		case "#":
+			m.view = viewManualPR
+			m.input.SetValue("")
+			m.input.Focus()
+			m.errMsg = ""
+			return m, textinput.Blink
+		case "s":
+			return m.openSettings()
+		case "r":
+			if m.repo != "" {
+				m.prLoading = true
+				m.prs = nil
+				m.prLoadErr = ""
+				return m, fetchPRs(m.repo)
 			}
-			if key == "esc" {
-				m.prManual = false
-				m.step = stepRepo
-				m.input.SetValue(m.repo)
-				m.input.Focus()
-				return m, textinput.Blink
+		case "up", "k":
+			if len(m.prs) > 0 && m.prCursor > 0 {
+				m.prCursor--
 			}
-		} else {
-			// list picker mode — rows: PRs + "type manually"
-			total := len(m.prs) + 1
-			switch key {
-			case "up", "k":
-				if m.prCursor > 0 {
-					m.prCursor--
-				}
-			case "down", "j":
-				if m.prCursor < total-1 {
-					m.prCursor++
-				}
-			case "enter":
-				if m.prCursor == len(m.prs) {
-					// "type manually"
-					m.prManual = true
-					m.input.SetValue(m.prNum)
-					m.input.Focus()
-					return m, textinput.Blink
-				}
+		case "down", "j":
+			if len(m.prs) > 0 && m.prCursor < len(m.prs)-1 {
+				m.prCursor++
+			}
+		case "enter":
+			if len(m.prs) > 0 && m.prCursor < len(m.prs) {
 				m.prNum = fmt.Sprintf("%d", m.prs[m.prCursor].Number)
 				m.prTitle = m.prs[m.prCursor].Title
-				m.step = stepPath
-				pathDefault := m.pathDefault
-				if pathDefault == "" {
-					pathDefault = detectCWD()
-				}
-				m.input.SetValue(pathDefault)
-				m.input.Focus()
-				return m, textinput.Blink
-			case "esc":
-				m.step = stepRepo
-				m.input.SetValue(m.repo)
-				m.input.Focus()
-				return m, textinput.Blink
+				return m.launch()
 			}
 		}
 
-	// ── Path input ────────────────────────────────────────────────────────────
-	case stepPath:
-		if key == "enter" {
+	// ── Manual PR ─────────────────────────────────────────────────────────────
+	case viewManualPR:
+		switch key {
+		case "esc":
+			m.view = viewPRPicker
+			m.errMsg = ""
+			return m, nil
+		case "enter":
 			val := strings.TrimSpace(m.input.Value())
 			if val == "" {
-				val = detectCWD()
+				m.errMsg = "PR number is required"
+				return m, nil
 			}
-			m.path = val
+			m.prNum = val
+			m.prTitle = ""
 			m.errMsg = ""
-			m.step = stepRunner
-			return m, nil
+			return m.launch()
 		}
-		if key == "esc" {
-			m.step = stepPR
-			m.prManual = false
-			return m, nil
-		}
-
-	// ── Runner picker ─────────────────────────────────────────────────────────
-	case stepRunner:
-		switch key {
-		case "up", "k":
-			if m.runnerCursor > 0 {
-				m.runnerCursor--
-			}
-		case "down", "j":
-			if m.runnerCursor < len(runners)-1 {
-				m.runnerCursor++
-			}
-		case "enter":
-			m.runnerIdx = m.runnerCursor
-			m.step = stepModel
-			m.input.SetValue(m.modelOverride) // pre-fill with last-used model
-			m.input.Placeholder = runners[m.runnerIdx].defaultModel
-			m.input.Focus()
-			return m, textinput.Blink
-		case "esc":
-			m.step = stepPath
-			m.input.SetValue(m.path)
-			m.input.Focus()
-			return m, textinput.Blink
-		}
-
-	// ── Model input ───────────────────────────────────────────────────────────
-	case stepModel:
-		if key == "enter" {
-			m.modelOverride = strings.TrimSpace(m.input.Value())
-			m.step = stepReflect
-			if m.reflectBranch == "" {
-				m.reflectBranch = m.defaultBranch
-			}
-			m.input.SetValue("")
-			m.input.Placeholder = m.reflectBranch
-			m.input.Focus()
-			// skip reflect for claude v1
-			if m.runnerIdx == 2 {
-				m.reflect = false
-				m.step = stepConfirm
-			}
-			return m, textinput.Blink
-		}
-		if key == "esc" {
-			m.step = stepRunner
-			return m, nil
-		}
-
-	// ── Reflect picker ────────────────────────────────────────────────────────
-	case stepReflect:
-		if m.inputFor == stepReflect {
-			// branch text input active
-			if key == "enter" {
-				val := strings.TrimSpace(m.input.Value())
-				if val == "" {
-					val = m.defaultBranch
-				}
-				m.reflectBranch = val
-				m.reflect = true
-				m.inputFor = stepRunner // reset
-				m.step = stepAutoMerge
-				return m, nil
-			}
-			if key == "esc" {
-				m.inputFor = stepRunner
-				m.step = stepReflect
-				return m, nil
-			}
-		} else {
-			switch key {
-			case "up", "k":
-				if m.reflectCursor > 0 {
-					m.reflectCursor--
-				}
-			case "down", "j":
-				if m.reflectCursor < 1 {
-					m.reflectCursor++
-				}
-			case "enter":
-				if m.reflectCursor == 0 {
-					// yes — ask for branch
-					m.inputFor = stepReflect
-					m.input.SetValue(m.reflectBranch)
-					m.input.Placeholder = m.defaultBranch
-					m.input.Focus()
-					return m, textinput.Blink
-				}
-				// no
-				m.reflect = false
-				m.step = stepAutoMerge
-				return m, nil
-			case "esc":
-				m.step = stepModel
-				m.input.SetValue(m.modelOverride)
-				m.input.Focus()
-				return m, textinput.Blink
-			}
-		}
-
-	// ── Auto-merge picker ─────────────────────────────────────────────────────
-	case stepAutoMerge:
-		switch key {
-		case "up", "k":
-			if m.autoMergeCursor > 0 {
-				m.autoMergeCursor--
-			}
-		case "down", "j":
-			if m.autoMergeCursor < 1 {
-				m.autoMergeCursor++
-			}
-		case "enter":
-			m.autoMerge = m.autoMergeCursor == 0
-			m.step = stepConfirm
-			return m, nil
-		case "esc":
-			m.step = stepReflect
-			return m, nil
-		}
-
-	// ── Confirm ───────────────────────────────────────────────────────────────
-	case stepConfirm:
-		switch key {
-		case "up", "k":
-			if m.confirmCursor > 0 {
-				m.confirmCursor--
-			}
-		case "down", "j":
-			if m.confirmCursor < 2 {
-				m.confirmCursor++
-			}
-		case "enter":
-			switch m.confirmCursor {
-			case 0: // launch
-				cmd, err := m.buildCmd()
-				if err != nil {
-					m.errMsg = err.Error()
-					return m, nil
-				}
-				m.finalCmd = cmd
-				m.step = stepDone
-				return m, tea.Quit
-			case 1: // edit (go back)
-				m.step = stepAutoMerge
-				return m, nil
-			case 2: // abort
-				return m, tea.Quit
-			}
-		case "esc":
-			m.step = stepAutoMerge
-			return m, nil
-		}
-	}
-
-	// Forward keystroke to textinput when active.
-	if m.isInputActive() {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		return m, cmd
+
+	// ── Settings ──────────────────────────────────────────────────────────────
+	case viewSettings:
+		return m.handleSettingsKey(key, msg)
+
+	// ── Help ──────────────────────────────────────────────────────────────────
+	case viewHelp:
+		m.view = viewPRPicker
+		return m, nil
 	}
 
 	return m, nil
 }
 
+// ── Settings overlay ──────────────────────────────────────────────────────────
+
+func (m model) openSettings() (model, tea.Cmd) {
+	m.view = viewSettings
+	m.settingsFocus = sfRunner
+	m.settingsRunnerIdx = m.runnerIdx
+	m.settingsReflect = m.reflect
+	m.settingsAutoMerge = m.autoMerge
+	m.settingsModelInput.SetValue(m.modelOverride)
+	m.settingsModelInput.Placeholder = runners[m.runnerIdx].defaultModel
+	branch := m.reflectBranch
+	if branch == "" {
+		branch = m.defaultBranch
+	}
+	m.settingsBranchInput.SetValue(branch)
+	m.settingsBranchInput.Placeholder = m.defaultBranch
+	m.settingsEditingModel = false
+	m.settingsEditingBranch = false
+	m.settingsBranchEdited = false
+	return m, nil
+}
+
+func (m model) handleSettingsKey(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Text field editing mode
+	if m.settingsEditingModel {
+		switch key {
+		case "enter", "esc":
+			m.settingsEditingModel = false
+			m.settingsModelInput.Blur()
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.settingsModelInput, cmd = m.settingsModelInput.Update(msg)
+		return m, cmd
+	}
+	if m.settingsEditingBranch {
+		switch key {
+		case "enter", "esc":
+			m.settingsEditingBranch = false
+			m.settingsBranchInput.Blur()
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.settingsBranchInput, cmd = m.settingsBranchInput.Update(msg)
+		return m, cmd
+	}
+
+	maxField := sfCancel
+	switch key {
+	case "esc":
+		m.view = viewPRPicker
+		return m, nil
+	case "up", "k":
+		if m.settingsFocus > 0 {
+			m.settingsFocus--
+			if m.settingsFocus == sfReflectBranch && !m.settingsReflect {
+				m.settingsFocus--
+			}
+		}
+	case "down", "j", "tab":
+		if m.settingsFocus < maxField {
+			m.settingsFocus++
+			if m.settingsFocus == sfReflectBranch && !m.settingsReflect {
+				m.settingsFocus++
+			}
+		}
+	case "left", "h":
+		if m.settingsFocus == sfRunner && m.settingsRunnerIdx > 0 {
+			m.settingsRunnerIdx--
+			m.settingsModelInput.Placeholder = runners[m.settingsRunnerIdx].defaultModel
+		}
+	case "right", "l":
+		if m.settingsFocus == sfRunner && m.settingsRunnerIdx < len(runners)-1 {
+			m.settingsRunnerIdx++
+			m.settingsModelInput.Placeholder = runners[m.settingsRunnerIdx].defaultModel
+		}
+	case " ":
+		switch m.settingsFocus {
+		case sfReflect:
+			m.settingsReflect = !m.settingsReflect
+		case sfAutoMerge:
+			m.settingsAutoMerge = !m.settingsAutoMerge
+		}
+	case "enter":
+		switch m.settingsFocus {
+		case sfRunner:
+			m.settingsRunnerIdx = (m.settingsRunnerIdx + 1) % len(runners)
+			m.settingsModelInput.Placeholder = runners[m.settingsRunnerIdx].defaultModel
+		case sfModel:
+			m.settingsEditingModel = true
+			m.settingsModelInput.Focus()
+			return m, textinput.Blink
+		case sfReflect:
+			m.settingsReflect = !m.settingsReflect
+		case sfReflectBranch:
+			m.settingsEditingBranch = true
+			m.settingsBranchEdited = true
+			m.settingsBranchInput.Focus()
+			return m, textinput.Blink
+		case sfAutoMerge:
+			m.settingsAutoMerge = !m.settingsAutoMerge
+		case sfSave:
+			m.runnerIdx = m.settingsRunnerIdx
+			m.modelOverride = strings.TrimSpace(m.settingsModelInput.Value())
+			m.reflect = m.settingsReflect
+			m.autoMerge = m.settingsAutoMerge
+			branch := strings.TrimSpace(m.settingsBranchInput.Value())
+			if branch == "" {
+				branch = m.defaultBranch
+			}
+			m.reflectBranch = branch
+			m.view = viewPRPicker
+			SaveConfig(Config{
+				LastRepo:      m.repo,
+				LastPath:      m.path,
+				LastRunner:    m.runnerIdx,
+				LastModel:     m.modelOverride,
+				LastReflect:   m.reflect,
+				LastBranch:    m.reflectBranch,
+				LastAutoMerge: m.autoMerge,
+			})
+			return m, nil
+		case sfCancel:
+			m.view = viewPRPicker
+			return m, nil
+		}
+	}
+
+	return m, nil
+}
+
+// ── Launch ────────────────────────────────────────────────────────────────────
+
+func (m model) launch() (model, tea.Cmd) {
+	cmd, err := m.buildCmd()
+	if err != nil {
+		m.errMsg = err.Error()
+		return m, nil
+	}
+	m.finalCmd = cmd
+	m.view = viewDone
+	return m, tea.Quit
+}
+
 func (m model) buildCmd() ([]string, error) {
+	if m.repo == "" {
+		return nil, fmt.Errorf("no repository detected — run from inside a git repo")
+	}
+
+	r := runners[m.runnerIdx]
+
 	scriptDir := os.Getenv("PR_REVIEW_SCRIPT_DIR")
 	if scriptDir == "" {
-		// Fall back to the directory containing the running binary.
 		exe, err := os.Executable()
 		if err != nil {
 			return nil, fmt.Errorf("could not determine script directory: %w", err)
 		}
-		scriptDir = filepath.Dir(exe)
+		binDir := filepath.Dir(exe)
+		// Scripts live in pr-review/ which is a sibling of tui/ (the binary's dir).
+		// Try: <binDir>/pr-review/, then <binDir>/../pr-review/, then <binDir> itself.
+		candidates := []string{
+			filepath.Join(binDir, "pr-review"),
+			filepath.Join(binDir, "..", "pr-review"),
+			binDir,
+		}
+		for _, c := range candidates {
+			if _, err := os.Stat(filepath.Join(c, r.script)); err == nil {
+				scriptDir = c
+				break
+			}
+		}
+		if scriptDir == "" {
+			scriptDir = binDir
+		}
 	}
-
-	r := runners[m.runnerIdx]
 	script := filepath.Join(scriptDir, r.script)
 	if _, err := os.Stat(script); err != nil {
 		return nil, fmt.Errorf("runner script not found: %s", script)
 	}
 
+	path := m.path
+	if path == "" {
+		path = detectCWD()
+	}
+
 	cmd := []string{script, m.prNum,
 		"--repo", m.repo,
-		"--cwd", m.path,
+		"--cwd", path,
 	}
 	if m.modelOverride != "" {
 		cmd = append(cmd, "--model", m.modelOverride)
 	}
 	if m.reflect {
-		cmd = append(cmd, "--reflect", "--reflect-main-branch", m.reflectBranch)
+		branch := m.reflectBranch
+		if branch == "" {
+			branch = m.defaultBranch
+		}
+		cmd = append(cmd, "--reflect", "--reflect-main-branch", branch)
 	}
 	if m.autoMerge {
 		cmd = append(cmd, "--auto-merge")
 	}
 
-	// Persist settings for next run.
 	SaveConfig(Config{
 		LastRepo:      m.repo,
-		LastPath:      m.path,
+		LastPath:      path,
 		LastRunner:    m.runnerIdx,
 		LastModel:     m.modelOverride,
 		LastReflect:   m.reflect,
@@ -685,84 +717,257 @@ func (m model) View() string {
 	if w <= 0 {
 		w = 80
 	}
-
-	// Help overlay replaces the entire view.
-	if m.showHelp {
-		h := m.height
-		if h <= 0 {
-			h = 24
-		}
-		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, m.renderHelp())
+	h := m.height
+	if h <= 0 {
+		h = 24
 	}
 
+	switch m.view {
+	case viewHelp:
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, m.renderHelp())
+	case viewSettings:
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, m.renderSettings())
+	case viewManualPR:
+		return m.renderManualPR(w, h)
+	default:
+		return m.renderPRPicker(w)
+	}
+}
+
+// ── PR Picker (home screen) ───────────────────────────────────────────────────
+
+func (m model) renderPRPicker(w int) string {
 	var b strings.Builder
 
-	// Banner
-	bannerInner := w - 4
-	if bannerInner < 30 {
-		bannerInner = 30
+	// Header
+	repoStr := m.repo
+	if repoStr == "" {
+		repoStr = "(no repo detected)"
 	}
-	banner := styleBanner.Width(bannerInner).Render(
-		"pr-review\n\n" +
-			styleMuted.Render("Copilot PR Review Automation"),
-	)
-	b.WriteString(banner + "\n\n")
-
-	// Summary of answered fields
-	b.WriteString(m.renderSummary(w) + "\n")
-
-	// Step header: progress bar + label
-	label := stepLabels[m.step]
-	if m.step == stepDone {
-		label = "launching"
+	header := styleBanner.Render("pr-review") +
+		styleMuted.Render("  ─  ") +
+		styleVal.Render(repoStr)
+	if m.currentBranch != "" {
+		header += styleMuted.Render("  on ") + styleTeal.Render(m.currentBranch)
 	}
-	total := 8
-	current := int(m.step) + 1
-	if current > total {
-		current = total
-	}
-	b.WriteString("  " + renderProgressBar(current, total, w) + "\n")
-	b.WriteString("  " + styleMuted.Render(label) + "\n\n")
+	b.WriteString("\n  " + header + "\n\n")
 
-	// Step body
-	b.WriteString(m.renderStep(w))
+	// PR list
+	if m.prLoading {
+		b.WriteString(styleMuted.Render("  Fetching open PRs…") + "\n")
+	} else if m.prLoadErr != "" {
+		b.WriteString(styleErr.Render("  ✗ "+m.prLoadErr) + "\n")
+		b.WriteString(styleMuted.Render("  Press # to enter a PR number manually") + "\n")
+	} else if len(m.prs) == 0 {
+		if m.repo == "" {
+			b.WriteString(styleMuted.Render("  No repo detected. Run from inside a git checkout.") + "\n")
+		} else {
+			b.WriteString(styleMuted.Render("  No open PRs") + "\n")
+		}
+		b.WriteString(styleMuted.Render("  Press # to enter a PR number manually") + "\n")
+	} else {
+		sep := styleMuted.Render("  " + strings.Repeat("─", clamp(w-4, 0, 120)))
+		b.WriteString(sep + "\n")
+
+		for i, p := range m.prs {
+			branchW := 26
+			titleW := w - branchW - 16
+			if titleW < 20 {
+				titleW = 20
+			}
+
+			num := fmt.Sprintf("#%-4d", p.Number)
+			branch := truncate(p.HeadRefName, branchW)
+			title := truncate(p.Title, titleW)
+
+			isCurrent := p.HeadRefName == m.currentBranch
+
+			if i == m.prCursor {
+				sNum := styleSelected.Render(fmt.Sprintf("%-6s", num))
+				sBranch := styleSelected.Render(fmt.Sprintf("%-*s", branchW, branch))
+				if isCurrent {
+					sBranch = styleTeal.Bold(true).Render(fmt.Sprintf("%-*s", branchW, branch))
+				}
+				sTitle := lipgloss.NewStyle().Foreground(text).Render(title)
+				marker := ""
+				if isCurrent {
+					marker = styleTeal.Render(" ←")
+				}
+				b.WriteString(styleSelected.Render("  ❯ ") + sNum + "  " + sBranch + "  " + sTitle + marker)
+			} else {
+				uNum := styleUnselected.Render(fmt.Sprintf("%-6s", num))
+				uBranch := styleUnselected.Render(fmt.Sprintf("%-*s", branchW, branch))
+				if isCurrent {
+					uBranch = styleTeal.Render(fmt.Sprintf("%-*s", branchW, branch))
+				}
+				uTitle := styleMuted.Render(title)
+				marker := ""
+				if isCurrent {
+					marker = styleTeal.Render(" ←")
+				}
+				b.WriteString("    " + uNum + "  " + uBranch + "  " + uTitle + marker)
+			}
+			b.WriteString("\n")
+		}
+		b.WriteString(sep + "\n")
+	}
 
 	// Error
 	if m.errMsg != "" {
-		b.WriteString("\n" + styleErr.Render("  ✗ "+m.errMsg))
+		b.WriteString("\n" + styleErr.Render("  ✗ "+m.errMsg) + "\n")
 	}
 
-	// Help hint at the bottom
-	b.WriteString("\n" + styleMuted.Render("  ? for keyboard shortcuts"))
+	// Settings ribbon
+	b.WriteString(m.renderRibbon(w))
+
+	// Key hints
+	b.WriteString("\n" + styleMuted.Render("  enter=launch  s=settings  #=type PR  r=refresh  ?=help  q=quit"))
 
 	return b.String()
 }
 
-// renderProgressBar renders a filled/empty block progress bar.
-func renderProgressBar(current, total, w int) string {
-	barW := w - 12
-	if barW > 40 {
-		barW = 40
+func (m model) renderRibbon(w int) string {
+	r := runners[m.runnerIdx]
+	rName, _, found := strings.Cut(r.label, " —")
+	if !found {
+		rName = r.label
 	}
-	if barW < 8 {
-		barW = 8
+	rName = strings.TrimSpace(rName)
+
+	modelStr := m.modelOverride
+	if modelStr == "" {
+		modelStr = r.defaultModel
 	}
 
-	filled := 0
-	if total > 0 {
-		filled = barW * current / total
+	parts := []string{
+		styleMuted.Render("runner ") + styleVal.Render(rName),
+		styleMuted.Render("model ") + styleVal.Render(truncate(modelStr, 30)),
 	}
-	if filled > barW {
-		filled = barW
+	if m.reflect {
+		branch := m.reflectBranch
+		if branch == "" {
+			branch = m.defaultBranch
+		}
+		parts = append(parts, styleMuted.Render("reflect ")+styleTeal.Render("on → "+branch))
+	} else {
+		parts = append(parts, styleMuted.Render("reflect ")+styleMuted.Render("off"))
+	}
+	if m.autoMerge {
+		parts = append(parts, styleMuted.Render("auto-merge ")+styleTeal.Render("on"))
+	} else {
+		parts = append(parts, styleMuted.Render("auto-merge ")+styleMuted.Render("off"))
 	}
 
-	bar := styleStep.Render(strings.Repeat("█", filled)) +
-		styleMuted.Render(strings.Repeat("░", barW-filled))
-	fraction := styleMuted.Render(fmt.Sprintf("  %d/%d", current, total))
-	return bar + fraction
+	ribbonW := clamp(w-2, 0, 200)
+	return "\n" + styleRibbon.Width(ribbonW).Render(strings.Join(parts, "  ·  "))
 }
 
-// renderHelp renders the keyboard shortcut overlay for the wizard.
+// ── Manual PR ─────────────────────────────────────────────────────────────────
+
+func (m model) renderManualPR(w, h int) string {
+	content := "\n" + styleStep.Render("  Enter PR number") + "\n\n" +
+		m.input.View() + "\n"
+	if m.errMsg != "" {
+		content += "\n" + styleErr.Render("  ✗ "+m.errMsg)
+	}
+	content += "\n\n" + styleMuted.Render("  enter=launch  esc=back")
+	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, content)
+}
+
+// ── Settings overlay ──────────────────────────────────────────────────────────
+
+func (m model) renderSettings() string {
+	title := styleStep.Render("⚙  settings")
+
+	// Runner
+	rName, _, found := strings.Cut(runners[m.settingsRunnerIdx].label, " —")
+	if !found {
+		rName = runners[m.settingsRunnerIdx].label
+	}
+	runnerVal := "◂ " + strings.TrimSpace(rName) + " ▸"
+
+	// Model
+	var modelVal string
+	if m.settingsEditingModel {
+		modelVal = m.settingsModelInput.View()
+	} else {
+		v := m.settingsModelInput.Value()
+		if v == "" {
+			modelVal = styleMuted.Render(runners[m.settingsRunnerIdx].defaultModel + " (default)")
+		} else {
+			modelVal = styleVal.Render(v)
+		}
+	}
+
+	// Reflect toggle
+	reflectVal := styleMuted.Render("○ off")
+	if m.settingsReflect {
+		reflectVal = styleTeal.Render("● on")
+	}
+
+	// Branch
+	var branchVal string
+	if m.settingsEditingBranch {
+		branchVal = m.settingsBranchInput.View()
+	} else {
+		v := m.settingsBranchInput.Value()
+		if v == "" {
+			v = m.defaultBranch
+		}
+		branchVal = styleVal.Render(v)
+	}
+
+	// Auto-merge toggle
+	amVal := styleMuted.Render("○ off")
+	if m.settingsAutoMerge {
+		amVal = styleTeal.Render("● on")
+	}
+
+	type srow struct {
+		label string
+		value string
+		field settingsField
+	}
+
+	rows := []srow{
+		{"runner", runnerVal, sfRunner},
+		{"model", modelVal, sfModel},
+		{"reflection", reflectVal, sfReflect},
+	}
+	if m.settingsReflect {
+		rows = append(rows, srow{"  branch", branchVal, sfReflectBranch})
+	}
+	rows = append(rows, srow{"auto-merge", amVal, sfAutoMerge})
+
+	var lines []string
+	for _, r := range rows {
+		cursor := "  "
+		if r.field == m.settingsFocus {
+			cursor = styleSelected.Render("❯ ")
+		}
+		lines = append(lines, cursor+styleKey.Render(r.label)+"  "+r.value)
+	}
+
+	lines = append(lines, "")
+
+	saveCursor := "  "
+	if m.settingsFocus == sfSave {
+		saveCursor = styleSelected.Render("❯ ")
+	}
+	cancelCursor := "  "
+	if m.settingsFocus == sfCancel {
+		cancelCursor = styleSelected.Render("❯ ")
+	}
+	lines = append(lines, saveCursor+styleTeal.Render("✓ Save"))
+	lines = append(lines, cancelCursor+styleMuted.Render("✗ Cancel"))
+
+	hint := "\n" + styleMuted.Render("↑↓=move  ←→=cycle runner  space=toggle  enter=edit  esc=cancel")
+
+	return styleSettingsBox.Render(title + "\n\n" + strings.Join(lines, "\n") + hint)
+}
+
+// ── Help overlay ──────────────────────────────────────────────────────────────
+
 func (m model) renderHelp() string {
 	helpStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -773,12 +978,13 @@ func (m model) renderHelp() string {
 
 	type krow struct{ key, desc string }
 	rows := []krow{
-		{"enter", "confirm / select"},
-		{"esc", "go back"},
-		{"↑ / k", "navigate up"},
-		{"↓ / j", "navigate down"},
-		{"?", "toggle this help"},
-		{"^C", "quit"},
+		{"enter", "launch PR review cycle"},
+		{"↑↓ / jk", "navigate PR list"},
+		{"s", "open settings"},
+		{"#", "type PR number manually"},
+		{"r", "refresh PR list"},
+		{"?", "this help (any key to close)"},
+		{"q / ^C", "quit"},
 	}
 
 	var lines []string
@@ -790,220 +996,7 @@ func (m model) renderHelp() string {
 	return helpStyle.Render(title + "\n\n" + strings.Join(lines, "\n"))
 }
 
-func (m model) renderSummary(w int) string {
-	type row struct{ k, v string }
-	var rows []row
-
-	if m.repo != "" {
-		rows = append(rows, row{"repository", m.repo})
-	}
-	if m.prNum != "" {
-		val := "#" + m.prNum
-		if m.prTitle != "" {
-			val += "  " + truncate(m.prTitle, 48)
-		}
-		rows = append(rows, row{"PR", val})
-	}
-	if m.path != "" {
-		rows = append(rows, row{"path", m.path})
-	}
-	if m.step > stepRunner {
-		label := runners[m.runnerIdx].label
-		runnerName := label
-		if sep := strings.Index(label, " —"); sep >= 0 {
-			runnerName = label[:sep]
-		}
-		rows = append(rows, row{"runner", runnerName})
-	}
-	if m.step > stepModel && m.modelOverride != "" {
-		rows = append(rows, row{"model", m.modelOverride})
-	}
-	if m.step >= stepConfirm {
-		ref := "off"
-		if m.reflect {
-			ref = "on → " + m.reflectBranch
-		}
-		rows = append(rows, row{"reflection", ref})
-		am := "off"
-		if m.autoMerge {
-			am = "on"
-		}
-		rows = append(rows, row{"auto-merge", am})
-	}
-
-	if len(rows) == 0 {
-		return ""
-	}
-
-	var lines []string
-	for _, r := range rows {
-		lines = append(lines, styleKey.Render(r.k)+"  "+styleVal.Render(r.v))
-	}
-	summaryWidth := w - 4
-	if summaryWidth < 0 {
-		summaryWidth = 0
-	}
-	return styleSummaryBox.Width(summaryWidth).Render(strings.Join(lines, "\n")) + "\n"
-}
-
-func (m model) renderStep(w int) string {
-	var b strings.Builder
-
-	switch m.step {
-
-	case stepRepo:
-		b.WriteString(styleMuted.Render("  GitHub repo in owner/repo format") + "\n\n")
-		b.WriteString(m.input.View())
-
-	case stepPR:
-		if m.prLoading {
-			b.WriteString(styleMuted.Render("  Fetching open PRs for " + m.repo + "…"))
-			return b.String()
-		}
-		if m.prManual || len(m.prs) == 0 {
-			if len(m.prs) == 0 && !m.prManual {
-				b.WriteString(styleMuted.Render("  No open PRs found — enter number manually") + "\n\n")
-			} else {
-				b.WriteString(styleMuted.Render("  Enter PR number") + "\n\n")
-			}
-			b.WriteString(m.input.View())
-		} else {
-			b.WriteString(styleMuted.Render("  ↑/↓ or j/k to navigate · enter to select · esc to go back") + "\n\n")
-			for i, p := range m.prs {
-				label := fmt.Sprintf("#%-4d  %-28s  %s",
-					p.Number,
-					truncate(p.HeadRefName, 28),
-					truncate(p.Title, 48),
-				)
-				if i == m.prCursor {
-					b.WriteString(styleSelected.Render("  ❯ " + label))
-				} else {
-					b.WriteString(styleUnselected.Render("    " + label))
-				}
-				b.WriteString("\n")
-			}
-			manualLabel := "  ✏  type a number manually"
-			if m.prCursor == len(m.prs) {
-				b.WriteString(styleSelected.Render("  ❯" + manualLabel[2:]))
-			} else {
-				b.WriteString(styleUnselected.Render(manualLabel))
-			}
-		}
-
-	case stepPath:
-		b.WriteString(styleMuted.Render("  Absolute path to your local checkout of "+m.repo) + "\n\n")
-		b.WriteString(m.input.View())
-
-	case stepRunner:
-		b.WriteString(styleMuted.Render("  ↑/↓ to navigate · enter to select · esc to go back") + "\n\n")
-		for i, r := range runners {
-			if i == m.runnerCursor {
-				b.WriteString(styleSelected.Render("  ❯ " + r.label))
-			} else {
-				b.WriteString(styleUnselected.Render("    " + r.label))
-			}
-			b.WriteString("\n")
-		}
-
-	case stepModel:
-		def := runners[m.runnerIdx].defaultModel
-		b.WriteString(styleMuted.Render("  Leave blank for default: ") + styleVal.Render(def) + "\n\n")
-		b.WriteString(m.input.View())
-
-	case stepReflect:
-		if m.inputFor == stepReflect {
-			b.WriteString(styleMuted.Render("  Branch to push rules to:") + "\n\n")
-			b.WriteString(m.input.View())
-		} else {
-			b.WriteString(styleMuted.Render(
-				"  Extract coding rules from Copilot comments → push to "+m.defaultBranch,
-			) + "\n\n")
-			opts := []string{"  Yes, enable reflection", "  No, skip"}
-			for i, opt := range opts {
-				if i == m.reflectCursor {
-					b.WriteString(styleSelected.Render("  ❯" + opt[2:]))
-				} else {
-					b.WriteString(styleUnselected.Render(opt))
-				}
-				b.WriteString("\n")
-			}
-		}
-
-	case stepAutoMerge:
-		b.WriteString(styleMuted.Render(
-			"  Automatically merge + delete branches when the review is clean",
-		) + "\n\n")
-		opts := []string{"  Yes, auto-merge on approval", "  No, show menu to decide"}
-		for i, opt := range opts {
-			if i == m.autoMergeCursor {
-				b.WriteString(styleSelected.Render("  ❯" + opt[2:]))
-			} else {
-				b.WriteString(styleUnselected.Render(opt))
-			}
-			b.WriteString("\n")
-		}
-
-	case stepConfirm:
-		type row struct{ k, v string }
-		def := runners[m.runnerIdx].defaultModel
-		modelStr := m.modelOverride
-		if modelStr == "" {
-			modelStr = def + " (default)"
-		}
-		refStr := "off"
-		if m.reflect {
-			refStr = "on → " + m.reflectBranch
-		}
-		amStr := "off"
-		if m.autoMerge {
-			amStr = "on"
-		}
-		prStr := "#" + m.prNum
-		if m.prTitle != "" {
-			prStr += "  " + truncate(m.prTitle, 40)
-		}
-		rows := []row{
-			{"PR", prStr},
-			{"repository", m.repo},
-			{"path", m.path},
-			{"runner", func() string {
-				label := runners[m.runnerIdx].label
-				if sep := strings.Index(label, " —"); sep >= 0 {
-					return label[:sep]
-				}
-				return label
-			}()},
-			{"model", modelStr},
-			{"reflection", refStr},
-			{"auto-merge", amStr},
-		}
-		var lines []string
-		for _, r := range rows {
-			lines = append(lines, styleKey.Render(r.k)+"  "+styleVal.Render(r.v))
-		}
-		boxWidth := w - 4
-		if boxWidth < 0 {
-			boxWidth = 0
-		}
-		box := styleConfirmBox.Width(boxWidth).Render(
-			styleTeal.Render("settings") + "\n\n" +
-				strings.Join(lines, "\n"),
-		)
-		b.WriteString(box + "\n\n")
-
-		opts := []string{"🚀  Launch", "✏   Edit  (go back)", "✗   Abort"}
-		for i, opt := range opts {
-			if i == m.confirmCursor {
-				b.WriteString(styleSelected.Render("  ❯ " + opt))
-			} else {
-				b.WriteString(styleUnselected.Render("    " + opt))
-			}
-			b.WriteString("\n")
-		}
-	}
-
-	return b.String()
-}
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 func truncate(s string, n int) string {
 	runes := []rune(s)
@@ -1017,6 +1010,16 @@ func truncate(s string, n int) string {
 		return "…"
 	}
 	return string(runes[:n-1]) + "…"
+}
+
+func clamp(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -1036,24 +1039,19 @@ func main() {
 	}
 
 	fm := final.(model)
-	if fm.step != stepDone || len(fm.finalCmd) == 0 {
-		// user aborted
+	if fm.view != viewDone || len(fm.finalCmd) == 0 {
 		os.Exit(0)
 	}
 
-	// Hand off to the cycle monitor TUI
 	r := runners[fm.runnerIdx]
 	rName, _, found := strings.Cut(r.label, " —")
 	if !found {
 		rName = r.label
 	}
 
-	// Always run the runner in non-interactive mode so it does not attempt to
-	// show a bash menu after the cycle ends. The TUI itself presents the
-	// post-cycle Bubble Tea menu instead.
 	runnerCmd := append(fm.finalCmd, "--no-interactive")
 
-	if err := RunMonitor(fm.prNum, fm.repo, rName, fm.modelOverride, fm.prTitle, fm.path, fm.autoMerge, runnerCmd); err != nil {
+	if err := RunMonitor(fm.prNum, fm.repo, strings.TrimSpace(rName), fm.modelOverride, fm.prTitle, fm.path, fm.autoMerge, runnerCmd); err != nil {
 		fmt.Fprintln(os.Stderr, "monitor error:", err)
 		os.Exit(1)
 	}

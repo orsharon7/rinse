@@ -17,6 +17,14 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// ── Additional palette ────────────────────────────────────────────────────────
+
+var (
+	green = lipgloss.Color("#A6DA95")
+	peach = lipgloss.Color("#F5A97F")
+	sky   = lipgloss.Color("#91D7E3")
+)
+
 // ── Monitor styles ────────────────────────────────────────────────────────────
 
 var (
@@ -43,16 +51,28 @@ var (
 	stylePhaseWaiting = lipgloss.NewStyle().Foreground(yellow).Bold(true)
 	stylePhaseFixing  = lipgloss.NewStyle().Foreground(mauve).Bold(true)
 	stylePhaseReflect = lipgloss.NewStyle().Foreground(teal).Bold(true)
-	stylePhaseDone    = lipgloss.NewStyle().Foreground(teal).Bold(true)
+	stylePhaseDone    = lipgloss.NewStyle().Foreground(green).Bold(true)
 	stylePhaseErr     = lipgloss.NewStyle().Foreground(red).Bold(true)
 
-	// Log line colours.
-	styleLogInfo  = lipgloss.NewStyle().Foreground(text)
-	styleLogDebug = lipgloss.NewStyle().Foreground(subtext)
-	styleLogWarn  = lipgloss.NewStyle().Foreground(yellow)
-	styleLogErr   = lipgloss.NewStyle().Foreground(red).Bold(true)
-	styleLogIter  = lipgloss.NewStyle().Foreground(mauve).Bold(true)
-	styleLogAgent = lipgloss.NewStyle().Foreground(text)
+	// Log line colours — semantic categories.
+	styleLogInfo    = lipgloss.NewStyle().Foreground(text)
+	styleLogDebug   = lipgloss.NewStyle().Foreground(subtext)
+	styleLogWarn    = lipgloss.NewStyle().Foreground(yellow)
+	styleLogErr     = lipgloss.NewStyle().Foreground(red).Bold(true)
+	styleLogIter    = lipgloss.NewStyle().Foreground(mauve).Bold(true)
+	styleLogAgent   = lipgloss.NewStyle().Foreground(text)
+	styleLogSuccess = lipgloss.NewStyle().Foreground(green).Bold(true)
+	styleLogGit     = lipgloss.NewStyle().Foreground(peach)
+	styleLogAPI     = lipgloss.NewStyle().Foreground(sky)
+
+	// Stat badge styles.
+	styleBadge = lipgloss.NewStyle().
+			Foreground(crust).
+			Padding(0, 1)
+	styleBadgeIter    = styleBadge.Background(mauve)
+	styleBadgeComment = styleBadge.Background(yellow)
+	styleBadgeRules   = styleBadge.Background(teal)
+	styleBadgeTime    = styleBadge.Background(lavender)
 
 	// Reflect panel styles.
 	styleReflectPanel = lipgloss.NewStyle().
@@ -63,10 +83,31 @@ var (
 	styleReflectTitle = lipgloss.NewStyle().Foreground(teal).Bold(true)
 	styleReflectLine  = lipgloss.NewStyle().Foreground(subtext)
 	styleReflectNew   = lipgloss.NewStyle().Foreground(text)
+	styleReflectOK    = lipgloss.NewStyle().Foreground(green)
+	styleReflectFail  = lipgloss.NewStyle().Foreground(red)
+
+	// Iteration timeline styles.
+	styleTimelineDot     = lipgloss.NewStyle().Foreground(mauve)
+	styleTimelineDone    = lipgloss.NewStyle().Foreground(green)
+	styleTimelineErr     = lipgloss.NewStyle().Foreground(red)
+	styleTimelineCurrent = lipgloss.NewStyle().Foreground(yellow).Bold(true)
+
+	// Toast notification style.
+	styleToast = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(green).
+			Padding(0, 2).
+			Foreground(text).
+			Bold(true)
 )
 
 // ansiRe strips ANSI escape sequences for pattern matching only.
 var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[mK]`)
+
+// commentCountRe matches "N comment(s)" to extract the comment count.
+// Anchoring to the number immediately before "comment(s)" avoids mistaking
+// timestamp digits (e.g. "15:04:05") for the count.
+var commentCountRe = regexp.MustCompile(`(\d+)\s+comment\(s\)`)
 
 func stripANSI(s string) string { return ansiRe.ReplaceAllString(s, "") }
 
@@ -125,9 +166,28 @@ type logLineMsg string
 type runnerDoneMsg struct{ exitCode int }
 type tickMsg time.Time
 type clearStatusMsg struct{}
+type clearToastMsg struct{}
 type actionDoneMsg struct {
 	output string
 	err    error
+}
+
+// ── Iteration history ─────────────────────────────────────────────────────────
+
+type iterResult int
+
+const (
+	iterRunning  iterResult = iota
+	iterFixed               // comments fixed, pushed
+	iterClean               // clean review (0 comments)
+	iterApproved            // Copilot approved
+	iterError               // error during this iteration
+)
+
+type iterEntry struct {
+	num      int
+	result   iterResult
+	comments int // number of comments in this iteration
 }
 
 // ── Post-cycle menu ───────────────────────────────────────────────────────────
@@ -169,6 +229,20 @@ type monitorModel struct {
 	lines        []string         // all main log lines
 	reflectLines []string         // lines tagged [reflect]
 	renderedLog  *strings.Builder // cached rendered content of lines (appended incrementally, O(1) amortized)
+
+	// stats tracking
+	totalComments   int         // total comments seen across all iterations
+	rulesExtracted  int         // rules pushed by reflect agent
+	iterHistory     []iterEntry // result of each completed iteration
+	currentComments int         // comments in current iteration
+
+	// wait progress (Copilot reviewing)
+	waitElapsed int    // seconds elapsed in current wait
+	waitMax     int    // max wait seconds (e.g. 300)
+	waitLabel   string // e.g. "Copilot reviewing"
+
+	// toast notification
+	toastMsg string
 
 	// post-cycle menu
 	readyToMerge       bool // runner signalled "ready to merge"
@@ -287,10 +361,9 @@ func (m monitorModel) showReflectPanel() bool {
 }
 
 // logHeight returns viewport height.
-// Reserved rows: header(1) + header border(1) + breadcrumb(1) + statusbar border(1) + statusbar(1) = 5.
-// The breadcrumb is an intentional separate line rendered between header and log body in View().
+// Reserved rows: header(2) + header border(1) + breadcrumb(1) + statusbar border(1) + statusbar(1) = 6.
 func (m monitorModel) logHeight() int {
-	h := m.height - 5
+	h := m.height - 6
 	if h < 4 {
 		h = 4
 	}
@@ -380,6 +453,7 @@ func (m monitorModel) renderHelp() string {
 		{"↓ / j", "scroll down"},
 		{"g", "jump to top"},
 		{"G", "jump to bottom"},
+		{"S", "save full session log to file"},
 		{"s", "save reflect log to file"},
 		{"?", "toggle this help"},
 		{"q / ^C", "quit"},
@@ -449,11 +523,43 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if err := os.WriteFile(fname, []byte(content), 0o644); err != nil {
 						m.statusMsg = "✗ save failed"
 					} else {
-						m.statusMsg = "✓ saved → " + fname
+						m.statusMsg = "✓ reflect log → " + fname
 					}
 					cmds = append(cmds, tea.Tick(2*time.Second,
 						func(t time.Time) tea.Msg { return clearStatusMsg{} }))
+				} else {
+					m.statusMsg = "no reflect lines to save"
+					cmds = append(cmds, tea.Tick(2*time.Second,
+						func(t time.Time) tea.Msg { return clearStatusMsg{} }))
 				}
+			case "S":
+				ts := time.Now().Format("20060102-150405")
+				// Save the rendered main log so the file matches what was shown
+				// in the viewport, including lines appended outside m.lines.
+				mainFname := fmt.Sprintf("pr-review-log-%s.txt", ts)
+				mainContent := m.renderedLog.String()
+				if mainContent != "" && !strings.HasSuffix(mainContent, "\n") {
+					mainContent += "\n"
+				}
+				var savedParts []string
+				if err := os.WriteFile(mainFname, []byte(mainContent), 0o644); err != nil {
+					m.statusMsg = "✗ save failed"
+				} else {
+					savedParts = append(savedParts, mainFname)
+				}
+				// Save reflect log if present
+				if len(m.reflectLines) > 0 {
+					refFname := fmt.Sprintf("pr-review-reflect-%s.txt", ts)
+					refContent := strings.Join(m.reflectLines, "\n") + "\n"
+					if err := os.WriteFile(refFname, []byte(refContent), 0o644); err == nil {
+						savedParts = append(savedParts, refFname)
+					}
+				}
+				if len(savedParts) > 0 {
+					m.statusMsg = "✓ saved → " + strings.Join(savedParts, ", ")
+				}
+				cmds = append(cmds, tea.Tick(3*time.Second,
+					func(t time.Time) tea.Msg { return clearStatusMsg{} }))
 			default:
 				var vpcmd tea.Cmd
 				m.viewport, vpcmd = m.viewport.Update(msg)
@@ -477,12 +583,117 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Detect "ready to merge" signals from the runner.
 		if isReadyToMerge(plain) {
 			m.readyToMerge = true
+			m.toastMsg = "✅  PR ready to merge!"
+			cmds = append(cmds, tea.Tick(4*time.Second,
+				func(t time.Time) tea.Msg { return clearToastMsg{} }))
+		}
+
+		// Track comment counts from log lines.
+		if strings.Contains(plain, "comment(s) in review") {
+			// Parse "N comment(s)" by scanning the substring after "💬" so that
+			// timestamps like "[2006-01-02 15:04:05]" earlier in the line cannot
+			// be mistaken for the count.
+			var n int
+			if sub := plain; true {
+				if idx := strings.Index(sub, "💬"); idx >= 0 {
+					sub = sub[idx:]
+				}
+				if m := commentCountRe.FindStringSubmatch(sub); len(m) == 2 {
+					fmt.Sscanf(m[1], "%d", &n)
+				}
+			}
+			if n > 0 {
+				m.currentComments = n
+				m.totalComments += n
+			}
+		}
+
+		// Track rule extraction from reflect agent.
+		if strings.Contains(plain, "rule(s) pushed") {
+			var n int
+			for _, word := range strings.Fields(plain) {
+				cleaned := strings.TrimPrefix(word, "+")
+				if _, err := fmt.Sscanf(cleaned, "%d", &n); err == nil && n > 0 {
+					break
+				}
+			}
+			if n > 0 {
+				m.rulesExtracted += n
+				m.toastMsg = fmt.Sprintf("◎  +%d rule(s) extracted", n)
+				cmds = append(cmds, tea.Tick(3*time.Second,
+					func(t time.Time) tea.Msg { return clearToastMsg{} }))
+			}
+		}
+
+		// Track iteration results for the timeline.
+		if strings.Contains(plain, "complete") && strings.Contains(plain, "Iteration") {
+			iterNum := m.iter
+			fields := strings.Fields(plain)
+			for i, word := range fields {
+				if word == "Iteration" && i+1 < len(fields) {
+					var parsedIter int
+					if _, err := fmt.Sscanf(fields[i+1], "%d", &parsedIter); err == nil && parsedIter > 0 {
+						iterNum = parsedIter
+						m.iter = parsedIter
+					}
+					break
+				}
+			}
+			entry := iterEntry{num: iterNum, result: iterFixed, comments: m.currentComments}
+			m.iterHistory = append(m.iterHistory, entry)
+			m.currentComments = 0
+		}
+		if strings.Contains(plain, "APPROVED") {
+			if len(m.iterHistory) == 0 || m.iterHistory[len(m.iterHistory)-1].result != iterApproved {
+				entry := iterEntry{num: m.iter, result: iterApproved}
+				m.iterHistory = append(m.iterHistory, entry)
+			}
+			m.toastMsg = "🎉  Copilot APPROVED!"
+			cmds = append(cmds, tea.Tick(5*time.Second,
+				func(t time.Time) tea.Msg { return clearToastMsg{} }))
+		}
+		if strings.Contains(plain, "Clean review") {
+			if len(m.iterHistory) == 0 || m.iterHistory[len(m.iterHistory)-1].result != iterClean {
+				entry := iterEntry{num: m.iter, result: iterClean}
+				m.iterHistory = append(m.iterHistory, entry)
+			}
+		}
+
+		// Suppress noisy poll-tick lines ("⏳ Copilot reviewing... (Xs / Ys)") from
+		// the log viewport. Instead, parse the progress and render it as an
+		// animated progress bar in the status bar.
+		if isWaitTickLine(plain) {
+			var e, mx int
+			if _, err := fmt.Sscanf(extractWaitProgress(plain), "%ds / %ds", &e, &mx); err == nil {
+				m.waitElapsed = e
+				m.waitMax = mx
+			}
+			// Extract the label (e.g. "Copilot reviewing" / "Copilot reviewing (retry)")
+			if idx := strings.Index(plain, "⏳"); idx >= 0 {
+				after := strings.TrimSpace(plain[idx+len("⏳"):])
+				if dotIdx := strings.Index(after, "..."); dotIdx > 0 {
+					m.waitLabel = after[:dotIdx]
+				}
+			}
+			// Don't append to log — it's shown in the status bar.
+			// Still update phase.
+			m.phase = inferPhase(plain, m.phase)
+			// Skip the rest of the logLineMsg handler for this line.
+			break
+		}
+
+		// Clear wait progress only when the phase transitions away from waiting.
+		nextPhase := inferPhase(plain, m.phase)
+		if m.waitMax > 0 && nextPhase != phaseWaiting {
+			m.waitElapsed = 0
+			m.waitMax = 0
+			m.waitLabel = ""
 		}
 
 		// Route [reflect]-tagged lines to the side panel when it is visible.
 		// When the panel is hidden (narrow terminal or before first WindowSizeMsg),
 		// also send them to the main log so they remain visible.
-		if strings.Contains(plain, "[reflect]") || strings.Contains(plain, "◎ reflect") {
+		if isReflectLine(plain) {
 			entry := extractReflectEntry(plain)
 			m.reflectLines = append(m.reflectLines, entry)
 			if !m.showReflectPanel() {
@@ -496,7 +707,7 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.renderedLog.WriteString(colorLine(raw) + "\n")
 		}
 
-		m.phase = inferPhase(plain, m.phase)
+		m.phase = nextPhase
 
 		// Detect iteration number from separator lines.
 		if strings.Contains(plain, "Iteration") {
@@ -549,6 +760,9 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case clearStatusMsg:
 		m.statusMsg = ""
+
+	case clearToastMsg:
+		m.toastMsg = ""
 	}
 
 	return m, tea.Batch(cmds...)
@@ -642,6 +856,66 @@ func runShell(name string, args ...string) (string, error) {
 	return string(out), err
 }
 
+// isReflectLine returns true when the log line is from the reflection agent,
+// regardless of which icon variant (◎ success, ✗ error, ○ skip) was used.
+func isReflectLine(plain string) bool {
+	return strings.Contains(plain, "[reflect]") ||
+		strings.Contains(plain, "◎ reflect") ||
+		strings.Contains(plain, "✗ reflect") ||
+		strings.Contains(plain, "○ reflect")
+}
+
+// isWaitTickLine returns true for the repeating "⏳ Copilot reviewing... (Xs / Ys)" poll lines.
+func isWaitTickLine(plain string) bool {
+	return strings.Contains(plain, "⏳") &&
+		strings.Contains(plain, "reviewing") &&
+		strings.Contains(plain, "s /")
+}
+
+// extractWaitProgress returns the "(Xs / Ys)" portion from a wait tick line.
+func extractWaitProgress(plain string) string {
+	if idx := strings.LastIndex(plain, "("); idx >= 0 {
+		if end := strings.Index(plain[idx:], ")"); end >= 0 {
+			return plain[idx+1 : idx+end]
+		}
+	}
+	return ""
+}
+
+// renderWaitProgress renders a compact animated progress bar for the status bar.
+// Format: ⏳ Copilot reviewing  ████████░░░░░░░░░░  45s / 300s (15%)
+func (m monitorModel) renderWaitProgress() string {
+	label := m.waitLabel
+	if label == "" {
+		label = "Copilot reviewing"
+	}
+	elapsed := m.waitElapsed
+	max := m.waitMax
+	if max < 1 {
+		max = 1
+	}
+
+	// Bar dimensions
+	barW := 20
+	filled := elapsed * barW / max
+	if filled > barW {
+		filled = barW
+	}
+	empty := barW - filled
+	if empty < 0 {
+		empty = 0
+	}
+	pct := elapsed * 100 / max
+
+	bar := stylePhaseWaiting.Render(strings.Repeat("█", filled)) +
+		styleMuted.Render(strings.Repeat("░", empty))
+
+	return m.spinner.View() + " " +
+		stylePhaseWaiting.Render(label) + "  " +
+		bar + "  " +
+		styleMuted.Render(fmt.Sprintf("%ds / %ds (%d%%)", elapsed, max, pct))
+}
+
 // inferPhase maps plain-text log line content to a phase.
 func inferPhase(plain string, current phase) phase {
 	switch {
@@ -654,7 +928,7 @@ func inferPhase(plain string, current phase) phase {
 	case strings.Contains(plain, "❌") || strings.Contains(plain, "Timed out"):
 		return phaseError
 
-	case strings.Contains(plain, "[reflect]") || strings.Contains(plain, "◎ reflect"):
+	case isReflectLine(plain):
 		return phaseReflecting
 
 	case strings.Contains(plain, "invoking opencode") ||
@@ -682,12 +956,20 @@ func extractReflectEntry(plain string) string {
 		msg := strings.TrimSpace(plain[idx+len("[reflect]"):])
 		return msg
 	}
-	if idx := strings.Index(plain, "◎ reflect"); idx >= 0 {
-		msg := strings.TrimSpace(plain[idx+len("◎ reflect"):])
-		if strings.HasPrefix(msg, "|") || strings.HasPrefix(msg, "│") {
-			msg = strings.TrimSpace(msg[1:])
+	// Match all icon variants: ◎ (success), ✗ (error), ○ (skip)
+	for _, prefix := range []string{"◎ reflect", "✗ reflect", "○ reflect"} {
+		if idx := strings.Index(plain, prefix); idx >= 0 {
+			msg := strings.TrimSpace(plain[idx+len(prefix):])
+			if len(msg) > 0 && (msg[0] == '|' || strings.HasPrefix(msg, "│")) {
+				if msg[0] == '|' {
+					msg = strings.TrimSpace(msg[1:])
+				} else {
+					// │ is multi-byte UTF-8
+					msg = strings.TrimSpace(strings.TrimPrefix(msg, "│"))
+				}
+			}
+			return msg
 		}
-		return msg
 	}
 	return plain
 }
@@ -725,12 +1007,8 @@ func (m monitorModel) View() string {
 	}
 	logH := m.logHeight()
 
-	// ── Header (full width) ───────────────────────────────────────────────────
+	// ── Header row 1: PR info ─────────────────────────────────────────────────
 	elapsed := time.Since(m.started).Round(time.Second)
-	iterStr := "-"
-	if m.iter > 0 {
-		iterStr = fmt.Sprintf("%d", m.iter)
-	}
 
 	titlePart := ""
 	if m.prTitle != "" {
@@ -744,16 +1022,50 @@ func (m monitorModel) View() string {
 		headerWidth = 0
 	}
 
-	header := styleHeader.Width(headerWidth).Render(
-		styleHeaderLabel.Render("pr") + " " + styleHeaderVal.Render("#"+m.pr) + titlePart +
-			"  " + styleHeaderLabel.Render("repo") + " " + styleHeaderVal.Render(m.repo) +
-			"  " + styleHeaderLabel.Render("runner") + " " + styleHeaderVal.Render(m.runner) +
-			"  " + styleHeaderLabel.Render("iter") + " " + styleHeaderVal.Render(iterStr) +
-			"  " + styleHeaderLabel.Render("elapsed") + " " + styleHeaderVal.Render(elapsed.String()),
-	)
+	headerLine1 := styleHeaderLabel.Render("pr") + " " + styleHeaderVal.Render("#"+m.pr) + titlePart +
+		"  " + styleHeaderLabel.Render("repo") + " " + styleHeaderVal.Render(m.repo) +
+		"  " + styleHeaderLabel.Render("runner") + " " + styleHeaderVal.Render(m.runner)
+
+	// ── Header row 2: Stats badges ────────────────────────────────────────────
+	iterStr := "-"
+	if m.iter > 0 {
+		iterStr = fmt.Sprintf("%d", m.iter)
+	}
+
+	badges := []string{
+		styleBadgeIter.Render(fmt.Sprintf(" iter %s ", iterStr)),
+		styleBadgeTime.Render(fmt.Sprintf(" %s ", elapsed.String())),
+	}
+	if m.totalComments > 0 {
+		badges = append(badges,
+			styleBadgeComment.Render(fmt.Sprintf(" %d comments ", m.totalComments)))
+	}
+	if m.rulesExtracted > 0 {
+		badges = append(badges,
+			styleBadgeRules.Render(fmt.Sprintf(" +%d rules ", m.rulesExtracted)))
+	}
+
+	headerLine2 := "  " + strings.Join(badges, "  ")
+	if len(m.iterHistory) > 0 {
+		headerLine2 += "   " + m.renderIterTimeline()
+	}
+
+	header := styleHeader.Width(headerWidth).Render(headerLine1 + "\n" + headerLine2)
 
 	// ── Phase breadcrumb ──────────────────────────────────────────────────────
 	breadcrumb := m.renderPhaseBreadcrumb()
+
+	// ── Toast notification (floating, overlaid on breadcrumb line) ─────────────
+	if m.toastMsg != "" {
+		toastRendered := styleToast.Render(m.toastMsg)
+		// Right-align the toast on the breadcrumb line
+		toastW := lipgloss.Width(toastRendered)
+		breadcrumbW := lipgloss.Width(breadcrumb)
+		gap := totalW - breadcrumbW - toastW - 2
+		if gap > 0 {
+			breadcrumb = breadcrumb + strings.Repeat(" ", gap) + toastRendered
+		}
+	}
 
 	// ── Main log viewport ─────────────────────────────────────────────────────
 	m.viewport.Width = logW
@@ -779,6 +1091,9 @@ func (m monitorModel) View() string {
 		} else {
 			phaseStr = stylePhaseErr.Render(fmt.Sprintf("✗ exited %d", m.exitCode))
 		}
+	} else if m.phase == phaseWaiting && m.waitMax > 0 {
+		// Render animated progress bar for the wait phase.
+		phaseStr = m.renderWaitProgress()
 	} else {
 		phaseStr = m.spinner.View() + " " + m.phase.Style().Render(m.phase.String())
 	}
@@ -787,7 +1102,7 @@ func (m monitorModel) View() string {
 	if !m.atBottom {
 		scrollHint = styleMuted.Render("  ↑ scrolled  G=bottom")
 	}
-	keys := styleMuted.Render("  q=quit  ↑↓/jk=scroll  s=save  ?=help")
+	keys := styleMuted.Render("  q=quit  ↑↓/jk=scroll  s=save reflect  S=save all  ?=help")
 
 	statusBarWidth := totalW - 2
 	if statusBarWidth < 0 {
@@ -796,6 +1111,31 @@ func (m monitorModel) View() string {
 	statusBar := styleStatusBar.Width(statusBarWidth).Render(phaseStr + scrollHint + keys)
 
 	return header + "\n" + breadcrumb + "\n" + body + "\n" + statusBar
+}
+
+// renderIterTimeline renders a compact horizontal timeline of iteration results.
+// Each iteration is rendered as: ● or ●N (fixed), ○ (clean), ✓ (approved), ✗ (error), ◌ (running).
+func (m monitorModel) renderIterTimeline() string {
+	var parts []string
+	for _, e := range m.iterHistory {
+		switch e.result {
+		case iterFixed:
+			dot := styleTimelineDot.Render("●")
+			if e.comments > 0 {
+				dot = styleTimelineDot.Render(fmt.Sprintf("●%d", e.comments))
+			}
+			parts = append(parts, dot)
+		case iterClean:
+			parts = append(parts, styleTimelineDone.Render("○"))
+		case iterApproved:
+			parts = append(parts, styleTimelineDone.Render("✓"))
+		case iterError:
+			parts = append(parts, styleTimelineErr.Render("✗"))
+		case iterRunning:
+			parts = append(parts, styleTimelineCurrent.Render("◌"))
+		}
+	}
+	return styleMuted.Render("history ") + strings.Join(parts, styleMuted.Render("→"))
 }
 
 // renderPostCycleMenu renders the centered Bubble Tea post-cycle action menu.
@@ -826,25 +1166,60 @@ func (m monitorModel) renderReflectPanel(h int) string {
 	panelW := m.reflectPanelWidth()
 	var b strings.Builder
 
+	// Title with rules badge
 	title := styleReflectTitle.Render("◎ reflect")
+	if m.rulesExtracted > 0 {
+		title += "  " + styleBadgeRules.Render(fmt.Sprintf(" +%d ", m.rulesExtracted))
+	}
 	b.WriteString(title + "\n")
 
 	// Expand all reflect lines with word-wrap, capped at 2 display lines per entry.
 	type displayLine struct {
 		text          string
 		isLatestEntry bool
+		isError       bool
 	}
 	var displayLines []displayLine
 	lastIdx := len(m.reflectLines) - 1
 	for i, l := range m.reflectLines {
-		wrapped := wrapLine(l, panelW)
-		if len(wrapped) > 2 {
-			wrapped = wrapped[:2] // cap at 2 lines per entry to avoid overflow
+		// Determine if this line indicates an error
+		isErr := strings.Contains(l, "exited non-zero") ||
+			strings.Contains(l, "killed") ||
+			strings.Contains(l, "failed")
+
+		// Prepend status icon to the raw line
+		var icon string
+		switch {
+		case isErr:
+			icon = styleReflectFail.Render("✗ ")
+		case strings.Contains(l, "complete") || strings.Contains(l, "pushed") || strings.Contains(l, "done"):
+			icon = styleReflectOK.Render("✓ ")
+		case strings.Contains(l, "starting"):
+			icon = styleMuted.Render("◌ ")
+		case strings.Contains(l, "No changes") || strings.Contains(l, "No top-level") || strings.Contains(l, "nothing"):
+			icon = styleMuted.Render("○ ")
+		default:
+			icon = styleMuted.Render("  ")
 		}
-		for _, wl := range wrapped {
+
+		// Word-wrap the rest
+		contentW := panelW - 2
+		if contentW < 10 {
+			contentW = 10
+		}
+		wrapped := wrapLine(l, contentW)
+		if len(wrapped) > 2 {
+			wrapped = wrapped[:2]
+		}
+		for j, wl := range wrapped {
+			prefix := "  "
+			if j == 0 {
+				prefix = icon
+			}
 			displayLines = append(displayLines, displayLine{
-				text:          wl,
+				text:          prefix + wl,
 				isLatestEntry: i == lastIdx,
+				isError:       isErr,
 			})
 		}
 	}
@@ -860,9 +1235,12 @@ func (m monitorModel) renderReflectPanel(h int) string {
 
 	for _, dl := range displayLines {
 		var rendered string
-		if dl.isLatestEntry {
+		switch {
+		case dl.isError:
+			rendered = styleReflectFail.Render(dl.text)
+		case dl.isLatestEntry:
 			rendered = styleReflectNew.Render(dl.text)
-		} else {
+		default:
 			rendered = styleReflectLine.Render(dl.text)
 		}
 		b.WriteString(rendered + "\n")
@@ -890,6 +1268,7 @@ func (m monitorModel) renderLines() string {
 
 func colorLine(line string) string {
 	plain := stripANSI(line)
+	trimmed := strings.TrimSpace(plain)
 	switch {
 	case strings.Contains(plain, "❌") || strings.Contains(plain, "ERROR"):
 		return styleLogErr.Render(plain)
@@ -897,12 +1276,21 @@ func colorLine(line string) string {
 		return styleLogWarn.Render(plain)
 	case strings.Contains(plain, "━━━") || strings.Contains(plain, "Iteration"):
 		return styleLogIter.Render(plain)
-	case strings.HasPrefix(strings.TrimSpace(plain), "→") ||
-		strings.HasPrefix(strings.TrimSpace(plain), "←") ||
-		strings.HasPrefix(strings.TrimSpace(plain), "$") ||
+	case strings.Contains(plain, "✅") || strings.Contains(plain, "APPROVED") ||
+		strings.Contains(plain, "Clean review") || strings.Contains(plain, "ready to merge"):
+		return styleLogSuccess.Render(plain)
+	case strings.Contains(plain, "git") && (strings.Contains(plain, "push") ||
+		strings.Contains(plain, "commit") || strings.Contains(plain, "checkout")):
+		return styleLogGit.Render(plain)
+	case strings.Contains(plain, "gh api") || strings.Contains(plain, "gh pr") ||
+		strings.Contains(plain, "Copilot review requested"):
+		return styleLogAPI.Render(plain)
+	case strings.HasPrefix(trimmed, "→") ||
+		strings.HasPrefix(trimmed, "←") ||
+		strings.HasPrefix(trimmed, "$") ||
 		strings.Contains(plain, "DEBUG"):
 		return styleLogDebug.Render(plain)
-	case strings.Contains(plain, "✅") || strings.Contains(plain, "🚀") || strings.Contains(plain, "💬"):
+	case strings.Contains(plain, "🚀") || strings.Contains(plain, "💬"):
 		return styleLogInfo.Render(plain)
 	default:
 		return styleLogAgent.Render(plain)
