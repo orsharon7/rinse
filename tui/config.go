@@ -38,7 +38,20 @@ func configPath() string {
 	if err != nil {
 		dir = os.Getenv("HOME")
 	}
-	return filepath.Join(dir, "pr-review", "config.json")
+	newPath := filepath.Join(dir, "rinse", "config.json")
+
+	// Migrate from old "pr-review" config dir if it exists.
+	oldPath := filepath.Join(dir, "pr-review", "config.json")
+	if _, err := os.Stat(newPath); err != nil {
+		if _, oldErr := os.Stat(oldPath); oldErr == nil {
+			_ = os.MkdirAll(filepath.Dir(newPath), 0o755)
+			if data, readErr := os.ReadFile(oldPath); readErr == nil {
+				_ = os.WriteFile(newPath, data, 0o644)
+			}
+		}
+	}
+
+	return newPath
 }
 
 // LoadConfig reads the saved config. Returns a zero-value Config on any error.
