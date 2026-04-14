@@ -236,10 +236,15 @@ func initialModel() model {
 		rc.Model = cfg.LastModel
 	}
 
-	// Apply persisted path when available; fall back to CWD.
-	path := rc.Path
-	if path == "" {
-		path = detectCWD()
+	// When repo detection succeeded, it was derived from the current checkout,
+	// so keep path aligned with the current working directory. Only fall back
+	// to a persisted path when no repo was detected from CWD.
+	path := detectCWD()
+	if repo == "" {
+		path = rc.Path
+		if path == "" {
+			path = detectCWD()
+		}
 	}
 
 	ti := textinput.New()

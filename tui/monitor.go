@@ -628,10 +628,11 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Track iteration results for the timeline.
 		if strings.Contains(plain, "complete") && strings.Contains(plain, "Iteration") {
 			iterNum := m.iter
-			for i, word := range strings.Fields(plain) {
-				if word == "Iteration" && i+1 < len(strings.Fields(plain)) {
+			fields := strings.Fields(plain)
+			for i, word := range fields {
+				if word == "Iteration" && i+1 < len(fields) {
 					var parsedIter int
-					if _, err := fmt.Sscanf(strings.Fields(plain)[i+1], "%d", &parsedIter); err == nil && parsedIter > 0 {
+					if _, err := fmt.Sscanf(fields[i+1], "%d", &parsedIter); err == nil && parsedIter > 0 {
 						iterNum = parsedIter
 						m.iter = parsedIter
 					}

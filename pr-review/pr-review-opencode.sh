@@ -522,7 +522,7 @@ PROMPT_EOF
       ui_reflect_log "$reflect_summary"
     else
       # Surface the last error from the reflect log so it's visible in the TUI
-      local reflect_err=""
+      reflect_err=""
       reflect_err=$(tail -1 "${HOME}/.pr-review-reflect.log" 2>/dev/null | tr -d '\n' || echo "")
       ui_reflect_log "exited non-zero — ${reflect_err:-check ~/.pr-review-reflect.log}" false
     fi

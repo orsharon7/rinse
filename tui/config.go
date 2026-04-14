@@ -42,7 +42,7 @@ func configPath() string {
 }
 
 // LoadConfig reads the saved config. Returns a zero-value Config on any error.
-// Performs a migration from the old flat format to the new per-repo format on read.
+// Supports both the new per-repo format and the old flat format; SaveConfig writes the new format.
 func LoadConfig() Config {
 	data, err := os.ReadFile(configPath())
 	if err != nil {
