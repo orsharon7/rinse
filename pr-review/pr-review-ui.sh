@@ -223,8 +223,10 @@ ui_step() {
     local text="  ▸ Step ${num}: ${label}  "
     local pad=$(( w - ${#text} - 2 ))
     [[ $pad -lt 0 ]] && pad=0
-    local line
-    line=$(printf '─%.0s' $(seq 1 $pad))
+    local line=""
+    if [[ $pad -gt 0 ]]; then
+      line=$(printf '─%.0s' $(seq 1 $pad))
+    fi
     echo ""
     gum style --bold --foreground "$GUM_ACCENT" "──${text}${line}"
   else

@@ -128,7 +128,7 @@ request_copilot_review() {
 react_eyes_to_review() {
   local review_id="$1"
   local node_id
-  node_id=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews/${review_id}" --jq '.node_id' 2>/dev/null)
+  node_id=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews/${review_id}" --jq '.node_id' 2>/dev/null || echo "")
   [[ -z "$node_id" || "$node_id" == "null" ]] && return
   gh api graphql -f query="mutation { addReaction(input: {subjectId: \"${node_id}\", content: EYES}) { reaction { content } } }" >/dev/null 2>&1 \
     && log "   👀 Reacted to review ${review_id}" \
