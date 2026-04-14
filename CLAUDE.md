@@ -41,6 +41,7 @@ Project instructions for AI coding agents.
 - Give each script or component its own uniquely named log file; never share a log filename between distinct processes that may run concurrently (e.g. use `...-reflect.log` vs `...-reflect-optimize.log`).
 - Error messages must reference the exact variable or value involved in the failure, not a similarly-named but different one; when reporting branch-setup failures, include both the local branch name and the upstream ref.
 - Gate resource-cleanup traps on ownership: only remove pidfiles, locks, or shared state that this process instance actually created; use a mode flag or creation sentinel to skip cleanup in modes (e.g. `--once`) where the process does not own those resources.
+- In daemon teardown functions, do not actively release job-dispatch locks that a child/runner process may still hold; prefer leaving them in place and relying on stale-PID detection to recover them — actively removing the lock before the child exits can allow a duplicate dispatch for the same work unit.
 
 ### Environment & CI Portability
 - Check both git identity pairs (`GIT_AUTHOR_NAME`/`EMAIL` and `GIT_COMMITTER_NAME`/`EMAIL`); a missing pair can pass preflight but fail `git commit`.
