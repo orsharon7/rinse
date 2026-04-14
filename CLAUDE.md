@@ -5,11 +5,11 @@ Project instructions for AI coding agents.
 <!-- BEGIN:COPILOT-RULES -->
 ## Coding Guidelines (AI-maintained)
 *Auto-updated by pr-review-reflect — do not edit this section manually.*
-*Last updated: 2026-04-14 from PR #12 review (optimized)*
+*Last updated: 2026-04-14 from PR #16 review*
 
 ### Shell Scripting
 - Read interactive input from `/dev/tty`; render UI output to stderr.
-- Validate numeric parameters are ≥ 1 before use as divisors; clamp display-width subtractions to ≥ 0.
+- Validate numeric parameters are ≥ 1 before use as divisors; clamp display-width subtractions to ≥ 0. Validate all numeric CLI parameters (including optional ones like `--stagger`) as integers ≥ 0 before use in arithmetic or `sleep`.
 - Pass an explicit `--repo`/scope flag to `gh`; never rely on ambient inference. Boolean flags are not interchangeable with `--flag=value`.
 - Use `tput sc`/`tput rc` for cursor repositioning; never hard-code row/column values.
 - Honor `--no-interactive`: skip all prompts, never fall back to a blocking alternative.
@@ -19,10 +19,17 @@ Project instructions for AI coding agents.
 - Validate syntax with `bash -n`/`sh -n` before committing.
 - When piping through `tee -a "$LOGFILE"`, suppress internal `log()` calls to avoid double-writing.
 - Retry pipelines with `bash -c 'set -euo pipefail; … | tee …'`; without `pipefail`, exit status is `tee`'s, masking upstream failures.
+- Never swallow git branch/checkout failures with `|| true`; use `checkout -B <branch> origin/<branch>` and `--set-upstream-to`, and treat failure as fatal.
+- Never `eval` a space-joined command string; build a Bash array and execute it directly to avoid word-splitting and injection issues.
+- Never redirect a subprocess's output to the same logfile the subprocess writes internally; redirect to `/dev/null` or a separate log to avoid double-logging.
+- Keep `--help`/usage comment blocks in sync with actual arg-parsing; update documented flags whenever options are added or removed.
+- Use atomic lock primitives (`mkdir`-based lock directory or `noclobber` redirection) for cross-process mutual exclusion; never rely on racy pidfile checks (`-f` test followed by write).
+- Capture dynamically constructed paths (e.g. per-PR log file paths) into variables at creation time and reference those variables consistently; never fall back to a hardcoded legacy path in error-reporting paths.
 
 ### Environment & CI Portability
 - Check both git identity pairs (`GIT_AUTHOR_NAME`/`EMAIL` and `GIT_COMMITTER_NAME`/`EMAIL`); a missing pair can pass preflight but fail `git commit`.
 - Validate all required env vars before constructing paths/commands; keep preflight error messages in sync with what is checked.
+- Avoid `declare -A` (associative arrays) without a Bash 4+ version check at startup; macOS system `/bin/bash` is typically 3.2 and will fail silently or abort.
 
 ### Documentation Integrity
 - Keep README file trees, artifact references, and prerequisites (`go.mod`/`package.json`, tool versions) in sync; remove stale references on rename/delete.
