@@ -12,7 +12,7 @@
 #   --cwd   <path>                Local repo path (default: current directory)
 #   --model <provider/model>      opencode model string (default: github-copilot/claude-sonnet-4.6)
 #   --wait-max <seconds>          Max seconds to wait per Copilot review (default: 300)
-#   --reflect                     After each fix, run reflection agent to update AGENTS.md + CLAUDE.md
+#   --reflect                     After each fix, run reflection agent to update AGENTS.md
 #   --reflect-model <model>       Model for reflection agent (default: same as --model)
 #   --reflect-optimize            After auto-merge, run an optimize pass to consolidate rules
 #   --worktree                    Use a git worktree for isolation (used by orchestrator)
