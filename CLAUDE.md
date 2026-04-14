@@ -40,12 +40,15 @@ Project instructions for AI coding agents.
 - Hidden panels: layout-guard and render-guard must agree — don't subtract width from layout without a matching render path.
 - Clamp widget dimensions to ≥ 0; apply terminal-width fallback only when uninitialized (`<= 0`). Account for all separator variants (ASCII `|` and box-drawing `│`) when trimming.
 - Document helper return-value semantics (inner vs. outer width); apply border/padding at the call site. Gate input routing and focus to the active interaction mode.
+- Use the currently selected/active item (not a hardcoded index such as `[0]`) when resolving paths or scripts for detection and command construction.
 
 ### UI & State Management
 - Persist final item state on the data object (e.g. `finalStatus`); never derive display state from a mutable run-scoped map. Apply streaming styling only to actively streaming items.
 - Normalize internal/legacy identifiers to canonical labels before rendering.
 - In multi-axis execution (sequential steps × agents-per-step), gate streaming finalization on all axes — `stepIdx > 0` alone misses agent transitions within step 0.
 - Never hard-code a UI value that mirrors a backend configurable setting; source it from the backend payload or settings endpoint.
+- Gate phase-scoped state resets on an actual phase transition (e.g. `nextPhase != currentPhase`); never clear state based on incidental log-line content that happens not to match a sentinel string.
+- Track "user has edited this field" with an explicit boolean flag; never use a sentinel value (e.g. `"main"`) as a proxy for "unmodified" — the sentinel may be a valid user input.
 
 ### Go
 - **Performance:** Use `strings.Builder`; never `+=` in a loop (O(n²)). Pre-compute repeated expressions (e.g. `strings.Fields(s)`) once before a loop; never recompute the same call inside the range header, bounds check, and index separately.
