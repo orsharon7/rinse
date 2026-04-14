@@ -682,8 +682,9 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			break
 		}
 
-		// Clear wait progress when we leave the waiting state.
-		if m.waitMax > 0 && !strings.Contains(plain, "⏳") && !strings.Contains(plain, "Copilot reviewing") {
+		// Clear wait progress only when the phase transitions away from waiting.
+		nextPhase := inferPhase(plain, m.phase)
+		if m.waitMax > 0 && nextPhase != phaseWaiting {
 			m.waitElapsed = 0
 			m.waitMax = 0
 			m.waitLabel = ""
@@ -706,7 +707,7 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.renderedLog.WriteString(colorLine(raw) + "\n")
 		}
 
-		m.phase = inferPhase(plain, m.phase)
+		m.phase = nextPhase
 
 		// Detect iteration number from separator lines.
 		if strings.Contains(plain, "Iteration") {

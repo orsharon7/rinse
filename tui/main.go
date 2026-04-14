@@ -205,6 +205,7 @@ type model struct {
 	settingsBranchInput   textinput.Model
 	settingsEditingModel  bool
 	settingsEditingBranch bool
+	settingsBranchEdited  bool // true once the user has entered branch edit mode
 
 	// selected PR
 	prNum   string
@@ -359,8 +360,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// was set at init time.
 		if m.view == viewSettings {
 			m.settingsBranchInput.Placeholder = m.defaultBranch
-			// Only update the value if the user hasn't explicitly edited it.
-			if m.settingsBranchInput.Value() == "main" || m.settingsBranchInput.Value() == "" {
+			// Only auto-fill when the user has not explicitly edited the branch field.
+			if !m.settingsBranchEdited && m.settingsBranchInput.Value() == "" {
 				m.settingsBranchInput.SetValue(m.defaultBranch)
 			}
 		}
@@ -511,6 +512,7 @@ func (m model) openSettings() (model, tea.Cmd) {
 	m.settingsBranchInput.Placeholder = m.defaultBranch
 	m.settingsEditingModel = false
 	m.settingsEditingBranch = false
+	m.settingsBranchEdited = false
 	return m, nil
 }
 
@@ -588,6 +590,7 @@ func (m model) handleSettingsKey(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd
 			m.settingsReflect = !m.settingsReflect
 		case sfReflectBranch:
 			m.settingsEditingBranch = true
+			m.settingsBranchEdited = true
 			m.settingsBranchInput.Focus()
 			return m, textinput.Blink
 		case sfAutoMerge:
@@ -640,6 +643,8 @@ func (m model) buildCmd() ([]string, error) {
 		return nil, fmt.Errorf("no repository detected — run from inside a git repo")
 	}
 
+	r := runners[m.runnerIdx]
+
 	scriptDir := os.Getenv("PR_REVIEW_SCRIPT_DIR")
 	if scriptDir == "" {
 		exe, err := os.Executable()
@@ -655,7 +660,7 @@ func (m model) buildCmd() ([]string, error) {
 			binDir,
 		}
 		for _, c := range candidates {
-			if _, err := os.Stat(filepath.Join(c, runners[0].script)); err == nil {
+			if _, err := os.Stat(filepath.Join(c, r.script)); err == nil {
 				scriptDir = c
 				break
 			}
@@ -664,8 +669,6 @@ func (m model) buildCmd() ([]string, error) {
 			scriptDir = binDir
 		}
 	}
-
-	r := runners[m.runnerIdx]
 	script := filepath.Join(scriptDir, r.script)
 	if _, err := os.Stat(script); err != nil {
 		return nil, fmt.Errorf("runner script not found: %s", script)
