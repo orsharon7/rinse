@@ -5,7 +5,7 @@ Project instructions for AI coding agents.
 <!-- BEGIN:COPILOT-RULES -->
 ## Coding Guidelines (AI-maintained)
 *Auto-updated by pr-review-reflect — do not edit this section manually.*
-*Last updated: 2026-04-14 from PR #19 review (optimized)*
+*Last updated: 2026-04-15 from PR #22 review*
 
 ### Shell Scripting
 - Read interactive input from `/dev/tty`; render UI output to stderr.
@@ -43,11 +43,13 @@ Project instructions for AI coding agents.
 ### CLI, Installers & Packaging
 - Optional parameters default to empty; include flags only when the user provides a value.
 - Installer wrappers using absolute paths must bundle those helpers or document the dependency.
+- When renaming a binary or artifact, update all installer scripts, launchers, and cross-references atomically in the same change.
 
 ### TUI & Layout
 - Use a single shared predicate per logical event; never duplicate format-detection logic.
 - Layout-guard and render-guard must agree: clamp widget dimensions to ≥ 0; apply terminal-width fallback only when uninitialized. Account for all separator variants (ASCII `|` and box-drawing `│`) when trimming.
 - Document helper return-value semantics (inner vs. outer width); apply border/padding at the call site. Gate input routing and focus to the active interaction mode. Use the active item (not hardcoded `[0]`) when resolving paths or scripts.
+- Render functions must never return a string wider than their `width` argument; clamp all computed sub-widths to `max(0, width-used)` and treat negative space as 0 rather than substituting a forced minimum.
 
 ### UI & State Management
 - Persist final item state on the data object (e.g. `finalStatus`); never derive display state from a mutable run-scoped map. Apply streaming styling only to actively streaming items.
@@ -58,7 +60,8 @@ Project instructions for AI coding agents.
 
 ### Go
 - **Performance:** Use `strings.Builder`; never `+=` in a loop. Pre-compute repeated expressions before loops.
-- **Error handling:** Return errors to `main()` — never `os.Exit()` inside a UI lifecycle. Prefer `strings.Cut()` over `strings.Index()`. Always check `scanner.Err()` after `bufio.Scanner` loops.
+- **Error handling:** Return errors to `main()` — never `os.Exit()` inside a UI lifecycle. Prefer `strings.Cut()` over `strings.Index()`. Always check `scanner.Err()` after `bufio.Scanner` loops. Never set `err: nil` or use a success indicator in an action result message when the underlying operation failed — always propagate the actual error.
+- **Filesystem migration:** Use `os.IsNotExist(err)` to gate path migration or fallback logic; surface (don't swallow) all other `os.Stat` errors such as permission failures.
 - **Safety:** Use pointers for non-copy-safe types (`strings.Builder`, `sync.Mutex`) in frequently-copied structs. Drain data channels before acting on a done-channel signal.
 - **Module hygiene:** Run `go mod tidy` before committing; direct imports must not be `// indirect`. Every `-X pkg.Symbol=value` LDFLAGS symbol must be declared as a `var`. No unreferenced package-level identifiers. Use `filepath.Dir()`/`filepath.Join()`; rune-aware truncation for user-visible strings.
 - **Config & maps:** Initialize fields most-specific-first (per-repo before global). Use explicit `ok` from map lookup; never treat zero values as "unset". Use scoped values verbatim; never merge with globals via `||`. Never persist a field without reading it back. Guard map writes against empty keys; parse input into canonical form before deriving values.
