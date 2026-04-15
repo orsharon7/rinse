@@ -43,10 +43,18 @@ func configPath() string {
 	// Migrate from old "pr-review" config dir if it exists.
 	oldPath := filepath.Join(dir, "pr-review", "config.json")
 	if _, err := os.Stat(newPath); err != nil {
-		if _, oldErr := os.Stat(oldPath); oldErr == nil {
-			_ = os.MkdirAll(filepath.Dir(newPath), 0o755)
-			if data, readErr := os.ReadFile(oldPath); readErr == nil {
-				_ = os.WriteFile(newPath, data, 0o644)
+		if os.IsNotExist(err) {
+			if _, oldErr := os.Stat(oldPath); oldErr == nil {
+				if err := os.MkdirAll(filepath.Dir(newPath), 0o755); err != nil {
+					return oldPath
+				}
+				data, readErr := os.ReadFile(oldPath)
+				if readErr != nil {
+					return oldPath
+				}
+				if writeErr := os.WriteFile(newPath, data, 0o644); writeErr != nil {
+					return oldPath
+				}
 			}
 		}
 	}

@@ -650,18 +650,18 @@ func (m monitorModel) executePostCycleAction(choice int) (tea.Model, tea.Cmd) {
 			}
 			localBranch, revErr := runShell("git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD")
 			if revErr != nil {
-				return actionDoneMsg{output: IconCheck + " Merged, remote branch deleted. (local cleanup skipped)"}
+				return actionDoneMsg{output: IconCheck + " Merged, remote branch deleted. (local cleanup skipped)", err: revErr}
 			}
 			localBranch = strings.TrimSpace(localBranch)
 			if localBranch == "" || localBranch == defaultBr {
 				return actionDoneMsg{output: IconCheck + " Merged, remote branch deleted."}
 			}
 			if _, coErr := runShell("git", "-C", cwd, "checkout", defaultBr); coErr != nil {
-				return actionDoneMsg{output: IconCheck + " Merged, remote branch deleted. (checkout " + defaultBr + " failed)"}
+				return actionDoneMsg{output: IconCross + " Merged, remote branch deleted. (checkout " + defaultBr + " failed)", err: coErr}
 			}
 			if _, delErr := runShell("git", "-C", cwd, "branch", "-d", localBranch); delErr != nil {
 				if _, delErrF := runShell("git", "-C", cwd, "branch", "-D", localBranch); delErrF != nil {
-					return actionDoneMsg{output: IconCheck + " Merged, remote branch deleted. (local branch delete failed)"}
+					return actionDoneMsg{output: IconCross + " Merged, remote branch deleted. (local branch delete failed)", err: delErrF}
 				}
 			}
 			return actionDoneMsg{output: IconCheck + " Merged, remote branch deleted, local branch deleted."}

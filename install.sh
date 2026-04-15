@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — one-line installer for pr-review TUI
+# install.sh — one-line installer for rinse TUI
 #
 # Usage:
 #   bash install.sh
@@ -12,7 +12,7 @@
 #
 set -euo pipefail
 
-BINARY="pr-review-tui"
+BINARY="rinse"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 

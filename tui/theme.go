@@ -131,21 +131,20 @@ func renderWordmark(width int) string {
 }
 
 // renderCompactBrand renders the one-line header used on all non-splash screens:
-//   rinse™ RINSE ╱╱╱╱╱╱╱╱╱ ~/dir • ctrl+d ╱╱╱╱
+//
+//	rinse™ RINSE ╱╱╱╱╱╱╱╱╱ ~/dir • ctrl+d ╱╱╱╱
 func renderCompactBrand(width int) string {
 	brand := styleCharm.Render("rinse™") + " " +
 		gradientString("RINSE", mauve, lavender, true) + " "
 
 	brandW := lipgloss.Width(brand)
-	remainingW := width - brandW
-	if remainingW < 3 {
-		remainingW = 3
-	}
+	remainingW := max(0, width-brandW)
 	return brand + styleDiag.Render(strings.Repeat(IconDiag, remainingW))
 }
 
 // renderCompactBrandWithDetails renders the compact header with contextual details:
-//   rinse™ RINSE ╱╱╱╱╱╱ owner/repo • main ╱╱╱╱
+//
+//	rinse™ RINSE ╱╱╱╱╱╱ owner/repo • main ╱╱╱╱
 func renderCompactBrandWithDetails(width int, details string) string {
 	brand := styleCharm.Render("rinse™") + " " +
 		gradientString("RINSE", mauve, lavender, true) + " "
@@ -153,24 +152,25 @@ func renderCompactBrandWithDetails(width int, details string) string {
 	brandW := lipgloss.Width(brand)
 
 	if details == "" {
-		remainingW := width - brandW
-		if remainingW < 3 {
-			remainingW = 3
-		}
+		remainingW := max(0, width-brandW)
 		return brand + styleDiag.Render(strings.Repeat(IconDiag, remainingW))
 	}
 
-	detailsRendered := styleHeaderDetail.Render(details)
+	// Truncate details so the total rendered width never exceeds width.
+	// Reserve brandW + 2 spaces around details; the rest is diagonal fill.
+	maxDetailsW := width - brandW - 2
+	if maxDetailsW < 0 {
+		maxDetailsW = 0
+	}
+	truncatedDetails := truncate(details, maxDetailsW)
+	detailsRendered := styleHeaderDetail.Render(truncatedDetails)
 	detailsW := lipgloss.Width(detailsRendered)
 
 	totalFixed := brandW + detailsW + 2 // 2 = spaces around details
-	diagSpace := width - totalFixed
-	if diagSpace < 6 {
-		diagSpace = 6
-	}
+	diagSpace := max(0, width-totalFixed)
 
-	leftDiags := max(3, diagSpace*40/100)
-	rightDiags := max(3, diagSpace-leftDiags)
+	leftDiags := diagSpace * 40 / 100
+	rightDiags := diagSpace - leftDiags
 
 	return brand +
 		styleDiag.Render(strings.Repeat(IconDiag, leftDiags)) +
@@ -194,12 +194,12 @@ var (
 	styleSplashStatus = lipgloss.NewStyle().Foreground(subtext)
 
 	// Reusable text presets
-	styleKey    = lipgloss.NewStyle().Foreground(overlay).Width(16)
-	styleVal    = lipgloss.NewStyle().Foreground(lavender).Bold(true)
-	styleMuted  = lipgloss.NewStyle().Foreground(overlay)
-	styleStep   = lipgloss.NewStyle().Foreground(mauve).Bold(true)
-	styleErr    = lipgloss.NewStyle().Foreground(red)
-	styleTeal   = lipgloss.NewStyle().Foreground(teal).Bold(true)
+	styleKey   = lipgloss.NewStyle().Foreground(overlay).Width(16)
+	styleVal   = lipgloss.NewStyle().Foreground(lavender).Bold(true)
+	styleMuted = lipgloss.NewStyle().Foreground(overlay)
+	styleStep  = lipgloss.NewStyle().Foreground(mauve).Bold(true)
+	styleErr   = lipgloss.NewStyle().Foreground(red)
+	styleTeal  = lipgloss.NewStyle().Foreground(teal).Bold(true)
 
 	// PR list: thick left bar for selected
 	styleSelected    = lipgloss.NewStyle().Foreground(mauve).Bold(true)
