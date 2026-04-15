@@ -40,6 +40,7 @@ Project instructions for AI coding agents.
 - Keep README file trees, artifact references, and prerequisites (`go.mod`/`package.json`, tool versions) in sync; remove stale references on rename/delete.
 - Match behavior exactly: no false "skips silently", no phantom methods. Match enum names, argument names, and code-example signatures exactly — mismatches cause silent copy-paste breakage.
 - Keep architecture diagrams and ADRs in sync with actual SDK/API call paths. Reconcile contradicting sections against actual imports; phrase design assertions as intent, not fact.
+- User-facing documentation must use standard prose conventions: sentences start with a capital letter, proper nouns (tool names, products) are capitalized consistently.
 
 ### CLI, Installers & Packaging
 - Optional parameters default to empty; include flags only when the user provides a value.
@@ -52,6 +53,7 @@ Project instructions for AI coding agents.
 - Layout-guard and render-guard must agree: clamp widget dimensions to ≥ 0; apply terminal-width fallback only when uninitialized. Account for all separator variants (ASCII `|` and box-drawing `│`) when trimming.
 - Document helper return-value semantics (inner vs. outer width); apply border/padding at the call site. Gate input routing and focus to the active interaction mode. Use the active item (not hardcoded `[0]`) when resolving paths or scripts.
 - Render functions must never return a string wider than their `width` argument; clamp all computed sub-widths to `max(0, width-used)` and treat negative space as 0 rather than substituting a forced minimum.
+- Every view/mode must handle all globally advertised keybindings (e.g. quit) consistently; never let an overlay or sub-view silently swallow a key that the help text promises will work.
 
 ### UI & State Management
 - Persist final item state on the data object (e.g. `finalStatus`); never derive display state from a mutable run-scoped map. Apply streaming styling only to actively streaming items.
