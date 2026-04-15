@@ -54,6 +54,8 @@ Project instructions for AI coding agents.
 - Document helper return-value semantics (inner vs. outer width); apply border/padding at the call site. Gate input routing and focus to the active interaction mode. Use the active item (not hardcoded `[0]`) when resolving paths or scripts.
 - Render functions must never return a string wider than their `width` argument; clamp all computed sub-widths to `max(0, width-used)` and treat negative space as 0 rather than substituting a forced minimum.
 - Every view/mode must handle all globally advertised keybindings (e.g. quit) consistently; never let an overlay or sub-view silently swallow a key that the help text promises will work.
+- Never use a fixed character-width constant for any column in a multi-column layout; derive all column widths from the available `w` (or fall back to a compact single-column layout below a minimum threshold).
+- When computing a layout dimension from a collection of lines or items, use the maximum visual width across all members (e.g. `lipgloss.Width`); never use a single element as a proxy for the group width.
 
 ### UI & State Management
 - Persist final item state on the data object (e.g. `finalStatus`); never derive display state from a mutable run-scoped map. Apply streaming styling only to actively streaming items.
