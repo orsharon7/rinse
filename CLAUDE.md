@@ -54,6 +54,8 @@ Project instructions for AI coding agents.
 - Document helper return-value semantics (inner vs. outer width); apply border/padding at the call site. Gate input routing and focus to the active interaction mode. Use the active item (not hardcoded `[0]`) when resolving paths or scripts.
 - Render functions must never return a string wider than their `width` argument; clamp all computed sub-widths to `max(0, width-used)` and treat negative space as 0 rather than substituting a forced minimum.
 - Every view/mode must handle all globally advertised keybindings (e.g. quit) consistently; never let an overlay or sub-view silently swallow a key that the help text promises will work.
+- Overlay/modal dismiss keys (e.g. `q`) must close the overlay and return to the parent view, not terminate the program; reserve program-quit for an explicitly separate binding (e.g. `ctrl+c`).
+- Never enforce per-column minimum widths when their sum exceeds the total available space; check first whether available space accommodates all minimums, and if not, shrink proportionally or fall back to a single-column layout.
 - Never use a fixed character-width constant for any column in a multi-column layout; derive all column widths from the available `w` (or fall back to a compact single-column layout below a minimum threshold).
 - When computing a layout dimension from a collection of lines or items, use the maximum visual width across all members (e.g. `lipgloss.Width`); never use a single element as a proxy for the group width.
 
