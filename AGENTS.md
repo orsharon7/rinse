@@ -29,6 +29,7 @@ Project instructions for AI coding agents.
 - Validate env vars used in numeric comparisons (e.g. `MAX_CONCURRENT`) as integers ≥ 1 at startup.
 - Surface subprocess errors from that component's dedicated log, not a shared interleaved log.
 - Under `set -u`, guard associative array reads with `[[ -v arr[$key] ]]` or `${arr[$key]:-}`; return early when absent.
+- When a script mutates multiple files that must be committed together, include all of them in the `git status --porcelain` change-detection check; checking only a subset risks a silent early-exit that leaves other mutated files uncommitted.
 
 ### Environment & CI Portability
 - Validate all required env vars (including integer ones) before constructing paths/commands; keep error messages in sync with checks.
@@ -60,7 +61,7 @@ Project instructions for AI coding agents.
 
 ### Go
 - **Performance:** Use `strings.Builder`; never `+=` in a loop. Pre-compute repeated expressions before loops.
-- **Error handling:** Return errors to `main()` — never `os.Exit()` inside a UI lifecycle. Prefer `strings.Cut()` over `strings.Index()`. Always check `scanner.Err()` after `bufio.Scanner` loops. Never set `err: nil` or use a success indicator in an action result message when the underlying operation failed — always propagate the actual error.
+- **Error handling:** Return errors to `main()` — never `os.Exit()` inside a UI lifecycle. Prefer `strings.Cut()` over `strings.Index()`. Always check `scanner.Err()` after `bufio.Scanner` loops. Never set `err: nil` or use a success indicator in an action result message when the underlying operation failed — always propagate the actual error. Never pair a success icon/symbol with a non-nil error in a result struct; when `err != nil`, use a failure icon so that visual output and error state agree.
 - **Filesystem migration:** Use `os.IsNotExist(err)` to gate path migration or fallback logic; surface (don't swallow) all other `os.Stat` errors such as permission failures.
 - **Safety:** Use pointers for non-copy-safe types (`strings.Builder`, `sync.Mutex`) in frequently-copied structs. Drain data channels before acting on a done-channel signal.
 - **Module hygiene:** Run `go mod tidy` before committing; direct imports must not be `// indirect`. Every `-X pkg.Symbol=value` LDFLAGS symbol must be declared as a `var`. No unreferenced package-level identifiers. Use `filepath.Dir()`/`filepath.Join()`; rune-aware truncation for user-visible strings.
