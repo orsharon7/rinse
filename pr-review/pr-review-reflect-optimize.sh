@@ -277,6 +277,19 @@ if [[ "$begin_line" -ge "$end_line" ]]; then
 fi
 
 log "Committing optimized rules to ${MAIN_BRANCH}..."
+
+# Re-assert that CLAUDE.md is still a symlink to AGENTS.md; abort if the agent replaced it with a regular file.
+if [[ ! -L "${WORKTREE_DIR}/CLAUDE.md" ]]; then
+  log "⚠️  CLAUDE.md is no longer a symlink after agent run — restoring symlink before commit"
+  rm -f "${WORKTREE_DIR}/CLAUDE.md"
+  ln -sf AGENTS.md "${WORKTREE_DIR}/CLAUDE.md"
+fi
+if [[ "$(readlink "${WORKTREE_DIR}/CLAUDE.md")" != "AGENTS.md" ]]; then
+  log "⚠️  CLAUDE.md symlink target is unexpected — aborting to preserve repo invariant"
+  git -C "$WORKTREE_DIR" checkout -- CLAUDE.md 2>/dev/null || true
+  exit 1
+fi
+
 git -C "$WORKTREE_DIR" add AGENTS.md CLAUDE.md
 
 # Rough measure: lines removed (negative diff lines inside the rules section)

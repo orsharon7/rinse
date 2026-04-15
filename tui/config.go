@@ -56,6 +56,10 @@ func configPath() string {
 					return oldPath
 				}
 			}
+		} else {
+			if _, oldErr := os.Stat(oldPath); oldErr == nil {
+				return oldPath
+			}
 		}
 	}
 

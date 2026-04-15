@@ -11,7 +11,7 @@ TUI_BIN="${SCRIPT_DIR}/../tui/rinse"
 
 if [[ ! -x "$TUI_BIN" ]]; then
   echo "error: TUI binary not found at ${TUI_BIN}" >&2
-  echo "  cd $(dirname "$TUI_BIN") && go build -o rinse ." >&2
+  echo "  cd $(dirname "$TUI_BIN") && make build  # (or: go build -ldflags \"-X main.version=\$(git describe --tags --always)\" -o rinse .)" >&2
   exit 1
 fi
 

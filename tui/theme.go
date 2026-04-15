@@ -95,7 +95,10 @@ func hexToRGB(hex string) (uint8, uint8, uint8) {
 		return 200, 200, 200
 	}
 	var r, g, b uint8
-	fmt.Sscanf(hex, "%02x%02x%02x", &r, &g, &b)
+	n, err := fmt.Sscanf(hex, "%02x%02x%02x", &r, &g, &b)
+	if err != nil || n != 3 {
+		return 200, 200, 200
+	}
 	return r, g, b
 }
 
