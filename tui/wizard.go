@@ -378,9 +378,6 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSettingsKey(key, msg)
 
 	case viewHelp:
-		if key == "q" {
-			return m, tea.Quit
-		}
 		m.view = viewPRPicker
 		return m, nil
 	}
@@ -704,18 +701,23 @@ func (m model) renderPRPicker(w int) string {
 
 		// Make branchW dynamic so the row never exceeds w on narrow terminals.
 		// Reserve ~18 chars for the PR number + separators, then split the
-		// remaining space 30/70 between branch and title, clamped to sane limits.
+		// remaining space 30/70 between branch and title. Only enforce the
+		// normal minimum widths when there is enough room for both columns.
 		available := max(0, w-18)
 		branchW := available * 30 / 100
 		if branchW > 28 {
 			branchW = 28
 		}
-		if branchW < 10 {
-			branchW = 10
-		}
 		titleW := available - branchW
-		if titleW < 16 {
-			titleW = 16
+		if available >= 26 {
+			if branchW < 10 {
+				branchW = 10
+			}
+			titleW = available - branchW
+			if titleW < 16 {
+				titleW = 16
+				branchW = available - titleW
+			}
 		}
 
 		for i, p := range m.prs {
