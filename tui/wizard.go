@@ -702,8 +702,18 @@ func (m model) renderPRPicker(w int) string {
 		count := styleMuted.Render(fmt.Sprintf("  %d open", len(m.prs)))
 		b.WriteString(count + "\n")
 
-		branchW := 28
-		titleW := w - branchW - 18
+		// Make branchW dynamic so the row never exceeds w on narrow terminals.
+		// Reserve ~18 chars for the PR number + separators, then split the
+		// remaining space 30/70 between branch and title, clamped to sane limits.
+		available := max(0, w-18)
+		branchW := available * 30 / 100
+		if branchW > 28 {
+			branchW = 28
+		}
+		if branchW < 10 {
+			branchW = 10
+		}
+		titleW := available - branchW
 		if titleW < 16 {
 			titleW = 16
 		}

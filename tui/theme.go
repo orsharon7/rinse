@@ -107,7 +107,10 @@ func hexToRGB(hex string) (uint8, uint8, uint8) {
 // renderWordmark renders the big 3-row RINSE logo with a gradient from mauve
 // to lavender, surrounded by diagonal field lines — exactly like Crush's logo.
 func renderWordmark(width int) string {
-	logoW := len([]rune(logoLines[0]))
+	logoW := 0
+	for _, line := range logoLines {
+		logoW = max(logoW, lipgloss.Width(line))
+	}
 	fieldW := 6
 
 	if width < logoW+fieldW*2+4 {
