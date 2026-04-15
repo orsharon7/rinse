@@ -378,6 +378,9 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSettingsKey(key, msg)
 
 	case viewHelp:
+		if key == "q" {
+			return m, tea.Quit
+		}
 		m.view = viewPRPicker
 		return m, nil
 	}
@@ -642,9 +645,9 @@ func (m model) renderSplash() string {
 
 	// Tagline — centered under the logo
 	tagline := styleMuted.Render("       lather") +
-		styleTeal.Render(" " + IconSep + " ") +
+		styleTeal.Render(" "+IconSep+" ") +
 		styleMuted.Render("rinse") +
-		styleTeal.Render(" " + IconSep + " ") +
+		styleTeal.Render(" "+IconSep+" ") +
 		styleMuted.Render("repeat")
 	b.WriteString(tagline)
 	b.WriteString("\n\n")
@@ -851,7 +854,7 @@ func (m model) renderSettings() string {
 	// Reflect toggle
 	reflectVal := styleMuted.Render(IconRadioOff + " off")
 	if m.settingsReflect {
-		reflectVal = styleTeal.Render(IconRadioOn + " on") +
+		reflectVal = styleTeal.Render(IconRadioOn+" on") +
 			styleMuted.Render("  extract coding rules after each cycle")
 	}
 
@@ -870,7 +873,7 @@ func (m model) renderSettings() string {
 	// Auto-merge toggle
 	amVal := styleMuted.Render(IconRadioOff + " off")
 	if m.settingsAutoMerge {
-		amVal = styleTeal.Render(IconRadioOn + " on") +
+		amVal = styleTeal.Render(IconRadioOn+" on") +
 			styleMuted.Render("  merge PR automatically when approved")
 	}
 
@@ -942,7 +945,7 @@ func (m model) renderHelp() string {
 		{"#", "type PR number manually"},
 		{"r", "refresh PR list from GitHub"},
 		{"?", "toggle this help"},
-		{"q / ^C", "quit rinse"},
+		{"q / ^C", "close help / quit rinse"},
 	}
 
 	var lines []string
