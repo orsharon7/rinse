@@ -144,7 +144,11 @@ func renderCompactBrand(width int) string {
 		gradientString("RINSE", mauve, lavender, true) + " "
 
 	brandW := lipgloss.Width(brand)
-	remainingW := max(0, width-brandW)
+	if width < brandW {
+		// Terminal too narrow to fit the full brand — return the shortest fallback.
+		return styleCharm.Render("rinse™")
+	}
+	remainingW := width - brandW
 	return brand + styleDiag.Render(strings.Repeat(IconDiag, remainingW))
 }
 
