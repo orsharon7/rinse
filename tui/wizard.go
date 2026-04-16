@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/help"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -72,6 +74,10 @@ type model struct {
 
 	// final command
 	finalCmd []string
+
+	// help overlay
+	help     help.Model
+	showHelp bool
 }
 
 func initialModel() model {
@@ -166,6 +172,7 @@ func initialModel() model {
 		input:               ti,
 		settingsModelInput:  mi,
 		settingsBranchInput: bi,
+		help:                newHelpModel(),
 	}
 }
 
@@ -294,16 +301,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	key := msg.String()
-
-	if key == "ctrl+c" {
+	// ctrl+c always quits
+	if key.Matches(msg, Keys.Quit) && msg.String() == "ctrl+c" {
 		return m, tea.Quit
+	}
+
+	// '?' toggles the help overlay in any non-splash, non-text-input view.
+	if key.Matches(msg, Keys.Help) &&
+		m.view != viewSplash && m.view != viewManualPR && !m.settingsEditingModel && !m.settingsEditingBranch {
+		m.showHelp = !m.showHelp
+		m.help.ShowAll = m.showHelp
+		return m, nil
+	}
+
+	// Close the overlay with esc/q without quitting when it's open.
+	if m.showHelp {
+		if key.Matches(msg, Keys.Back) {
+			m.showHelp = false
+			m.help.ShowAll = false
+		}
+		return m, nil
 	}
 
 	switch m.view {
 
 	case viewSplash:
-		if key == "q" {
+		if key.Matches(msg, Keys.Quit) {
 			return m, tea.Quit
 		}
 		m.view = viewPRPicker
@@ -311,41 +334,44 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case viewPRPicker:
 		if m.prLoading {
-			if key == "q" {
+			if key.Matches(msg, Keys.Quit) {
 				return m, tea.Quit
 			}
 			return m, nil
 		}
-		switch key {
-		case "q":
+		switch {
+		case key.Matches(msg, Keys.Quit):
 			return m, tea.Quit
-		case "?":
-			m.view = viewHelp
-			return m, nil
-		case "#":
+		case key.Matches(msg, Keys.ManualPR):
 			m.view = viewManualPR
 			m.input.SetValue("")
 			m.input.Focus()
 			m.errMsg = ""
 			return m, textinput.Blink
-		case "s":
+		case key.Matches(msg, Keys.Settings):
 			return m.openSettings()
-		case "r":
+		case key.Matches(msg, Keys.Refresh):
 			if m.repo != "" {
 				m.prLoading = true
 				m.prs = nil
 				m.prLoadErr = ""
 				return m, tea.Batch(fetchPRs(m.repo), m.prSpinner.Tick)
 			}
-		case "up", "k":
+		case key.Matches(msg, Keys.Up):
 			if len(m.prs) > 0 && m.prCursor > 0 {
 				m.prCursor--
 			}
-		case "down", "j":
+		case key.Matches(msg, Keys.Down):
 			if len(m.prs) > 0 && m.prCursor < len(m.prs)-1 {
 				m.prCursor++
 			}
-		case "enter":
+		case key.Matches(msg, Keys.Top):
+			m.prCursor = 0
+		case key.Matches(msg, Keys.Bottom):
+			if len(m.prs) > 0 {
+				m.prCursor = len(m.prs) - 1
+			}
+		case key.Matches(msg, Keys.Confirm):
 			if len(m.prs) > 0 && m.prCursor < len(m.prs) {
 				m.prNum = fmt.Sprintf("%d", m.prs[m.prCursor].Number)
 				m.prTitle = m.prs[m.prCursor].Title
@@ -354,12 +380,12 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case viewManualPR:
-		switch key {
-		case "esc":
+		switch {
+		case key.Matches(msg, Keys.Back) && msg.String() == "esc":
 			m.view = viewPRPicker
 			m.errMsg = ""
 			return m, nil
-		case "enter":
+		case key.Matches(msg, Keys.Confirm):
 			val := strings.TrimSpace(m.input.Value())
 			if val == "" {
 				m.errMsg = "PR number is required"
@@ -375,12 +401,10 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case viewSettings:
-		return m.handleSettingsKey(key, msg)
+		return m.handleSettingsKey(msg.String(), msg)
 
 	case viewHelp:
-		if key == "q" {
-			return m, tea.Quit
-		}
+		// Legacy full-screen help — redirect to overlay behaviour.
 		m.view = viewPRPicker
 		return m, nil
 	}
@@ -620,13 +644,29 @@ func (m model) View() string {
 	case viewSplash:
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, m.renderSplash())
 	case viewHelp:
-		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, m.renderHelp())
+		// Legacy full-screen help — redirect to overlay behaviour.
+		return m.renderHelpOverlay(w, h)
 	case viewSettings:
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, m.renderSettings())
 	case viewManualPR:
+		if m.showHelp {
+			return m.renderHelpOverlay(w, h)
+		}
 		return m.renderManualPR(w, h)
 	default:
+		if m.showHelp {
+			return m.renderHelpOverlay(w, h)
+		}
 		return m.renderPRPicker(w)
+	}
+}
+		return base
+	default:
+		base := m.renderPRPicker(w)
+		if m.showHelp {
+			return m.renderHelpOverlay(base, w, h)
+		}
+		return base
 	}
 }
 
@@ -767,17 +807,8 @@ func (m model) renderPRPicker(w int) string {
 	// ── Settings ribbon ───────────────────────────────────────────────────────
 	b.WriteString(m.renderRibbon(w))
 
-	// ── Key hints ─────────────────────────────────────────────────────────────
-	dot := styleMuted.Render(" " + IconSep + " ")
-	hints := strings.Join([]string{
-		renderKeyHint("enter", "launch"),
-		renderKeyHint("s", "settings"),
-		renderKeyHint("#", "type PR"),
-		renderKeyHint("r", "refresh"),
-		renderKeyHint("?", "help"),
-		renderKeyHint("q", "quit"),
-	}, dot)
-	b.WriteString("\n  " + hints)
+	// ── Key hints via bubbles/help ────────────────────────────────────────────
+	b.WriteString("\n  " + m.help.View(Keys))
 
 	return b.String()
 }
@@ -956,6 +987,7 @@ func (m model) renderHelp() string {
 	rows := []krow{
 		{"enter", "launch review cycle on selected PR"},
 		{"↑↓ / jk", "navigate PR list"},
+		{"g / G", "jump to top / bottom"},
 		{"s", "open settings"},
 		{"#", "type PR number manually"},
 		{"r", "refresh PR list from GitHub"},
@@ -971,4 +1003,20 @@ func (m model) renderHelp() string {
 	}
 
 	return helpStyle.Render(title + "\n\n" + strings.Join(lines, "\n"))
+}
+
+// renderHelpOverlay renders the bubbles/help overlay centered on the screen.
+func (m model) renderHelpOverlay(w, h int) string {
+	overlayStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(mauve).
+		Background(crust).
+		Padding(1, 3)
+
+	title := gradientString("KEYBOARD SHORTCUTS", mauve, lavender, true)
+	helpContent := m.help.View(Keys)
+	content := overlayStyle.Render(title + "\n\n" + helpContent + "\n\n" +
+		styleHintDesc.Render("press ? or esc to close"))
+
+	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, content)
 }
