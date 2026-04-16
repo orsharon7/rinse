@@ -277,7 +277,7 @@ if [[ "$begin_line" -ge "$end_line" ]]; then
 fi
 
 log "Committing optimized rules to ${MAIN_BRANCH}..."
-git -C "$WORKTREE_DIR" add AGENTS.md CLAUDE.md
+git -C "$WORKTREE_DIR" add AGENTS.md
 
 # Rough measure: lines removed (negative diff lines inside the rules section)
 lines_removed=$(git -C "$WORKTREE_DIR" diff --cached AGENTS.md \

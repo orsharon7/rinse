@@ -208,7 +208,7 @@ ${agents_current}
    - "Use X for Y"
    - "When Z, ensure W"
 
-3. Check the existing \`<!-- BEGIN:COPILOT-RULES -->\` section in each file (if present) and **do not duplicate rules that already exist there**.
+3. Check the existing \`<!-- BEGIN:COPILOT-RULES -->\` section in **${AGENTS_FILE}** (if present) and **do not duplicate rules that already exist there**.
 
 4. Update **${AGENTS_FILE}** by replacing the rules section between the markers (create the section if it doesn't exist):
 - Find \`<!-- BEGIN:COPILOT-RULES -->\` and \`<!-- END:COPILOT-RULES -->\` markers
@@ -279,7 +279,7 @@ if [[ -z "$changed" ]]; then
 fi
 
 log "Committing updated rules to ${MAIN_BRANCH}..."
-git -C "$WORKTREE_DIR" add AGENTS.md CLAUDE.md
+git -C "$WORKTREE_DIR" add AGENTS.md
 
 # Count new rule lines added (lines starting with "- " inside the COPILOT-RULES block)
 rules_added=$(git -C "$WORKTREE_DIR" diff --cached AGENTS.md \
