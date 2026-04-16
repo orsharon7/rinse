@@ -72,6 +72,11 @@ type model struct {
 
 	// final command
 	finalCmd []string
+
+	// footer status message (shown in footer bar; empty = idle)
+	statusMsg     string
+	statusIsError bool
+	itemCount     int // total PRs loaded
 }
 
 func initialModel() model {
@@ -220,6 +225,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case prListMsg:
 		m.prs = []pr(msg)
 		m.prLoading = false
+		m.itemCount = len(m.prs)
 		m.prCursor = 0
 		if m.currentBranch != "" {
 			for i, p := range m.prs {
@@ -616,18 +622,106 @@ func (m model) View() string {
 		h = 24
 	}
 
-	switch m.view {
-	case viewSplash:
+	// Splash screen occupies the full terminal — no header/footer.
+	if m.view == viewSplash {
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, m.renderSplash())
-	case viewHelp:
-		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, m.renderHelp())
-	case viewSettings:
-		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, m.renderSettings())
-	case viewManualPR:
-		return m.renderManualPR(w, h)
-	default:
-		return m.renderPRPicker(w)
 	}
+
+	header := m.renderHeader(w)
+	footer := m.renderFooter(w)
+	headerH := lipgloss.Height(header)
+	footerH := lipgloss.Height(footer)
+	contentH := h - headerH - footerH
+	if contentH < 1 {
+		contentH = 1
+	}
+
+	var content string
+	switch m.view {
+	case viewHelp:
+		content = lipgloss.Place(w, contentH, lipgloss.Center, lipgloss.Center, m.renderHelp())
+	case viewSettings:
+		content = lipgloss.Place(w, contentH, lipgloss.Center, lipgloss.Center, m.renderSettings())
+	case viewManualPR:
+		content = m.renderManualPR(w, contentH)
+	default:
+		content = m.renderPRPicker(w)
+		// Pad content to exactly contentH lines.
+		got := lipgloss.Height(content)
+		if got < contentH {
+			content += strings.Repeat("\n", contentH-got)
+		}
+	}
+
+	return header + "\n" + content + footer
+}
+
+// renderHeader renders the 1-line persistent header bar.
+//
+//	rinse™ RINSE ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱ v1.x.x
+func (m model) renderHeader(w int) string {
+	brand := renderCompactBrandWithDetails(w, m.headerDetails())
+	return styleAppHeader.Width(w).Render(brand)
+}
+
+// headerDetails returns the contextual info shown right of the logo in the header.
+func (m model) headerDetails() string {
+	if m.repo != "" {
+		branch := m.currentBranch
+		if branch == "" {
+			branch = m.defaultBranch
+		}
+		return m.repo + " • " + branch
+	}
+	return ""
+}
+
+// renderFooter renders the 1-line persistent footer bar.
+//
+//	✓ Last action: ok    │ 3/18 items │ ?:help  q:quit  r:refresh
+func (m model) renderFooter(w int) string {
+	// Left: status message or idle indicator.
+	var statusPart string
+	if m.statusMsg != "" {
+		icon := IconCheck
+		st := styleFooterStatus
+		if m.statusIsError {
+			icon = IconCross
+			st = styleFooterStatusErr
+		}
+		statusPart = st.Render(icon + " " + m.statusMsg)
+	} else {
+		statusPart = styleFooterMuted.Render("ready")
+	}
+
+	// Centre: item count (only when PR list is loaded).
+	var countPart string
+	if m.itemCount > 0 && !m.prLoading {
+		cur := m.prCursor + 1
+		if len(m.prs) == 0 {
+			cur = 0
+		}
+		countPart = styleFooterMuted.Render(fmt.Sprintf("%d/%d items", cur, m.itemCount))
+	}
+
+	// Right: key hints.
+	hintPart := styleFooterHint.Render("?:help  q:quit  r:refresh")
+
+	// Compose: left  ···  centre  ···  right (space-pad to w).
+	left := statusPart
+	right := hintPart
+	if countPart != "" {
+		right = countPart + "  " + hintPart
+	}
+
+	leftW := lipgloss.Width(left)
+	rightW := lipgloss.Width(right)
+	gap := w - leftW - rightW - 2 // 2 for side padding
+	if gap < 1 {
+		gap = 1
+	}
+	bar := left + strings.Repeat(" ", gap) + right
+	return styleAppFooter.Width(w).Render(bar)
 }
 
 // ── Splash screen ─────────────────────────────────────────────────────────────
@@ -672,17 +766,6 @@ func (m model) renderSplash() string {
 
 func (m model) renderPRPicker(w int) string {
 	var b strings.Builder
-
-	// ── Compact brand header ──────────────────────────────────────────────────
-	details := ""
-	if m.repo != "" {
-		details = m.repo
-		if m.currentBranch != "" {
-			details += " " + IconSep + " " + m.currentBranch
-		}
-	}
-	b.WriteString(renderCompactBrandWithDetails(w, details))
-	b.WriteString("\n\n")
 
 	// ── PR list ───────────────────────────────────────────────────────────────
 	if m.prLoading {
@@ -819,10 +902,6 @@ func (m model) renderRibbon(w int) string {
 
 func (m model) renderManualPR(w, h int) string {
 	var b strings.Builder
-
-	// Brand header
-	b.WriteString(renderCompactBrand(w))
-	b.WriteString("\n\n")
 
 	b.WriteString(styleStep.Render("  Enter PR number"))
 	b.WriteString("\n\n")
