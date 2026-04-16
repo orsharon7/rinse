@@ -229,7 +229,7 @@ esac
 
 # ─── Validate agent output ────────────────────────────────────────────────────
 
-changed=$(git -C "$WORKTREE_DIR" status --porcelain AGENTS.md)
+changed=$(git -C "$WORKTREE_DIR" status --porcelain AGENTS.md CLAUDE.md)
 
 if [[ $agent_exit -ne 0 ]]; then
   if [[ -n "$changed" ]]; then
@@ -277,9 +277,13 @@ if [[ "$begin_line" -ge "$end_line" ]]; then
   exit 1
 fi
 
+ensure_claude_symlink "$WORKTREE_DIR"
 log "Committing optimized rules to ${MAIN_BRANCH}..."
 git -C "$WORKTREE_DIR" add AGENTS.md
-if [[ -L "$WORKTREE_DIR/CLAUDE.md" ]]; then
+# If ensure_claude_symlink created or repaired the CLAUDE.md symlink, stage it too
+# so the fix is persisted rather than silently discarded on worktree cleanup.
+if [[ -L "$WORKTREE_DIR/CLAUDE.md" ]] && \
+   [[ -n "$(git -C "$WORKTREE_DIR" status --porcelain -- CLAUDE.md)" ]]; then
   git -C "$WORKTREE_DIR" add CLAUDE.md
 fi
 

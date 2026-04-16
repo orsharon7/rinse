@@ -6,8 +6,8 @@
 # Ensures CLAUDE.md in the given directory is a valid symlink pointing to
 # AGENTS.md. If it exists as a regular file or points elsewhere, it is replaced.
 #
-# Requires a `log` function in scope (provided by the sourcing script).
-# If no `log` function is available, messages fall back to `echo`.
+# Uses a `log` function from the sourcing script when available.
+# If no `log` function is defined, messages fall back to `echo`.
 
 # Internal logging: use caller's log() if available, else echo.
 _symlink_log() {
