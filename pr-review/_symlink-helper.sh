@@ -10,7 +10,13 @@
 # If no `log` function is available, messages fall back to `echo`.
 
 # Internal logging: use caller's log() if available, else echo.
-_symlink_log() { command -v log >/dev/null 2>&1 && log "$@" || echo "$@"; }
+_symlink_log() {
+  if declare -F log >/dev/null 2>&1; then
+    log "$@"
+  else
+    echo "$@"
+  fi
+}
 
 ensure_claude_symlink() {
   local worktree_dir="$1"
