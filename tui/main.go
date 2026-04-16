@@ -207,24 +207,24 @@ func initialModel() model {
 	}
 
 	ti := textinput.New()
-	ti.Cursor.Style = lipgloss.NewStyle().Foreground(colorMauve)
-	ti.PromptStyle = lipgloss.NewStyle().Foreground(colorMauve)
-	ti.TextStyle = lipgloss.NewStyle().Foreground(colorText)
+	ti.Cursor.Style = styleTextInputCursor
+	ti.PromptStyle = styleTextInputPrompt
+	ti.TextStyle = styleTextInputText
 	ti.Prompt = "  PR# ❯ "
 	ti.CharLimit = 10
 	ti.Placeholder = "e.g. 42"
 
 	mi := textinput.New()
-	mi.Cursor.Style = lipgloss.NewStyle().Foreground(colorMauve)
-	mi.PromptStyle = lipgloss.NewStyle().Foreground(colorMauve)
-	mi.TextStyle = lipgloss.NewStyle().Foreground(colorText)
+	mi.Cursor.Style = styleTextInputCursor
+	mi.PromptStyle = styleTextInputPrompt
+	mi.TextStyle = styleTextInputText
 	mi.Prompt = "  ❯ "
 	mi.CharLimit = 80
 
 	bi := textinput.New()
-	bi.Cursor.Style = lipgloss.NewStyle().Foreground(colorMauve)
-	bi.PromptStyle = lipgloss.NewStyle().Foreground(colorMauve)
-	bi.TextStyle = lipgloss.NewStyle().Foreground(colorText)
+	bi.Cursor.Style = styleTextInputCursor
+	bi.PromptStyle = styleTextInputPrompt
+	bi.TextStyle = styleTextInputText
 	bi.Prompt = "  ❯ "
 	bi.CharLimit = 80
 
@@ -746,7 +746,7 @@ func (m model) renderPRPicker(w int) string {
 				if isCurrent {
 					sBranch = styleTeal.Bold(true).Render(fmt.Sprintf("%-*s", branchW, branch))
 				}
-				sTitle := lipgloss.NewStyle().Foreground(colorText).Render(title)
+				sTitle := stylePRTitle.Render(title)
 				marker := ""
 				if isCurrent {
 					marker = styleTeal.Render(" ←")
@@ -927,11 +927,6 @@ func (m model) renderSettings() string {
 // ── Help overlay ──────────────────────────────────────────────────────────────
 
 func (m model) renderHelp() string {
-	helpStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorMauve).
-		Padding(1, 4)
-
 	title := styleStep.Render("keyboard shortcuts")
 
 	type krow struct{ key, desc string }
@@ -951,7 +946,7 @@ func (m model) renderHelp() string {
 			styleMuted.Render(fmt.Sprintf("%-10s", r.key))+"  "+styleVal.Render(r.desc))
 	}
 
-	return helpStyle.Render(title + "\n\n" + strings.Join(lines, "\n"))
+	return styleHelpBox.Render(title + "\n\n" + strings.Join(lines, "\n"))
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

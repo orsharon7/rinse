@@ -2,45 +2,29 @@ package main
 
 // styles.go — unified Catppuccin Mocha colour palette and lipgloss styles.
 //
-// All TUI files import from this file. No raw hex strings are allowed elsewhere.
+// All TUI files should reference the palette and styles defined here.
+// No raw hex strings are allowed elsewhere.
 
 import "github.com/charmbracelet/lipgloss"
 
-// ── Catppuccin Mocha palette ──────────────────────────────────────────────────
+// ── Catppuccin Mocha palette (core subset used by RINSE) ─────────────────────
+// Full palette: https://github.com/catppuccin/catppuccin#-palettes
 
 var (
-	colorMauve   = lipgloss.Color("#CBA6F7")
+	colorMauve    = lipgloss.Color("#CBA6F7")
 	colorLavender = lipgloss.Color("#B4BEFE")
-	colorTeal    = lipgloss.Color("#94E2D5")
-	colorSky     = lipgloss.Color("#89DCEB")
-	colorGreen   = lipgloss.Color("#A6E3A1")
-	colorPeach   = lipgloss.Color("#FAB387")
-	colorYellow  = lipgloss.Color("#F9E2AF")
-	colorRed     = lipgloss.Color("#F38BA8")
+	colorTeal     = lipgloss.Color("#94E2D5")
+	colorSky      = lipgloss.Color("#89DCEB")
+	colorGreen    = lipgloss.Color("#A6E3A1")
+	colorPeach    = lipgloss.Color("#FAB387")
+	colorYellow   = lipgloss.Color("#F9E2AF")
+	colorRed      = lipgloss.Color("#F38BA8")
 
-	colorText     = lipgloss.Color("#CDD6F4")
-	colorSubtext  = lipgloss.Color("#BAC2DE")
-	colorOverlay  = lipgloss.Color("#6C7086")
-	colorSurface  = lipgloss.Color("#313244")
-	colorCrust    = lipgloss.Color("#11111B")
-)
-
-// ── Semantic aliases (required by the issue spec) ─────────────────────────────
-// These six names should be used throughout the TUI for semantic colouring.
-
-var (
-	// Primary is the primary accent colour (mauve).
-	Primary = lipgloss.NewStyle().Foreground(colorMauve)
-	// Secondary is a softer accent (lavender).
-	Secondary = lipgloss.NewStyle().Foreground(colorLavender)
-	// Accent is the highlight colour (teal).
-	Accent = lipgloss.NewStyle().Foreground(colorTeal)
-	// Muted is the de-emphasised text colour (overlay).
-	Muted = lipgloss.NewStyle().Foreground(colorOverlay)
-	// Error is the error colour (red).
-	Error = lipgloss.NewStyle().Foreground(colorRed)
-	// Success is the success colour (green).
-	Success = lipgloss.NewStyle().Foreground(colorGreen)
+	colorText    = lipgloss.Color("#CDD6F4")
+	colorSubtext = lipgloss.Color("#BAC2DE")
+	colorOverlay = lipgloss.Color("#6C7086")
+	colorSurface = lipgloss.Color("#313244")
+	colorCrust   = lipgloss.Color("#11111B")
 )
 
 // ── Shared component styles ────────────────────────────────────────────────────
@@ -57,14 +41,17 @@ var (
 	styleVal = lipgloss.NewStyle().Foreground(colorLavender).Bold(true)
 
 	// Common semantic utilities
-	styleMuted    = lipgloss.NewStyle().Foreground(colorOverlay)
-	styleStep     = lipgloss.NewStyle().Foreground(colorMauve).Bold(true)
-	styleErr      = lipgloss.NewStyle().Foreground(colorRed)
-	styleTeal     = lipgloss.NewStyle().Foreground(colorTeal).Bold(true)
+	styleMuted = lipgloss.NewStyle().Foreground(colorOverlay)
+	styleStep  = lipgloss.NewStyle().Foreground(colorMauve).Bold(true)
+	styleErr   = lipgloss.NewStyle().Foreground(colorRed)
+	styleTeal  = lipgloss.NewStyle().Foreground(colorTeal).Bold(true)
 
 	// PR list selection states
 	styleSelected   = lipgloss.NewStyle().Foreground(colorMauve).Bold(true)
 	styleUnselected = lipgloss.NewStyle().Foreground(colorSubtext)
+
+	// PR title in the picker (selected state)
+	stylePRTitle = lipgloss.NewStyle().Foreground(colorText)
 
 	// Settings / help box borders
 	styleRibbon = lipgloss.NewStyle().
@@ -78,6 +65,26 @@ var (
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(colorMauve).
 		Padding(1, 3)
+
+	// Text input field styles (cursor, prompt, text) — applied to all textinput.Model instances.
+	styleTextInputCursor = lipgloss.NewStyle().Foreground(colorMauve)
+	styleTextInputPrompt = lipgloss.NewStyle().Foreground(colorMauve)
+	styleTextInputText   = lipgloss.NewStyle().Foreground(colorText)
+
+	// Monitor spinner and viewport
+	styleSpinner  = lipgloss.NewStyle().Foreground(colorMauve)
+	styleViewport = lipgloss.NewStyle().Foreground(colorText)
+
+	// Help overlay and post-cycle menu box
+	styleHelpBox = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorMauve).
+		Padding(1, 4)
+
+	styleMenuBox = lipgloss.NewStyle().
+		Border(lipgloss.DoubleBorder()).
+		BorderForeground(colorTeal).
+		Padding(1, 4)
 )
 
 // ── Monitor-specific styles ───────────────────────────────────────────────────

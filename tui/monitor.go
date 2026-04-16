@@ -185,10 +185,10 @@ type monitorModel struct {
 func newMonitorModel(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge bool, cmd *exec.Cmd) monitorModel {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
-	sp.Style = lipgloss.NewStyle().Foreground(colorMauve)
+	sp.Style = styleSpinner
 
 	vp := viewport.New(80, 20)
-	vp.Style = lipgloss.NewStyle().Foreground(colorText)
+	vp.Style = styleViewport
 
 	// Try to detect default branch from local git; fall back to "main".
 	defaultBr := detectLocalDefaultBranch(cwd)
@@ -358,11 +358,6 @@ func wrapLine(s string, w int) []string {
 // ── Help overlay ──────────────────────────────────────────────────────────────
 
 func (m monitorModel) renderHelp() string {
-	helpStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorMauve).
-		Padding(1, 4)
-
 	title := styleStep.Render("keyboard shortcuts")
 
 	type krow struct{ key, desc string }
@@ -383,7 +378,7 @@ func (m monitorModel) renderHelp() string {
 			styleMuted.Render(fmt.Sprintf("%-10s", r.key))+"  "+styleVal.Render(r.desc))
 	}
 
-	return helpStyle.Render(title + "\n\n" + strings.Join(lines, "\n"))
+	return styleHelpBox.Render(title + "\n\n" + strings.Join(lines, "\n"))
 }
 
 // ── Update ────────────────────────────────────────────────────────────────────
@@ -1058,11 +1053,6 @@ func (m monitorModel) renderIterTimeline() string {
 
 // renderPostCycleMenu renders the centered Bubble Tea post-cycle action menu.
 func (m monitorModel) renderPostCycleMenu() string {
-	menuStyle := lipgloss.NewStyle().
-		Border(lipgloss.DoubleBorder()).
-		BorderForeground(colorTeal).
-		Padding(1, 4)
-
 	title := styleTeal.Render("✅  PR ready to merge — what would you like to do?")
 
 	var lines []string
@@ -1076,7 +1066,7 @@ func (m monitorModel) renderPostCycleMenu() string {
 
 	hint := styleMuted.Render("\n  ↑↓ / jk to move · enter to confirm · q to quit")
 	content := title + "\n\n" + strings.Join(lines, "\n") + hint
-	return menuStyle.Render(content)
+	return styleMenuBox.Render(content)
 }
 
 // renderReflectPanel builds the right-side reflection panel with word-wrapped entries.
