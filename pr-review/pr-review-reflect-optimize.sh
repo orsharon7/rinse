@@ -129,7 +129,9 @@ git -C "$CWD" worktree add --detach "$WORKTREE_DIR" "origin/${MAIN_BRANCH}" 2>&1
 
 AGENTS_FILE="${WORKTREE_DIR}/AGENTS.md"
 
-# Ensure CLAUDE.md is a symlink pointing to AGENTS.md for Claude Code compatibility
+# Ensure CLAUDE.md is a symlink pointing to AGENTS.md for Claude Code compatibility.
+# Called here (before any early exits) so the symlink is always repaired in the
+# worktree, even if the script exits before reaching the commit stage.
 # shellcheck source=_symlink-helper.sh
 source "${SCRIPT_DIR}/_symlink-helper.sh"
 ensure_claude_symlink "$WORKTREE_DIR"
