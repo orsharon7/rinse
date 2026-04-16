@@ -353,6 +353,20 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
+		// When the help overlay is open: CloseHelp (esc/q) closes it; ForceQuit (ctrl+c) always quits.
+		if m.showHelp {
+			if key.Matches(msg, Keys.CloseHelp) {
+				m.showHelp = false
+			} else if key.Matches(msg, Keys.ForceQuit) {
+				if m.cmd != nil && m.cmd.Process != nil {
+					_ = m.cmd.Process.Kill()
+				}
+				return m, tea.Quit
+			}
+			return m, nil
+		}
+
+		// Outside the help overlay: q or ctrl+c quits.
 		if key.Matches(msg, Keys.Quit) {
 			if m.cmd != nil && m.cmd.Process != nil {
 				_ = m.cmd.Process.Kill()
@@ -365,9 +379,7 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if key.Matches(msg, Keys.Help) {
-			m.showHelp = !m.showHelp
-		} else if m.showHelp {
-			m.showHelp = false
+			m.showHelp = true
 		} else {
 			switch msg.String() {
 			case "G":
