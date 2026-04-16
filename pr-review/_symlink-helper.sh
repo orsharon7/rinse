@@ -35,14 +35,14 @@ ensure_claude_symlink() {
     if [[ "$_target" != "AGENTS.md" ]]; then
       _symlink_log "CLAUDE.md symlink points to '${_target}' instead of 'AGENTS.md' — recreating"
       rm -f -- "$_claude_md"
-      ln -sf -- AGENTS.md "$_claude_md"
+      ln -sf AGENTS.md "$_claude_md"
     fi
   elif [[ -e "$_claude_md" ]]; then
     _symlink_log "CLAUDE.md exists as a regular file — replacing with symlink"
     rm -f -- "$_claude_md"
-    ln -sf -- AGENTS.md "$_claude_md"
+    ln -sf AGENTS.md "$_claude_md"
   else
-    ln -sf -- AGENTS.md "$_claude_md"
+    ln -sf AGENTS.md "$_claude_md"
     _symlink_log "Created CLAUDE.md → AGENTS.md symlink"
   fi
 }
