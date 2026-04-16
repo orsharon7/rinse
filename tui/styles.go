@@ -7,8 +7,10 @@ package main
 
 import "github.com/charmbracelet/lipgloss"
 
-// ── Catppuccin Mocha palette (core subset used by RINSE) ─────────────────────
-// Full palette: https://github.com/catppuccin/catppuccin#-palettes
+// ── Catppuccin Mocha palette (intentional subset used by RINSE) ───────────────
+// Only the tokens actively used in the TUI are declared here; the full Mocha
+// spec is at https://github.com/catppuccin/catppuccin#-palettes
+// Add tokens here as needed — never introduce raw hex strings elsewhere.
 
 var (
 	colorMauve    = lipgloss.Color("#CBA6F7")
