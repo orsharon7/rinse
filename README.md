@@ -326,6 +326,26 @@ Example:
 
 ---
 
+## Contributing
+
+Contributions are welcome!
+
+1. **Fork** the repo and create a feature branch: `git checkout -b feat/my-change`
+2. Make your changes. Keep scripts POSIX-compatible where possible; bash-specific features are fine where already used.
+3. **Test** against a real PR with `./pr-review-launch.sh` or direct runner invocation.
+4. Open a **Pull Request** — Copilot will review it automatically via `pr-review-opencode.sh`.
+5. Address any Copilot comments (the `--reflect` flag will update `AGENTS.md` / `CLAUDE.md` automatically for future sessions).
+
+### Dev tips
+
+- All scripts are in `pr-review/`. The TUI source is in `tui/` (Go ≥ 1.24).
+- Run `make` inside `tui/` to build the binary locally.
+- Log output goes to `~/.pr-review-*.log` — check there first when debugging.
+- Use `--dry-run` on any runner to inspect startup state without making API calls.
+- `AGENTS.md` and `CLAUDE.md` at the repo root carry coding rules that AI agents load automatically. If you notice a pattern worth encoding, add a rule there.
+
+---
+
 ## License
 
 MIT

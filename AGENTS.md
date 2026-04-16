@@ -5,7 +5,7 @@ Project instructions for AI coding agents.
 <!-- BEGIN:COPILOT-RULES -->
 ## Coding Guidelines (AI-maintained)
 *Auto-updated by pr-review-reflect — do not edit this section manually.*
-*Last updated: 2026-04-14 from PR #19 review (optimized)*
+*Last updated: 2026-04-15 from PR #22 review*
 
 ### Shell Scripting
 - Read interactive input from `/dev/tty`; render UI output to stderr.
@@ -29,6 +29,7 @@ Project instructions for AI coding agents.
 - Validate env vars used in numeric comparisons (e.g. `MAX_CONCURRENT`) as integers ≥ 1 at startup.
 - Surface subprocess errors from that component's dedicated log, not a shared interleaved log.
 - Under `set -u`, guard associative array reads with `[[ -v arr[$key] ]]` or `${arr[$key]:-}`; return early when absent.
+- When a script mutates multiple files that must be committed together, include all of them in the `git status --porcelain` change-detection check; checking only a subset risks a silent early-exit that leaves other mutated files uncommitted.
 
 ### Environment & CI Portability
 - Validate all required env vars (including integer ones) before constructing paths/commands; keep error messages in sync with checks.
@@ -39,15 +40,26 @@ Project instructions for AI coding agents.
 - Keep README file trees, artifact references, and prerequisites (`go.mod`/`package.json`, tool versions) in sync; remove stale references on rename/delete.
 - Match behavior exactly: no false "skips silently", no phantom methods. Match enum names, argument names, and code-example signatures exactly — mismatches cause silent copy-paste breakage.
 - Keep architecture diagrams and ADRs in sync with actual SDK/API call paths. Reconcile contradicting sections against actual imports; phrase design assertions as intent, not fact.
+- User-facing documentation must use standard prose conventions: sentences start with a capital letter, proper nouns (tool names, products) are capitalized consistently.
 
 ### CLI, Installers & Packaging
 - Optional parameters default to empty; include flags only when the user provides a value.
 - Installer wrappers using absolute paths must bundle those helpers or document the dependency.
+- When renaming a binary or artifact, update all installer scripts, launchers, and cross-references atomically in the same change.
+- Build commands in documentation and install hints must include all flags required for a correct build (e.g. `-ldflags -X main.version=...` for version injection); a bare `go build` without `-ldflags` embeds wrong metadata that `--version` will expose.
+- Installer scripts must pass all required build flags (e.g. `-ldflags`) on every code path, including fallback/alternative branches; a fallback that omits version-injection flags silently produces binaries reporting wrong metadata.
 
 ### TUI & Layout
 - Use a single shared predicate per logical event; never duplicate format-detection logic.
 - Layout-guard and render-guard must agree: clamp widget dimensions to ≥ 0; apply terminal-width fallback only when uninitialized. Account for all separator variants (ASCII `|` and box-drawing `│`) when trimming.
 - Document helper return-value semantics (inner vs. outer width); apply border/padding at the call site. Gate input routing and focus to the active interaction mode. Use the active item (not hardcoded `[0]`) when resolving paths or scripts.
+- Render functions must never return a string wider than their `width` argument; clamp all computed sub-widths to `max(0, width-used)` and treat negative space as 0 rather than substituting a forced minimum.
+- When content inherently exceeds `width` (i.e. `lipgloss.Width(content) > width`), truncate the content or return a shorter fallback — clamping padding or fill is not sufficient to prevent overflow in narrow terminals.
+- Every view/mode must handle all globally advertised keybindings (e.g. quit) consistently; never let an overlay or sub-view silently swallow a key that the help text promises will work.
+- Overlay/modal dismiss keys (e.g. `q`) must close the overlay and return to the parent view, not terminate the program; reserve program-quit for an explicitly separate binding (e.g. `ctrl+c`).
+- Never enforce per-column minimum widths when their sum exceeds the total available space; check first whether available space accommodates all minimums, and if not, shrink proportionally or fall back to a single-column layout.
+- Never use a fixed character-width constant for any column in a multi-column layout; derive all column widths from the available `w` (or fall back to a compact single-column layout below a minimum threshold).
+- When computing a layout dimension from a collection of lines or items, use the maximum visual width across all members (e.g. `lipgloss.Width`); never use a single element as a proxy for the group width.
 
 ### UI & State Management
 - Persist final item state on the data object (e.g. `finalStatus`); never derive display state from a mutable run-scoped map. Apply streaming styling only to actively streaming items.
@@ -58,7 +70,9 @@ Project instructions for AI coding agents.
 
 ### Go
 - **Performance:** Use `strings.Builder`; never `+=` in a loop. Pre-compute repeated expressions before loops.
-- **Error handling:** Return errors to `main()` — never `os.Exit()` inside a UI lifecycle. Prefer `strings.Cut()` over `strings.Index()`. Always check `scanner.Err()` after `bufio.Scanner` loops.
+- **Error handling:** Return errors to `main()` — never `os.Exit()` inside a UI lifecycle. Prefer `strings.Cut()` over `strings.Index()`. Always check `scanner.Err()` after `bufio.Scanner` loops. Never set `err: nil` or use a success indicator in an action result message when the underlying operation failed — always propagate the actual error. Never pair a success icon/symbol with a non-nil error in a result struct; when `err != nil`, use a failure icon so that visual output and error state agree.
+- **Filesystem migration:** Use `os.IsNotExist(err)` to gate path migration or fallback logic; surface (don't swallow) all other `os.Stat` errors such as permission failures. When `os.Stat(newPath)` fails for a non-NotExist reason, fall back to `oldPath` if it exists rather than silently returning `newPath` — permission/mount errors must not cause silent config loss.
+- **Format parsing:** Always check both the error and the scanned-item count from `fmt.Sscanf`/`fmt.Sscanf`-family calls; a partial scan returns no error but produces zero values, causing silent data corruption (e.g. colors rendered as black).
 - **Safety:** Use pointers for non-copy-safe types (`strings.Builder`, `sync.Mutex`) in frequently-copied structs. Drain data channels before acting on a done-channel signal.
 - **Module hygiene:** Run `go mod tidy` before committing; direct imports must not be `// indirect`. Every `-X pkg.Symbol=value` LDFLAGS symbol must be declared as a `var`. No unreferenced package-level identifiers. Use `filepath.Dir()`/`filepath.Join()`; rune-aware truncation for user-visible strings.
 - **Config & maps:** Initialize fields most-specific-first (per-repo before global). Use explicit `ok` from map lookup; never treat zero values as "unset". Use scoped values verbatim; never merge with globals via `||`. Never persist a field without reading it back. Guard map writes against empty keys; parse input into canonical form before deriving values.
@@ -91,5 +105,6 @@ Project instructions for AI coding agents.
 - When a script writes identical content to multiple files, add a post-write comparison (`cmp -s <(extract A) <(extract B)`) and fail loudly on divergence. Never use `$()` string equality for section comparison — bash strips trailing newlines; use `cmp -s` instead.
 - On validation failure, revert affected files (`git checkout -- <file>`) and abort; never continue with a corrupt section.
 - After any agent/subprocess run that may modify tracked files, assert pre-existing files still exist; revert and abort if missing.
+- After any agent/subprocess run, re-assert the full filesystem invariant of critical files — not just existence but also file type (e.g. symlink vs regular file); revert and abort if the type changed unexpectedly.
 
 <!-- END:COPILOT-RULES -->
