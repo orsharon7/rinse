@@ -277,6 +277,11 @@ if [[ -z "$changed" ]]; then
   exit 0
 fi
 
+if [[ ! -f "$WORKTREE_DIR/AGENTS.md" ]]; then
+  log "❌ AGENTS.md no longer exists after agent execution; it may have been deleted or renamed. Refusing to stage/commit."
+  exit 1
+fi
+
 log "Committing updated rules to ${MAIN_BRANCH}..."
 git -C "$WORKTREE_DIR" add AGENTS.md
 
