@@ -277,6 +277,7 @@ if [[ "$begin_line" -ge "$end_line" ]]; then
   exit 1
 fi
 
+ensure_claude_symlink "$WORKTREE_DIR"
 log "Committing optimized rules to ${MAIN_BRANCH}..."
 
 # Re-enforce the symlink invariant immediately before staging so any agent
