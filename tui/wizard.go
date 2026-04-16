@@ -657,6 +657,9 @@ func (m model) View() string {
 		}
 	}
 
+	if strings.HasSuffix(content, "\n") {
+		return header + "\n" + content + footer
+	}
 	return header + "\n" + content + "\n" + footer
 }
 
@@ -730,9 +733,10 @@ func (m model) renderFooter(w int) string {
 		w = 80
 	}
 
-	// styleAppFooter contributes 2 cells of side padding, so content must fit
-	// within the remaining width with at least one space between left and right.
-	contentW := w - 2
+	// Derive the available content width from the footer style's horizontal
+	// frame so layout stays in sync with any padding/border theme changes.
+	frameW := styleAppFooter.GetHorizontalFrameSize()
+	contentW := w - frameW
 	if contentW <= 1 {
 		return styleAppFooter.Width(w).Render("")
 	}
