@@ -302,7 +302,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// ctrl+c always quits
-	if key.Matches(msg, Keys.Quit) && msg.String() == "ctrl+c" {
+	if key.Matches(msg, Keys.ForceQuit) {
 		return m, tea.Quit
 	}
 
@@ -316,7 +316,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Close the overlay with esc/q without quitting when it's open.
 	if m.showHelp {
-		if key.Matches(msg, Keys.Back) {
+		if key.Matches(msg, Keys.CloseHelp) {
 			m.showHelp = false
 			m.help.ShowAll = false
 		}
@@ -381,7 +381,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case viewManualPR:
 		switch {
-		case key.Matches(msg, Keys.Back) && msg.String() == "esc":
+		case key.Matches(msg, Keys.Back):
 			m.view = viewPRPicker
 			m.errMsg = ""
 			return m, nil
@@ -648,6 +648,9 @@ func (m model) View() string {
 		// Legacy full-screen help — redirect to overlay behaviour.
 		return m.renderHelpOverlay(w, h)
 	case viewSettings:
+		if m.showHelp {
+			return m.renderHelpOverlay(w, h)
+		}
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, m.renderSettings())
 	case viewManualPR:
 		if m.showHelp {
@@ -1008,7 +1011,7 @@ func (m model) renderHelpOverlay(w, h int) string {
 	title := gradientString("KEYBOARD SHORTCUTS", mauve, lavender, true)
 	helpContent := m.help.View(Keys)
 	content := overlayStyle.Render(title + "\n\n" + helpContent + "\n\n" +
-		styleHintDesc.Render("press ? or esc to close"))
+		styleHintDesc.Render("press ?, q, or esc to close"))
 
 	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, content)
 }

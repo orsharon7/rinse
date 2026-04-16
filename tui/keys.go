@@ -10,19 +10,21 @@ import (
 // KeyMap holds all keybindings used across RINSE views. All key matching MUST
 // go through this struct — no raw string comparisons in Update handlers.
 type KeyMap struct {
-	Up      key.Binding
-	Down    key.Binding
-	Top     key.Binding
-	Bottom  key.Binding
-	Confirm key.Binding
-	Back    key.Binding
-	Quit    key.Binding
-	Refresh key.Binding
-	Help    key.Binding
-	Filter  key.Binding
+	Up         key.Binding
+	Down       key.Binding
+	Top        key.Binding
+	Bottom     key.Binding
+	Confirm    key.Binding
+	Back       key.Binding
+	CloseHelp  key.Binding
+	Quit       key.Binding
+	ForceQuit  key.Binding
+	Refresh    key.Binding
+	Help       key.Binding
+	Filter     key.Binding
 	// Wizard-specific
-	Settings  key.Binding
-	ManualPR  key.Binding
+	Settings key.Binding
+	ManualPR key.Binding
 }
 
 // Keys is the global singleton KeyMap used by all views.
@@ -48,12 +50,20 @@ var Keys = KeyMap{
 		key.WithHelp("enter", "select"),
 	),
 	Back: key.NewBinding(
+		key.WithKeys("esc"),
+		key.WithHelp("esc", "back"),
+	),
+	CloseHelp: key.NewBinding(
 		key.WithKeys("esc", "q"),
-		key.WithHelp("esc/q", "back/quit"),
+		key.WithHelp("esc/q", "close help"),
 	),
 	Quit: key.NewBinding(
-		key.WithKeys("ctrl+c", "q"),
+		key.WithKeys("q", "ctrl+c"),
 		key.WithHelp("q/ctrl+c", "quit"),
+	),
+	ForceQuit: key.NewBinding(
+		key.WithKeys("ctrl+c"),
+		key.WithHelp("ctrl+c", "quit"),
 	),
 	Refresh: key.NewBinding(
 		key.WithKeys("r"),
@@ -87,7 +97,7 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Top, k.Bottom},
 		{k.Confirm, k.Settings, k.ManualPR, k.Refresh},
-		{k.Help, k.Back},
+		{k.Help, k.Back, k.Quit},
 	}
 }
 
