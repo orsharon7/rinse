@@ -128,23 +128,9 @@ git -C "$CWD" worktree add --detach "$WORKTREE_DIR" "origin/${MAIN_BRANCH}" 2>&1
 AGENTS_FILE="${WORKTREE_DIR}/AGENTS.md"
 
 # Ensure CLAUDE.md is a symlink pointing to AGENTS.md for Claude Code compatibility
-_claude_md="${WORKTREE_DIR}/CLAUDE.md"
-if [[ -L "$_claude_md" ]]; then
-  _target=$(readlink "$_claude_md")
-  if [[ "$_target" != "AGENTS.md" ]]; then
-    log "CLAUDE.md symlink points to '${_target}' instead of 'AGENTS.md' — recreating"
-    rm -f "$_claude_md"
-    ln -sf AGENTS.md "$_claude_md"
-  fi
-elif [[ -e "$_claude_md" ]]; then
-  log "CLAUDE.md exists as a regular file — replacing with symlink"
-  rm -f "$_claude_md"
-  ln -sf AGENTS.md "$_claude_md"
-else
-  ln -sf AGENTS.md "$_claude_md"
-  log "Created CLAUDE.md → AGENTS.md symlink"
-fi
-unset _claude_md _target
+# shellcheck source=_symlink-helper.sh
+source "$(dirname "$0")/_symlink-helper.sh"
+ensure_claude_symlink "$WORKTREE_DIR"
 
 # ─── Check that the file has a COPILOT-RULES section ─────────────────────────
 
@@ -292,7 +278,7 @@ fi
 log "Committing optimized rules to ${MAIN_BRANCH}..."
 git -C "$WORKTREE_DIR" add AGENTS.md
 
-# Rough measure: lines removed (negative diff lines inside the rules section)
+# Rough measure: total removed lines in the staged AGENTS.md diff (repo-wide, not scoped to rules section)
 lines_removed=$(git -C "$WORKTREE_DIR" diff --cached AGENTS.md \
   | grep '^-' | grep -v '^---' | wc -l | tr -d ' ' 2>/dev/null || echo "?")
 

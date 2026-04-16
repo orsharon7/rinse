@@ -176,23 +176,9 @@ EOF
 fi
 
 # Ensure CLAUDE.md is a symlink pointing to AGENTS.md for Claude Code compatibility
-_claude_md="${WORKTREE_DIR}/CLAUDE.md"
-if [[ -L "$_claude_md" ]]; then
-  _target=$(readlink "$_claude_md")
-  if [[ "$_target" != "AGENTS.md" ]]; then
-    log "CLAUDE.md symlink points to '${_target}' instead of 'AGENTS.md' — recreating"
-    rm -f "$_claude_md"
-    ln -sf AGENTS.md "$_claude_md"
-  fi
-elif [[ -e "$_claude_md" ]]; then
-  log "CLAUDE.md exists as a regular file — replacing with symlink"
-  rm -f "$_claude_md"
-  ln -sf AGENTS.md "$_claude_md"
-else
-  ln -sf AGENTS.md "$_claude_md"
-  log "Created CLAUDE.md → AGENTS.md symlink"
-fi
-unset _claude_md _target
+# shellcheck source=_symlink-helper.sh
+source "$(dirname "$0")/_symlink-helper.sh"
+ensure_claude_symlink "$WORKTREE_DIR"
 
 # ─── Build reflection prompt ──────────────────────────────────────────────────
 
@@ -294,7 +280,7 @@ fi
 log "Committing updated rules to ${MAIN_BRANCH}..."
 git -C "$WORKTREE_DIR" add AGENTS.md
 
-# Count new rule lines added (lines starting with "- " inside the COPILOT-RULES block)
+# Count added markdown bullet lines (lines starting with "- ") in the staged AGENTS.md diff
 rules_added=$(git -C "$WORKTREE_DIR" diff --cached AGENTS.md \
   | grep '^+' | grep -v '^+++' | grep -c '^\+- ' 2>/dev/null || echo "0")
 
