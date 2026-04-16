@@ -401,7 +401,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case viewSettings:
-		return m.handleSettingsKey(msg.String(), msg)
+		return m.handleSettingsKey(msg)
 
 	case viewHelp:
 		// Legacy full-screen help — redirect to overlay behaviour.
@@ -434,7 +434,8 @@ func (m model) openSettings() (model, tea.Cmd) {
 	return m, nil
 }
 
-func (m model) handleSettingsKey(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
 	if m.settingsEditingModel {
 		switch key {
 		case "enter", "esc":
@@ -658,15 +659,6 @@ func (m model) View() string {
 			return m.renderHelpOverlay(w, h)
 		}
 		return m.renderPRPicker(w)
-	}
-}
-		return base
-	default:
-		base := m.renderPRPicker(w)
-		if m.showHelp {
-			return m.renderHelpOverlay(base, w, h)
-		}
-		return base
 	}
 }
 

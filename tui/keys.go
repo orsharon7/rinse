@@ -79,7 +79,7 @@ var Keys = KeyMap{
 
 // ShortHelp returns the short keybinding list for the compact help bar.
 func (k KeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Refresh, k.Settings, k.Help, k.Back}
+	return []key.Binding{k.Up, k.Down, k.Refresh, k.Settings, k.Help, k.Quit}
 }
 
 // FullHelp returns all keybindings for the expanded help overlay.
@@ -87,7 +87,7 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Top, k.Bottom},
 		{k.Confirm, k.Settings, k.ManualPR, k.Refresh},
-		{k.Filter, k.Help, k.Back},
+		{k.Help, k.Back},
 	}
 }
 
