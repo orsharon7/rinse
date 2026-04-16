@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -352,8 +353,7 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
-		key := msg.String()
-		if key == "ctrl+c" || key == "q" {
+		if key.Matches(msg, Keys.Quit) {
 			if m.cmd != nil && m.cmd.Process != nil {
 				_ = m.cmd.Process.Kill()
 			}
@@ -361,15 +361,15 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if m.showPostCycleMenu {
-			return m.handlePostCycleKey(key)
+			return m.handlePostCycleKey(msg)
 		}
 
-		if key == "?" {
+		if key.Matches(msg, Keys.Help) {
 			m.showHelp = !m.showHelp
 		} else if m.showHelp {
 			m.showHelp = false
 		} else {
-			switch key {
+			switch msg.String() {
 			case "G":
 				m.atBottom = true
 				m.viewport.GotoBottom()
@@ -613,20 +613,20 @@ func isReadyToMerge(plain string) bool {
 		(strings.Contains(plain, "APPROVED") && strings.Contains(plain, "PR"))
 }
 
-func (m monitorModel) handlePostCycleKey(key string) (tea.Model, tea.Cmd) {
+func (m monitorModel) handlePostCycleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	n := len(m.postCycleOptions)
-	switch key {
-	case "up", "k":
+	switch {
+	case key.Matches(msg, Keys.Up):
 		if m.postCycleCursor > 0 {
 			m.postCycleCursor--
 		}
-	case "down", "j":
+	case key.Matches(msg, Keys.Down):
 		if m.postCycleCursor < n-1 {
 			m.postCycleCursor++
 		}
-	case "enter":
+	case key.Matches(msg, Keys.Confirm):
 		return m.executePostCycleAction(m.postCycleCursor)
-	case "esc":
+	case key.Matches(msg, Keys.Back):
 		m.showPostCycleMenu = false
 		return m, nil
 	}

@@ -114,11 +114,14 @@ func (k KeyMap) ShortHelp() []key.Binding {
 }
 
 // FullHelp returns all keybindings for the expanded help overlay.
+// NOTE: when the overlay is open, 'q' closes the overlay (CloseHelp) rather
+// than quitting. We show CloseHelp + ForceQuit so displayed bindings always
+// match the active behaviour in that context.
 func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Top, k.Bottom},
 		{k.Confirm, k.Settings, k.ManualPR, k.Refresh},
-		{k.Help, k.Back, k.Quit},
+		{k.Help, k.CloseHelp, k.ForceQuit},
 	}
 }
 
