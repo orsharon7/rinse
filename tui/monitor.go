@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -352,8 +353,22 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
-		key := msg.String()
-		if key == "ctrl+c" || key == "q" {
+		// When the help overlay is open: CloseHelp (esc/q) or Help (?) closes it;
+		// ForceQuit (ctrl+c) always quits regardless of overlay state.
+		if m.showHelp {
+			if key.Matches(msg, Keys.CloseHelp) || key.Matches(msg, Keys.Help) {
+				m.showHelp = false
+			} else if key.Matches(msg, Keys.ForceQuit) {
+				if m.cmd != nil && m.cmd.Process != nil {
+					_ = m.cmd.Process.Kill()
+				}
+				return m, tea.Quit
+			}
+			return m, nil
+		}
+
+		// Outside the help overlay: q or ctrl+c quits.
+		if key.Matches(msg, Keys.Quit) {
 			if m.cmd != nil && m.cmd.Process != nil {
 				_ = m.cmd.Process.Kill()
 			}
@@ -361,15 +376,13 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if m.showPostCycleMenu {
-			return m.handlePostCycleKey(key)
+			return m.handlePostCycleKey(msg)
 		}
 
-		if key == "?" {
-			m.showHelp = !m.showHelp
-		} else if m.showHelp {
-			m.showHelp = false
+		if key.Matches(msg, Keys.Help) {
+			m.showHelp = true
 		} else {
-			switch key {
+			switch msg.String() {
 			case "G":
 				m.atBottom = true
 				m.viewport.GotoBottom()
@@ -613,20 +626,20 @@ func isReadyToMerge(plain string) bool {
 		(strings.Contains(plain, "APPROVED") && strings.Contains(plain, "PR"))
 }
 
-func (m monitorModel) handlePostCycleKey(key string) (tea.Model, tea.Cmd) {
+func (m monitorModel) handlePostCycleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	n := len(m.postCycleOptions)
-	switch key {
-	case "up", "k":
+	switch {
+	case key.Matches(msg, Keys.Up):
 		if m.postCycleCursor > 0 {
 			m.postCycleCursor--
 		}
-	case "down", "j":
+	case key.Matches(msg, Keys.Down):
 		if m.postCycleCursor < n-1 {
 			m.postCycleCursor++
 		}
-	case "enter":
+	case key.Matches(msg, Keys.Confirm):
 		return m.executePostCycleAction(m.postCycleCursor)
-	case "esc":
+	case key.Matches(msg, Keys.Back):
 		m.showPostCycleMenu = false
 		return m, nil
 	}
