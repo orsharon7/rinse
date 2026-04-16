@@ -78,6 +78,11 @@ type model struct {
 	// help overlay
 	help     help.Model
 	showHelp bool
+
+	// footer status message (shown in footer bar; empty = idle)
+	statusMsg     string
+	statusIsError bool
+	itemCount     int // total PRs loaded
 }
 
 func initialModel() model {
@@ -227,6 +232,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case prListMsg:
 		m.prs = []pr(msg)
 		m.prLoading = false
+		m.itemCount = len(m.prs)
 		m.prCursor = 0
 		if m.currentBranch != "" {
 			for i, p := range m.prs {
@@ -244,6 +250,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case prListErrMsg:
 		m.prLoading = false
 		m.prLoadErr = msg.err.Error()
+		m.itemCount = 0
 		if m.view == viewSplash && m.splashReady {
 			m.view = viewPRPicker
 		}
@@ -354,6 +361,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.repo != "" {
 				m.prLoading = true
 				m.prs = nil
+				m.itemCount = 0
 				m.prLoadErr = ""
 				return m, tea.Batch(fetchPRs(m.repo), m.prSpinner.Tick)
 			}
@@ -640,28 +648,207 @@ func (m model) View() string {
 		h = 24
 	}
 
-	switch m.view {
-	case viewSplash:
+	// Splash screen occupies the full terminal — no header/footer.
+	if m.view == viewSplash {
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, m.renderSplash())
-	case viewHelp:
-		// Legacy full-screen help — redirect to overlay behaviour.
-		return m.renderHelpOverlay(w, h)
-	case viewSettings:
-		if m.showHelp {
-			return m.renderHelpOverlay(w, h)
-		}
-		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, m.renderSettings())
-	case viewManualPR:
-		if m.showHelp {
-			return m.renderHelpOverlay(w, h)
-		}
-		return m.renderManualPR(w, h)
-	default:
-		if m.showHelp {
-			return m.renderHelpOverlay(w, h)
-		}
-		return m.renderPRPicker(w)
 	}
+
+	header := m.renderHeader(w)
+	footer := m.renderFooter(w)
+	headerH := lipgloss.Height(header)
+	footerH := lipgloss.Height(footer)
+	contentH := h - headerH - footerH
+	if contentH < 1 {
+		contentH = 1
+	}
+
+	var content string
+	if m.showHelp {
+		return m.renderHelpOverlay(w, h)
+	}
+	switch m.view {
+	case viewHelp:
+		content = lipgloss.Place(w, contentH, lipgloss.Center, lipgloss.Center, m.renderHelp())
+	case viewSettings:
+		content = lipgloss.Place(w, contentH, lipgloss.Center, lipgloss.Center, m.renderSettings())
+	case viewManualPR:
+		content = m.renderManualPR(w, contentH)
+	default:
+		content = m.renderPRPicker(w)
+		// Clamp and pad content to exactly contentH lines.
+		lines := strings.Split(content, "\n")
+		if len(lines) > contentH {
+			lines = lines[:contentH]
+			content = strings.Join(lines, "\n")
+		}
+		got := lipgloss.Height(content)
+		if got < contentH {
+			content += strings.Repeat("\n", contentH-got)
+		}
+	}
+
+	if strings.HasSuffix(content, "\n") {
+		return header + "\n" + content + footer
+	}
+	return header + "\n" + content + "\n" + footer
+}
+
+// renderHeader renders the persistent header bar.
+//
+//	rinse™ RINSE ╱╱╱╱╱╱ owner/repo • main ╱╱╱╱
+func (m model) renderHeader(w int) string {
+	innerW := w - styleAppHeader.GetHorizontalFrameSize()
+	if innerW < 0 {
+		innerW = 0
+	}
+	brand := renderCompactBrandWithDetails(innerW, m.headerDetails())
+	return styleAppHeader.Width(w).Render(brand)
+}
+
+// headerDetails returns the contextual info shown right of the logo in the header.
+func (m model) headerDetails() string {
+	if m.repo != "" {
+		branch := m.currentBranch
+		if branch == "" {
+			branch = m.defaultBranch
+		}
+		return m.repo + " • " + branch
+	}
+	return ""
+}
+
+// footerHints returns key hint text appropriate for the current view.
+func (m model) footerHints() string {
+	switch m.view {
+	case viewSettings:
+		return "esc:back"
+	case viewHelp:
+		return "any key:close"
+	case viewManualPR:
+		return "esc:back"
+	default:
+		return "?:help  q:quit  r:refresh"
+	}
+}
+
+// truncateFooterText truncates s to at most maxWidth display cells, appending
+// an ellipsis when truncation occurs.
+func truncateFooterText(s string, maxWidth int) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= maxWidth {
+		return s
+	}
+	if maxWidth == 1 {
+		return "…"
+	}
+	var b strings.Builder
+	width := 0
+	for _, r := range s {
+		rw := lipgloss.Width(string(r))
+		if width+rw > maxWidth-1 {
+			break
+		}
+		b.WriteRune(r)
+		width += rw
+	}
+	b.WriteString("…")
+	return b.String()
+}
+
+// renderFooter renders the persistent footer bar.
+func (m model) renderFooter(w int) string {
+	if w <= 0 {
+		w = 80
+	}
+
+	// Derive the available content width from the footer style's horizontal
+	// frame so layout stays in sync with any padding/border theme changes.
+	frameW := styleAppFooter.GetHorizontalFrameSize()
+	contentW := w - frameW
+	if contentW <= 1 {
+		return styleAppFooter.Width(w).Render("")
+	}
+
+	// Left: status message or idle indicator.
+	statusText := "ready"
+	statusStyle := styleFooterMuted
+	if m.statusMsg != "" {
+		icon := IconCheck
+		statusStyle = styleFooterStatus
+		if m.statusIsError {
+			icon = IconCross
+			statusStyle = styleFooterStatusErr
+		}
+		statusText = icon + " " + m.statusMsg
+	}
+
+	// Centre: item count (only when PR list is loaded).
+	var countText string
+	if m.itemCount > 0 && !m.prLoading {
+		cur := m.prCursor + 1
+		if len(m.prs) == 0 {
+			cur = 0
+		}
+		countText = fmt.Sprintf("%d/%d items", cur, m.itemCount)
+	}
+
+	// Right: key hints (view-specific).
+	hintText := m.footerHints()
+
+	// Fit the right side first, truncating hints when necessary.
+	rightText := hintText
+	if countText != "" {
+		rightText = countText + "  " + hintText
+	}
+	maxRightW := contentW - 1
+	if maxRightW < 0 {
+		maxRightW = 0
+	}
+	if lipgloss.Width(rightText) > maxRightW {
+		if countText != "" {
+			countW := lipgloss.Width(countText)
+			if countW >= maxRightW {
+				rightText = truncateFooterText(countText, maxRightW)
+			} else {
+				availableHintW := maxRightW - countW - 2
+				if availableHintW > 0 {
+					rightText = countText + "  " + truncateFooterText(hintText, availableHintW)
+				} else {
+					rightText = countText
+				}
+			}
+		} else {
+			rightText = truncateFooterText(hintText, maxRightW)
+		}
+	}
+
+	var right string
+	if countText != "" && strings.HasPrefix(rightText, countText) {
+		hintOnly := strings.TrimPrefix(rightText, countText)
+		right = styleFooterMuted.Render(countText) + styleFooterHint.Render(hintOnly)
+	} else {
+		right = styleFooterHint.Render(rightText)
+	}
+
+	// Truncate the left side to fit beside the right side.
+	rightW := lipgloss.Width(right)
+	maxLeftW := contentW - rightW - 1
+	if maxLeftW < 0 {
+		maxLeftW = 0
+	}
+	statusText = truncateFooterText(statusText, maxLeftW)
+	left := statusStyle.Render(statusText)
+
+	leftW := lipgloss.Width(left)
+	rightW = lipgloss.Width(right)
+	gap := contentW - leftW - rightW
+	if gap < 1 {
+		gap = 1
+	}
+	bar := left + strings.Repeat(" ", gap) + right
+	return styleAppFooter.Width(w).Render(bar)
 }
 
 // ── Splash screen ─────────────────────────────────────────────────────────────
@@ -706,17 +893,6 @@ func (m model) renderSplash() string {
 
 func (m model) renderPRPicker(w int) string {
 	var b strings.Builder
-
-	// ── Compact brand header ──────────────────────────────────────────────────
-	details := ""
-	if m.repo != "" {
-		details = m.repo
-		if m.currentBranch != "" {
-			details += " " + IconSep + " " + m.currentBranch
-		}
-	}
-	b.WriteString(renderCompactBrandWithDetails(w, details))
-	b.WriteString("\n\n")
 
 	// ── PR list ───────────────────────────────────────────────────────────────
 	if m.prLoading {
@@ -844,10 +1020,6 @@ func (m model) renderRibbon(w int) string {
 
 func (m model) renderManualPR(w, h int) string {
 	var b strings.Builder
-
-	// Brand header
-	b.WriteString(renderCompactBrand(w))
-	b.WriteString("\n\n")
 
 	b.WriteString(styleStep.Render("  Enter PR number"))
 	b.WriteString("\n\n")
