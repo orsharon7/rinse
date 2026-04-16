@@ -25,7 +25,6 @@ var (
 	colorText    = lipgloss.Color("#CDD6F4")
 	colorSubtext = lipgloss.Color("#BAC2DE")
 	colorOverlay = lipgloss.Color("#6C7086")
-	colorSurface = lipgloss.Color("#313244")
 	colorCrust   = lipgloss.Color("#11111B")
 )
 
