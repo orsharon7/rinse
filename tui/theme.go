@@ -312,8 +312,9 @@ var (
 // ── Persistent header / footer styles ─────────────────────────────────────────
 
 var (
-	// styleAppHeader — 1-line top bar; no explicit bg so it reads against the
-	// terminal background, consistent with the rest of the Catppuccin palette.
+	// styleAppHeader — top bar (content row + bottom border); no explicit bg so
+	// it reads against the terminal background, consistent with the rest of the
+	// Catppuccin palette.
 	styleAppHeader = lipgloss.NewStyle().
 			Foreground(text).
 			BorderStyle(lipgloss.NormalBorder()).
@@ -321,7 +322,7 @@ var (
 			BorderForeground(surface).
 			Padding(0, 1)
 
-	// styleAppFooter — 1-line bottom bar.
+	// styleAppFooter — bottom bar (top border + content row).
 	styleAppFooter = lipgloss.NewStyle().
 			Foreground(subtext).
 			BorderStyle(lipgloss.NormalBorder()).

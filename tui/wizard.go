@@ -243,6 +243,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case prListErrMsg:
 		m.prLoading = false
 		m.prLoadErr = msg.err.Error()
+		m.itemCount = 0
 		if m.view == viewSplash && m.splashReady {
 			m.view = viewPRPicker
 		}
@@ -340,6 +341,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.repo != "" {
 				m.prLoading = true
 				m.prs = nil
+				m.itemCount = 0
 				m.prLoadErr = ""
 				return m, tea.Batch(fetchPRs(m.repo), m.prSpinner.Tick)
 			}
@@ -646,21 +648,30 @@ func (m model) View() string {
 		content = m.renderManualPR(w, contentH)
 	default:
 		content = m.renderPRPicker(w)
-		// Pad content to exactly contentH lines.
+		// Clamp and pad content to exactly contentH lines.
+		lines := strings.Split(content, "\n")
+		if len(lines) > contentH {
+			lines = lines[:contentH]
+			content = strings.Join(lines, "\n")
+		}
 		got := lipgloss.Height(content)
 		if got < contentH {
 			content += strings.Repeat("\n", contentH-got)
 		}
 	}
 
-	return header + "\n" + content + footer
+	return header + "\n" + content + "\n" + footer
 }
 
-// renderHeader renders the 1-line persistent header bar.
+// renderHeader renders the persistent header bar.
 //
-//	rinse™ RINSE ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱ v1.x.x
+//	rinse™ RINSE ╱╱╱╱╱╱ owner/repo • main ╱╱╱╱
 func (m model) renderHeader(w int) string {
-	brand := renderCompactBrandWithDetails(w, m.headerDetails())
+	innerW := w - styleAppHeader.GetHorizontalFrameSize()
+	if innerW < 0 {
+		innerW = 0
+	}
+	brand := renderCompactBrandWithDetails(innerW, m.headerDetails())
 	return styleAppHeader.Width(w).Render(brand)
 }
 
@@ -676,47 +687,132 @@ func (m model) headerDetails() string {
 	return ""
 }
 
-// renderFooter renders the 1-line persistent footer bar.
-//
-//	✓ Last action: ok    │ 3/18 items │ ?:help  q:quit  r:refresh
+// footerHints returns key hint text appropriate for the current view.
+func (m model) footerHints() string {
+	switch m.view {
+	case viewSettings:
+		return "esc:back"
+	case viewHelp:
+		return "any key:close"
+	case viewManualPR:
+		return "esc:back"
+	default:
+		return "?:help  q:quit  r:refresh"
+	}
+}
+
+// truncateFooterText truncates s to at most maxWidth display cells, appending
+// an ellipsis when truncation occurs.
+func truncateFooterText(s string, maxWidth int) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= maxWidth {
+		return s
+	}
+	if maxWidth == 1 {
+		return "…"
+	}
+	var b strings.Builder
+	width := 0
+	for _, r := range s {
+		rw := lipgloss.Width(string(r))
+		if width+rw > maxWidth-1 {
+			break
+		}
+		b.WriteRune(r)
+		width += rw
+	}
+	b.WriteString("…")
+	return b.String()
+}
+
+// renderFooter renders the persistent footer bar.
 func (m model) renderFooter(w int) string {
+	if w <= 0 {
+		w = 80
+	}
+
+	// styleAppFooter contributes 2 cells of side padding, so content must fit
+	// within the remaining width with at least one space between left and right.
+	contentW := w - 2
+	if contentW <= 1 {
+		return styleAppFooter.Width(w).Render("")
+	}
+
 	// Left: status message or idle indicator.
-	var statusPart string
+	statusText := "ready"
+	statusStyle := styleFooterMuted
 	if m.statusMsg != "" {
 		icon := IconCheck
-		st := styleFooterStatus
+		statusStyle = styleFooterStatus
 		if m.statusIsError {
 			icon = IconCross
-			st = styleFooterStatusErr
+			statusStyle = styleFooterStatusErr
 		}
-		statusPart = st.Render(icon + " " + m.statusMsg)
-	} else {
-		statusPart = styleFooterMuted.Render("ready")
+		statusText = icon + " " + m.statusMsg
 	}
 
 	// Centre: item count (only when PR list is loaded).
-	var countPart string
+	var countText string
 	if m.itemCount > 0 && !m.prLoading {
 		cur := m.prCursor + 1
 		if len(m.prs) == 0 {
 			cur = 0
 		}
-		countPart = styleFooterMuted.Render(fmt.Sprintf("%d/%d items", cur, m.itemCount))
+		countText = fmt.Sprintf("%d/%d items", cur, m.itemCount)
 	}
 
-	// Right: key hints.
-	hintPart := styleFooterHint.Render("?:help  q:quit  r:refresh")
+	// Right: key hints (view-specific).
+	hintText := m.footerHints()
 
-	// Compose: left  ···  centre  ···  right (space-pad to w).
-	left := statusPart
-	right := hintPart
-	if countPart != "" {
-		right = countPart + "  " + hintPart
+	// Fit the right side first, truncating hints when necessary.
+	rightText := hintText
+	if countText != "" {
+		rightText = countText + "  " + hintText
 	}
+	maxRightW := contentW - 1
+	if maxRightW < 0 {
+		maxRightW = 0
+	}
+	if lipgloss.Width(rightText) > maxRightW {
+		if countText != "" {
+			countW := lipgloss.Width(countText)
+			if countW >= maxRightW {
+				rightText = truncateFooterText(countText, maxRightW)
+			} else {
+				availableHintW := maxRightW - countW - 2
+				if availableHintW > 0 {
+					rightText = countText + "  " + truncateFooterText(hintText, availableHintW)
+				} else {
+					rightText = countText
+				}
+			}
+		} else {
+			rightText = truncateFooterText(hintText, maxRightW)
+		}
+	}
+
+	var right string
+	if countText != "" && strings.HasPrefix(rightText, countText) {
+		hintOnly := strings.TrimPrefix(rightText, countText)
+		right = styleFooterMuted.Render(countText) + styleFooterHint.Render(hintOnly)
+	} else {
+		right = styleFooterHint.Render(rightText)
+	}
+
+	// Truncate the left side to fit beside the right side.
+	rightW := lipgloss.Width(right)
+	maxLeftW := contentW - rightW - 1
+	if maxLeftW < 0 {
+		maxLeftW = 0
+	}
+	statusText = truncateFooterText(statusText, maxLeftW)
+	left := statusStyle.Render(statusText)
 
 	leftW := lipgloss.Width(left)
-	rightW := lipgloss.Width(right)
-	gap := w - leftW - rightW - 2 // 2 for side padding
+	rightW = lipgloss.Width(right)
+	gap := contentW - leftW - rightW
 	if gap < 1 {
 		gap = 1
 	}
