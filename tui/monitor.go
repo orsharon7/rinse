@@ -353,9 +353,10 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
-		// When the help overlay is open: CloseHelp (esc/q) closes it; ForceQuit (ctrl+c) always quits.
+		// When the help overlay is open: CloseHelp (esc/q) or Help (?) closes it;
+		// ForceQuit (ctrl+c) always quits regardless of overlay state.
 		if m.showHelp {
-			if key.Matches(msg, Keys.CloseHelp) {
+			if key.Matches(msg, Keys.CloseHelp) || key.Matches(msg, Keys.Help) {
 				m.showHelp = false
 			} else if key.Matches(msg, Keys.ForceQuit) {
 				if m.cmd != nil && m.cmd.Process != nil {
