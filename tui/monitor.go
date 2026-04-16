@@ -17,89 +17,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// ── Additional palette ────────────────────────────────────────────────────────
-
-var (
-	green = lipgloss.Color("#A6DA95")
-	peach = lipgloss.Color("#F5A97F")
-	sky   = lipgloss.Color("#91D7E3")
-)
-
-// ── Monitor styles ────────────────────────────────────────────────────────────
-
-var (
-	// Header: borderBottom separates it from the log area cleanly.
-	styleHeader = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(text).
-			BorderStyle(lipgloss.NormalBorder()).
-			BorderBottom(true).
-			BorderForeground(overlay).
-			Padding(0, 1)
-
-	styleHeaderLabel = lipgloss.NewStyle().Foreground(overlay)
-	styleHeaderVal   = lipgloss.NewStyle().Foreground(lavender).Bold(true)
-
-	// Status bar: borderTop, no background.
-	styleStatusBar = lipgloss.NewStyle().
-			Foreground(subtext).
-			BorderStyle(lipgloss.NormalBorder()).
-			BorderTop(true).
-			BorderForeground(overlay).
-			Padding(0, 1)
-
-	stylePhaseWaiting = lipgloss.NewStyle().Foreground(yellow).Bold(true)
-	stylePhaseFixing  = lipgloss.NewStyle().Foreground(mauve).Bold(true)
-	stylePhaseReflect = lipgloss.NewStyle().Foreground(teal).Bold(true)
-	stylePhaseDone    = lipgloss.NewStyle().Foreground(green).Bold(true)
-	stylePhaseErr     = lipgloss.NewStyle().Foreground(red).Bold(true)
-
-	// Log line colours — semantic categories.
-	styleLogInfo    = lipgloss.NewStyle().Foreground(text)
-	styleLogDebug   = lipgloss.NewStyle().Foreground(subtext)
-	styleLogWarn    = lipgloss.NewStyle().Foreground(yellow)
-	styleLogErr     = lipgloss.NewStyle().Foreground(red).Bold(true)
-	styleLogIter    = lipgloss.NewStyle().Foreground(mauve).Bold(true)
-	styleLogAgent   = lipgloss.NewStyle().Foreground(text)
-	styleLogSuccess = lipgloss.NewStyle().Foreground(green).Bold(true)
-	styleLogGit     = lipgloss.NewStyle().Foreground(peach)
-	styleLogAPI     = lipgloss.NewStyle().Foreground(sky)
-
-	// Stat badge styles.
-	styleBadge = lipgloss.NewStyle().
-			Foreground(crust).
-			Padding(0, 1)
-	styleBadgeIter    = styleBadge.Background(mauve)
-	styleBadgeComment = styleBadge.Background(yellow)
-	styleBadgeRules   = styleBadge.Background(teal)
-	styleBadgeTime    = styleBadge.Background(lavender)
-
-	// Reflect panel styles.
-	styleReflectPanel = lipgloss.NewStyle().
-				BorderStyle(lipgloss.NormalBorder()).
-				BorderLeft(true).
-				BorderForeground(teal).
-				Padding(0, 1)
-	styleReflectTitle = lipgloss.NewStyle().Foreground(teal).Bold(true)
-	styleReflectLine  = lipgloss.NewStyle().Foreground(subtext)
-	styleReflectNew   = lipgloss.NewStyle().Foreground(text)
-	styleReflectOK    = lipgloss.NewStyle().Foreground(green)
-	styleReflectFail  = lipgloss.NewStyle().Foreground(red)
-
-	// Iteration timeline styles.
-	styleTimelineDot     = lipgloss.NewStyle().Foreground(mauve)
-	styleTimelineDone    = lipgloss.NewStyle().Foreground(green)
-	styleTimelineErr     = lipgloss.NewStyle().Foreground(red)
-	styleTimelineCurrent = lipgloss.NewStyle().Foreground(yellow).Bold(true)
-
-	// Toast notification style.
-	styleToast = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(green).
-			Padding(0, 2).
-			Foreground(text).
-			Bold(true)
-)
+// Palette and styles are defined in styles.go.
 
 // ansiRe strips ANSI escape sequences for pattern matching only.
 var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[mK]`)
@@ -267,10 +185,10 @@ type monitorModel struct {
 func newMonitorModel(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge bool, cmd *exec.Cmd) monitorModel {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
-	sp.Style = lipgloss.NewStyle().Foreground(mauve)
+	sp.Style = lipgloss.NewStyle().Foreground(colorMauve)
 
 	vp := viewport.New(80, 20)
-	vp.Style = lipgloss.NewStyle().Foreground(text)
+	vp.Style = lipgloss.NewStyle().Foreground(colorText)
 
 	// Try to detect default branch from local git; fall back to "main".
 	defaultBr := detectLocalDefaultBranch(cwd)
@@ -442,7 +360,7 @@ func wrapLine(s string, w int) []string {
 func (m monitorModel) renderHelp() string {
 	helpStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(mauve).
+		BorderForeground(colorMauve).
 		Padding(1, 4)
 
 	title := styleStep.Render("keyboard shortcuts")
@@ -1142,7 +1060,7 @@ func (m monitorModel) renderIterTimeline() string {
 func (m monitorModel) renderPostCycleMenu() string {
 	menuStyle := lipgloss.NewStyle().
 		Border(lipgloss.DoubleBorder()).
-		BorderForeground(teal).
+		BorderForeground(colorTeal).
 		Padding(1, 4)
 
 	title := styleTeal.Render("✅  PR ready to merge — what would you like to do?")

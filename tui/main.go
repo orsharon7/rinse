@@ -13,49 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// ── Palette (Catppuccin Macchiato) ────────────────────────────────────────────
-
-var (
-	mauve    = lipgloss.Color("#C6A0F6")
-	lavender = lipgloss.Color("#B7BDF8")
-	teal     = lipgloss.Color("#8BD5CA")
-	red      = lipgloss.Color("#ED8796")
-	yellow   = lipgloss.Color("#EED49F")
-	surface  = lipgloss.Color("#363A4F")
-	overlay  = lipgloss.Color("#6E738D")
-	text     = lipgloss.Color("#CAD3F5")
-	subtext  = lipgloss.Color("#A5ADCB")
-	crust    = lipgloss.Color("#181926")
-)
-
-var (
-	styleBanner = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(mauve).
-			Padding(0, 1)
-
-	styleKey   = lipgloss.NewStyle().Foreground(overlay).Width(16)
-	styleVal   = lipgloss.NewStyle().Foreground(lavender).Bold(true)
-	styleMuted = lipgloss.NewStyle().Foreground(overlay)
-	styleStep  = lipgloss.NewStyle().Foreground(mauve).Bold(true)
-	styleErr   = lipgloss.NewStyle().Foreground(red)
-	styleTeal  = lipgloss.NewStyle().Foreground(teal).Bold(true)
-
-	styleSelected   = lipgloss.NewStyle().Foreground(mauve).Bold(true)
-	styleUnselected = lipgloss.NewStyle().Foreground(subtext)
-
-	styleRibbon = lipgloss.NewStyle().
-			Foreground(subtext).
-			BorderStyle(lipgloss.NormalBorder()).
-			BorderTop(true).
-			BorderForeground(overlay).
-			Padding(0, 1)
-
-	styleSettingsBox = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(mauve).
-				Padding(1, 3)
-)
+// Palette and styles are defined in styles.go.
 
 // ── PR list (fetched async) ───────────────────────────────────────────────────
 
@@ -249,24 +207,24 @@ func initialModel() model {
 	}
 
 	ti := textinput.New()
-	ti.Cursor.Style = lipgloss.NewStyle().Foreground(mauve)
-	ti.PromptStyle = lipgloss.NewStyle().Foreground(mauve)
-	ti.TextStyle = lipgloss.NewStyle().Foreground(text)
+	ti.Cursor.Style = lipgloss.NewStyle().Foreground(colorMauve)
+	ti.PromptStyle = lipgloss.NewStyle().Foreground(colorMauve)
+	ti.TextStyle = lipgloss.NewStyle().Foreground(colorText)
 	ti.Prompt = "  PR# ❯ "
 	ti.CharLimit = 10
 	ti.Placeholder = "e.g. 42"
 
 	mi := textinput.New()
-	mi.Cursor.Style = lipgloss.NewStyle().Foreground(mauve)
-	mi.PromptStyle = lipgloss.NewStyle().Foreground(mauve)
-	mi.TextStyle = lipgloss.NewStyle().Foreground(text)
+	mi.Cursor.Style = lipgloss.NewStyle().Foreground(colorMauve)
+	mi.PromptStyle = lipgloss.NewStyle().Foreground(colorMauve)
+	mi.TextStyle = lipgloss.NewStyle().Foreground(colorText)
 	mi.Prompt = "  ❯ "
 	mi.CharLimit = 80
 
 	bi := textinput.New()
-	bi.Cursor.Style = lipgloss.NewStyle().Foreground(mauve)
-	bi.PromptStyle = lipgloss.NewStyle().Foreground(mauve)
-	bi.TextStyle = lipgloss.NewStyle().Foreground(text)
+	bi.Cursor.Style = lipgloss.NewStyle().Foreground(colorMauve)
+	bi.PromptStyle = lipgloss.NewStyle().Foreground(colorMauve)
+	bi.TextStyle = lipgloss.NewStyle().Foreground(colorText)
 	bi.Prompt = "  ❯ "
 	bi.CharLimit = 80
 
@@ -788,7 +746,7 @@ func (m model) renderPRPicker(w int) string {
 				if isCurrent {
 					sBranch = styleTeal.Bold(true).Render(fmt.Sprintf("%-*s", branchW, branch))
 				}
-				sTitle := lipgloss.NewStyle().Foreground(text).Render(title)
+				sTitle := lipgloss.NewStyle().Foreground(colorText).Render(title)
 				marker := ""
 				if isCurrent {
 					marker = styleTeal.Render(" ←")
@@ -971,7 +929,7 @@ func (m model) renderSettings() string {
 func (m model) renderHelp() string {
 	helpStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(mauve).
+		BorderForeground(colorMauve).
 		Padding(1, 4)
 
 	title := styleStep.Render("keyboard shortcuts")
