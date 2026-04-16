@@ -2,11 +2,10 @@
 # pr-review-reflect.sh — Extract coding rules from Copilot review comments
 #
 # Reads Copilot review comments for a PR, runs an AI agent to identify patterns,
-# and appends NEW rules to AGENTS.md and CLAUDE.md in the project repo.
+# and appends NEW rules to AGENTS.md in the project repo.
 #
-# Both files are read automatically by AI coding agents:
-#   AGENTS.md  — opencode (primary), Codex, other agents
-#   CLAUDE.md  — Claude Code (primary), opencode (fallback)
+# AGENTS.md is the cross-agent standard (GitHub Copilot, opencode, Cursor, etc.).
+# CLAUDE.md is a symlink to AGENTS.md for Claude Code compatibility.
 #
 # Rules are written inside a clearly delimited section so existing content
 # is never touched:
@@ -137,11 +136,12 @@ log "Reflecting on ${comment_count} comment(s) for ${REPO}#${PR_NUMBER}..."
 
 # ─── Set up git worktree on main ─────────────────────────────────────────────
 #
-# We write AGENTS.md / CLAUDE.md into a worktree checked out on $MAIN_BRANCH,
+# We write AGENTS.md into a worktree checked out on $MAIN_BRANCH,
 # not into $CWD (the PR branch). This means:
 #   • The reflection commit never lands on the PR branch
 #   • Copilot won't re-review the rule files → no infinite loop
 #   • Rules are available on main immediately, before the PR merges
+#   • CLAUDE.md is a symlink to AGENTS.md — no separate write needed
 
 WORKTREE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/pr-reflect-worktree.XXXXXX")
 
@@ -160,29 +160,30 @@ retry 3 bash -c 'set -euo pipefail; git -C "$1" fetch origin "$2" 2>&1 | tee -a 
 # Use --detach to avoid conflicts with an already checked-out branch
 git -C "$CWD" worktree add --detach "$WORKTREE_DIR" "origin/${MAIN_BRANCH}" 2>&1 | tee -a "$LOGFILE"
 
-# Point rule files at the worktree (main), not the PR branch
+# Point rule file at the worktree (main), not the PR branch
 AGENTS_FILE="${WORKTREE_DIR}/AGENTS.md"
-CLAUDE_FILE="${WORKTREE_DIR}/CLAUDE.md"
 
-# ─── Ensure rule files exist ──────────────────────────────────────────────────
+# ─── Ensure rule file exists ───────────────────────────────────────────────────
 
-for f in "$AGENTS_FILE" "$CLAUDE_FILE"; do
-  if [[ ! -f "$f" ]]; then
-    basename_f=$(basename "$f")
-    cat > "$f" << EOF
-# ${basename_f%.*}
+if [[ ! -f "$AGENTS_FILE" ]]; then
+  cat > "$AGENTS_FILE" << EOF
+# AGENTS
 
 Project instructions for AI coding agents.
 
 EOF
-    log "Created ${f}"
-  fi
-done
+  log "Created ${AGENTS_FILE}"
+fi
+
+# Ensure CLAUDE.md symlink exists for Claude Code compatibility
+if [[ ! -L "${WORKTREE_DIR}/CLAUDE.md" ]]; then
+  ln -sf AGENTS.md "${WORKTREE_DIR}/CLAUDE.md"
+  log "Created CLAUDE.md → AGENTS.md symlink"
+fi
 
 # ─── Build reflection prompt ──────────────────────────────────────────────────
 
 agents_current=$(cat "$AGENTS_FILE")
-claude_current=$(cat "$CLAUDE_FILE")
 
 read -r -d '' PROMPT << PROMPT_EOF || true
 You are a code quality analyst. Your job is to extract reusable coding rules from GitHub Copilot review comments and add them permanently to this project's AI agent instruction files.
@@ -197,11 +198,6 @@ ${comments_json}
 ${agents_current}
 \`\`\`
 
-## Current CLAUDE.md:
-\`\`\`markdown
-${claude_current}
-\`\`\`
-
 ## Your task
 
 1. Read the Copilot comments and identify **recurring patterns and principles** — not just individual fixes, but the underlying rules that would have prevented these issues (e.g. "always validate user input at API boundaries", "never import unused modules", "use chunked reads for uploads").
@@ -214,15 +210,12 @@ ${claude_current}
 
 3. Check the existing \`<!-- BEGIN:COPILOT-RULES -->\` section in each file (if present) and **do not duplicate rules that already exist there**.
 
-4. Update BOTH files by replacing the rules section between the markers (create the section if it doesn't exist):
-
-For **${AGENTS_FILE}**:
+4. Update **${AGENTS_FILE}** by replacing the rules section between the markers (create the section if it doesn't exist):
 - Find \`<!-- BEGIN:COPILOT-RULES -->\` and \`<!-- END:COPILOT-RULES -->\` markers
 - Replace the content between them with the merged (existing + new) rules
 - If markers don't exist, append the entire section to the end of the file
 
-For **${CLAUDE_FILE}**:
-- Same process — keep it in sync with AGENTS.md rules section
+Note: CLAUDE.md is a symlink to AGENTS.md — do NOT write to it separately.
 
 The section format must be exactly:
 \`\`\`
@@ -286,10 +279,23 @@ if [[ -z "$changed" ]]; then
 fi
 
 log "Committing updated rules to ${MAIN_BRANCH}..."
+
+# Re-assert that CLAUDE.md is still a symlink to AGENTS.md; abort if the agent replaced it with a regular file.
+if [[ ! -L "${WORKTREE_DIR}/CLAUDE.md" ]]; then
+  log "⚠️  CLAUDE.md is no longer a symlink after agent run — restoring symlink before commit"
+  rm -f "${WORKTREE_DIR}/CLAUDE.md"
+  ln -sf AGENTS.md "${WORKTREE_DIR}/CLAUDE.md"
+fi
+if [[ "$(readlink "${WORKTREE_DIR}/CLAUDE.md")" != "AGENTS.md" ]]; then
+  log "⚠️  CLAUDE.md symlink target is unexpected — aborting to preserve repo invariant"
+  git -C "$WORKTREE_DIR" checkout -- CLAUDE.md 2>/dev/null || true
+  exit 1
+fi
+
 git -C "$WORKTREE_DIR" add AGENTS.md CLAUDE.md
 
 # Count new rule lines added (lines starting with "- " inside the COPILOT-RULES block)
-rules_added=$(git -C "$WORKTREE_DIR" diff --cached AGENTS.md CLAUDE.md \
+rules_added=$(git -C "$WORKTREE_DIR" diff --cached AGENTS.md \
   | grep '^+' | grep -v '^+++' | grep -c '^\+- ' 2>/dev/null || echo "0")
 
 git -C "$WORKTREE_DIR" commit -m "chore: update AI coding rules from Copilot review #${PR_NUMBER} [skip ci]"

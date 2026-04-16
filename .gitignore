@@ -1,6 +1,10 @@
 # State files written by pr-review runners
 /tmp/pr-review-state/
 
+# Build artifacts
+tui/rinse
+tui/dist/
+
 # Local settings overrides
 .claude/settings.local.json
 

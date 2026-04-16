@@ -1,6 +1,6 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-BINARY  := pr-review-tui
-LDFLAGS :=
+BINARY  := rinse
+LDFLAGS := -ldflags "-X main.version=$(VERSION)"
 
 .PHONY: build install uninstall cross clean
 

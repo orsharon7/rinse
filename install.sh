@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — one-line installer for pr-review TUI
+# install.sh — one-line installer for rinse TUI
 #
 # Usage:
 #   bash install.sh
@@ -12,7 +12,7 @@
 #
 set -euo pipefail
 
-BINARY="pr-review-tui"
+BINARY="rinse"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 
@@ -51,7 +51,8 @@ else
     echo "error: Go is not installed. Install it from https://go.dev/dl/ and retry." >&2
     exit 1
   fi
-  (cd "$SCRIPT_DIR/tui" && go build -o "$INSTALL_DIR/$BINARY" .)
+  VERSION="$(git -C "$SCRIPT_DIR" describe --tags --always --dirty 2>/dev/null || echo "dev")"
+  (cd "$SCRIPT_DIR/tui" && go build -ldflags "-X main.version=$VERSION" -o "$INSTALL_DIR/$BINARY" .)
 fi
 
 echo "Installed → $INSTALL_DIR/$BINARY"

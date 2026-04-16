@@ -1,4 +1,4 @@
-module pr-review-tui
+module rinse
 
 go 1.24.2
 

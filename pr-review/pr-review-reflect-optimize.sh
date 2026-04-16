@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # pr-review-reflect-optimize.sh — Consolidate and compress AI coding rules
 #
-# Reads the <!-- BEGIN:COPILOT-RULES --> section from AGENTS.md and CLAUDE.md
+# Reads the <!-- BEGIN:COPILOT-RULES --> section from AGENTS.md
 # and runs an AI agent to deduplicate, merge, and trim the rules — producing a
-# leaner version that preserves all meaningful guidance at 30-50% fewer tokens.
+# leaner version that preserves all meaningful guidance.
+#
+# AGENTS.md is the cross-agent standard. CLAUDE.md is a symlink for Claude Code.
 #
 # Called automatically by pr-review-opencode.sh after --auto-merge completes.
 #
@@ -124,26 +126,24 @@ retry 3 bash -c 'set -euo pipefail; git -C "$1" fetch origin "$2" 2>&1 | tee -a 
 git -C "$CWD" worktree add --detach "$WORKTREE_DIR" "origin/${MAIN_BRANCH}" 2>&1 | tee -a "$LOGFILE"
 
 AGENTS_FILE="${WORKTREE_DIR}/AGENTS.md"
-CLAUDE_FILE="${WORKTREE_DIR}/CLAUDE.md"
 
-# ─── Check that at least one file has a COPILOT-RULES section ────────────────
+# Ensure CLAUDE.md symlink exists for Claude Code compatibility
+if [[ ! -L "${WORKTREE_DIR}/CLAUDE.md" ]]; then
+  ln -sf AGENTS.md "${WORKTREE_DIR}/CLAUDE.md"
+  log "Created CLAUDE.md → AGENTS.md symlink"
+fi
 
-has_rules=false
-for f in "$AGENTS_FILE" "$CLAUDE_FILE"; do
-  [[ -f "$f" ]] && grep -q 'BEGIN:COPILOT-RULES' "$f" && has_rules=true
-done
+# ─── Check that the file has a COPILOT-RULES section ─────────────────────────
 
-if [[ "$has_rules" == false ]]; then
-  log "No <!-- BEGIN:COPILOT-RULES --> section found in either file — nothing to optimize"
+if [[ ! -f "$AGENTS_FILE" ]] || ! grep -q 'BEGIN:COPILOT-RULES' "$AGENTS_FILE"; then
+  log "No <!-- BEGIN:COPILOT-RULES --> section found in AGENTS.md — nothing to optimize"
   exit 0
 fi
 
 # ─── Read current file content ────────────────────────────────────────────────
 
 agents_current=""
-claude_current=""
 [[ -f "$AGENTS_FILE" ]] && agents_current=$(cat "$AGENTS_FILE")
-[[ -f "$CLAUDE_FILE" ]]  && claude_current=$(cat "$CLAUDE_FILE")
 
 # ─── Build optimization prompt ────────────────────────────────────────────────
 
@@ -170,33 +170,35 @@ A practice is a single imperative sentence that an agent can follow without need
 - When writing Go code that builds strings iteratively, you should always use strings.Builder instead of using += because += creates a new string allocation on every iteration which leads to O(n²) performance.
 - It's important to validate numeric CLI parameters. Parameters like --stagger should be validated as integers that are greater than or equal to zero before they are used in arithmetic operations or passed to sleep, since invalid values can cause unexpected behavior.
 
-## Transformation rules
+## Phase 1 — Per-rule transformation
 
 1. **Convert to practices** — rewrite each rule as a terse imperative. Strip preambles, hedge words, and explanations that restate the imperative.
 2. **Deduplicate** — if two bullets say the same thing, keep the clearest one.
 3. **Merge overlapping rules** — if two rules cover the same root concern, combine into one concise practice.
 4. **Compact examples** — inline short code examples with backticks. Drop multi-line code blocks unless the pattern genuinely needs them.
 5. **Use sub-bullets sparingly** — bold-labeled sub-bullets (e.g. \`**Locking:**\`) are fine for grouping 2-3 tightly related practices under a theme. Never nest deeper than one level.
-6. **Regroup** — organize under the most logical category headers; merge headers if that reduces repetition.
-7. **Reorder** — highest-impact / most frequently relevant practices first within each category.
-8. **Preserve substance** — do NOT drop guidance that is meaningfully distinct. When in doubt, keep it.
-9. **Update the datestamp** — change the "*Last updated: ...*" line to: $(date '+%Y-%m-%d') from PR #${PR_NUMBER} review (optimized)
+
+## Phase 2 — Holistic structural pass
+
+After converting individual rules, step back and look at the **entire section as a whole**:
+
+6. **Merge small categories** — if a category has only 1-2 bullets, fold it into the nearest related category. E.g. "CLI, Installers & Packaging" (2 bullets) → merge into "Shell Scripting" or "Environment & CI Portability".
+7. **Eliminate cross-cutting duplication** — the same principle (e.g. "validate before use", "keep X in sync with Y", "never silently discard") may appear in multiple categories. Deduplicate: keep the strongest statement, remove weaker echoes elsewhere.
+8. **Regroup** — organize under the most logical category headers; rename or merge headers if that reduces repetition. Aim for 6-10 categories, not 12+.
+9. **Reorder** — highest-impact / most frequently relevant practices first within each category.
+10. **Preserve substance** — do NOT drop guidance that is meaningfully distinct. When in doubt, keep it.
+11. **Update the datestamp** — change the "*Last updated: ...*" line to: $(date '+%Y-%m-%d') from PR #${PR_NUMBER} review (optimized)
 
 ## Current AGENTS.md:
 \`\`\`markdown
 ${agents_current}
 \`\`\`
 
-## Current CLAUDE.md:
-\`\`\`markdown
-${claude_current}
-\`\`\`
-
 ## Output instructions
 
-Rewrite **both** files in full, keeping all content outside the COPILOT-RULES markers exactly as-is.
+Rewrite the file in full, keeping all content outside the COPILOT-RULES markers exactly as-is.
 Only the content *between* the markers (and the datestamp line) should change.
-Both files must have identical COPILOT-RULES content.
+Do NOT write to CLAUDE.md — it is a symlink to AGENTS.md.
 Do NOT run any git commands — the script will handle committing and pushing.
 PROMPT_EOF
 
@@ -242,66 +244,56 @@ if [[ -z "$changed" ]]; then
   exit 0
 fi
 
-# Abort if the agent deleted a file that existed before the rewrite
-for f in "$AGENTS_FILE" "$CLAUDE_FILE"; do
-  file_name=${f##*/}
-
-  if git -C "$WORKTREE_DIR" cat-file -e "HEAD:$file_name" 2>/dev/null; then
-    if [[ ! -f "$f" ]]; then
-      log "⚠️  ${file_name} was deleted by the agent rewrite — aborting"
-      git -C "$WORKTREE_DIR" checkout -- AGENTS.md CLAUDE.md 2>/dev/null
-      exit 1
-    fi
-  fi
-done
+# Abort if the agent deleted AGENTS.md
+if [[ ! -f "$AGENTS_FILE" ]]; then
+  log "⚠️  AGENTS.md was deleted by the agent rewrite — aborting"
+  git -C "$WORKTREE_DIR" checkout -- AGENTS.md 2>/dev/null
+  exit 1
+fi
 
 # Verify COPILOT-RULES markers survived the rewrite as one well-formed bounded section
-for f in "$AGENTS_FILE" "$CLAUDE_FILE"; do
-  if [[ -f "$f" ]]; then
-    begin_count=$(grep -Fxc '<!-- BEGIN:COPILOT-RULES -->' "$f" 2>/dev/null || true)
-    end_count=$(grep -Fxc '<!-- END:COPILOT-RULES -->' "$f" 2>/dev/null || true)
+begin_count=$(grep -Fxc '<!-- BEGIN:COPILOT-RULES -->' "$AGENTS_FILE" 2>/dev/null || true)
+end_count=$(grep -Fxc '<!-- END:COPILOT-RULES -->' "$AGENTS_FILE" 2>/dev/null || true)
 
-    if [[ "$begin_count" -ne 1 ]]; then
-      log "⚠️  ${f##*/} must contain exactly one '<!-- BEGIN:COPILOT-RULES -->' marker after agent rewrite — aborting"
-      git -C "$WORKTREE_DIR" checkout -- AGENTS.md CLAUDE.md 2>/dev/null
-      exit 1
-    fi
+if [[ "$begin_count" -ne 1 ]]; then
+  log "⚠️  AGENTS.md must contain exactly one '<!-- BEGIN:COPILOT-RULES -->' marker after agent rewrite — aborting"
+  git -C "$WORKTREE_DIR" checkout -- AGENTS.md 2>/dev/null
+  exit 1
+fi
 
-    if [[ "$end_count" -ne 1 ]]; then
-      log "⚠️  ${f##*/} must contain exactly one '<!-- END:COPILOT-RULES -->' marker after agent rewrite — aborting"
-      git -C "$WORKTREE_DIR" checkout -- AGENTS.md CLAUDE.md 2>/dev/null
-      exit 1
-    fi
+if [[ "$end_count" -ne 1 ]]; then
+  log "⚠️  AGENTS.md must contain exactly one '<!-- END:COPILOT-RULES -->' marker after agent rewrite — aborting"
+  git -C "$WORKTREE_DIR" checkout -- AGENTS.md 2>/dev/null
+  exit 1
+fi
 
-    begin_line=$(grep -nFx '<!-- BEGIN:COPILOT-RULES -->' "$f" | cut -d: -f1)
-    end_line=$(grep -nFx '<!-- END:COPILOT-RULES -->' "$f" | cut -d: -f1)
+begin_line=$(grep -nFx '<!-- BEGIN:COPILOT-RULES -->' "$AGENTS_FILE" | cut -d: -f1)
+end_line=$(grep -nFx '<!-- END:COPILOT-RULES -->' "$AGENTS_FILE" | cut -d: -f1)
 
-    if [[ "$begin_line" -ge "$end_line" ]]; then
-      log "⚠️  ${f##*/} has COPILOT-RULES markers out of order after agent rewrite — aborting"
-      git -C "$WORKTREE_DIR" checkout -- AGENTS.md CLAUDE.md 2>/dev/null
-      exit 1
-    fi
-  fi
-done
-
-# Verify both files have identical COPILOT-RULES content (prompt requires this)
-if [[ -f "$AGENTS_FILE" && -f "$CLAUDE_FILE" ]]; then
-  extract_rules_section() {
-    local file="$1"
-    awk '/^<!-- BEGIN:COPILOT-RULES -->$/{found=1; next} /^<!-- END:COPILOT-RULES -->$/{found=0} found' "$file"
-  }
-  if ! cmp -s <(extract_rules_section "$AGENTS_FILE") <(extract_rules_section "$CLAUDE_FILE"); then
-    log "⚠️  COPILOT-RULES sections differ between AGENTS.md and CLAUDE.md after agent rewrite — aborting"
-    git -C "$WORKTREE_DIR" checkout -- AGENTS.md CLAUDE.md 2>/dev/null
-    exit 1
-  fi
+if [[ "$begin_line" -ge "$end_line" ]]; then
+  log "⚠️  AGENTS.md has COPILOT-RULES markers out of order after agent rewrite — aborting"
+  git -C "$WORKTREE_DIR" checkout -- AGENTS.md 2>/dev/null
+  exit 1
 fi
 
 log "Committing optimized rules to ${MAIN_BRANCH}..."
+
+# Re-assert that CLAUDE.md is still a symlink to AGENTS.md; abort if the agent replaced it with a regular file.
+if [[ ! -L "${WORKTREE_DIR}/CLAUDE.md" ]]; then
+  log "⚠️  CLAUDE.md is no longer a symlink after agent run — restoring symlink before commit"
+  rm -f "${WORKTREE_DIR}/CLAUDE.md"
+  ln -sf AGENTS.md "${WORKTREE_DIR}/CLAUDE.md"
+fi
+if [[ "$(readlink "${WORKTREE_DIR}/CLAUDE.md")" != "AGENTS.md" ]]; then
+  log "⚠️  CLAUDE.md symlink target is unexpected — aborting to preserve repo invariant"
+  git -C "$WORKTREE_DIR" checkout -- CLAUDE.md 2>/dev/null || true
+  exit 1
+fi
+
 git -C "$WORKTREE_DIR" add AGENTS.md CLAUDE.md
 
 # Rough measure: lines removed (negative diff lines inside the rules section)
-lines_removed=$(git -C "$WORKTREE_DIR" diff --cached AGENTS.md CLAUDE.md \
+lines_removed=$(git -C "$WORKTREE_DIR" diff --cached AGENTS.md \
   | grep '^-' | grep -v '^---' | wc -l | tr -d ' ' 2>/dev/null || echo "?")
 
 git -C "$WORKTREE_DIR" commit \
