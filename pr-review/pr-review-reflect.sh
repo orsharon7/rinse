@@ -291,6 +291,15 @@ if [[ -L "$WORKTREE_DIR/CLAUDE.md" ]]; then
   git -C "$WORKTREE_DIR" add CLAUDE.md 2>/dev/null || true
 fi
 
+# If ensure_claude_symlink repaired the CLAUDE.md symlink, stage that too so the
+# fix is persisted rather than silently discarded on worktree cleanup.
+if [[ -L "$WORKTREE_DIR/CLAUDE.md" ]]; then
+  if ! git -C "$WORKTREE_DIR" diff --cached --quiet -- CLAUDE.md 2>/dev/null || \
+     [[ -n "$(git -C "$WORKTREE_DIR" status --porcelain -- CLAUDE.md)" ]]; then
+    git -C "$WORKTREE_DIR" add CLAUDE.md
+  fi
+fi
+
 # Count added markdown bullet lines (lines starting with "- ") in the staged AGENTS.md diff
 rules_added=$(git -C "$WORKTREE_DIR" diff --cached AGENTS.md \
   | grep '^+' | grep -v '^+++' | grep -c '^\+- ' 2>/dev/null || echo "0")
