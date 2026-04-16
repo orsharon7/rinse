@@ -25,6 +25,8 @@
 #
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 # LOGFILE is scoped per-repo after REPO is known (see below)
 LOGFILE=""
 
@@ -129,7 +131,7 @@ AGENTS_FILE="${WORKTREE_DIR}/AGENTS.md"
 
 # Ensure CLAUDE.md is a symlink pointing to AGENTS.md for Claude Code compatibility
 # shellcheck source=_symlink-helper.sh
-source "$(dirname "$0")/_symlink-helper.sh"
+source "${SCRIPT_DIR}/_symlink-helper.sh"
 ensure_claude_symlink "$WORKTREE_DIR"
 
 # ─── Check that the file has a COPILOT-RULES section ─────────────────────────

@@ -33,6 +33,8 @@
 #
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 # LOGFILE is scoped per-repo after REPO is known (see below)
 LOGFILE=""
 
@@ -177,7 +179,7 @@ fi
 
 # Ensure CLAUDE.md is a symlink pointing to AGENTS.md for Claude Code compatibility
 # shellcheck source=_symlink-helper.sh
-source "$(dirname "$0")/_symlink-helper.sh"
+source "${SCRIPT_DIR}/_symlink-helper.sh"
 ensure_claude_symlink "$WORKTREE_DIR"
 
 # ─── Build reflection prompt ──────────────────────────────────────────────────
@@ -185,7 +187,7 @@ ensure_claude_symlink "$WORKTREE_DIR"
 agents_current=$(cat "$AGENTS_FILE")
 
 read -r -d '' PROMPT << PROMPT_EOF || true
-You are a code quality analyst. Your job is to extract reusable coding rules from GitHub Copilot review comments and add them permanently to this project's AI agent instruction files.
+You are a code quality analyst. Your job is to extract reusable coding rules from GitHub Copilot review comments and add them permanently to this project's AI agent instruction file, AGENTS.md.
 
 ## Copilot review comments to analyse (PR #${PR_NUMBER} in ${REPO}):
 \`\`\`json
@@ -284,6 +286,10 @@ fi
 
 log "Committing updated rules to ${MAIN_BRANCH}..."
 git -C "$WORKTREE_DIR" add AGENTS.md
+# If ensure_claude_symlink created or repaired the CLAUDE.md symlink, stage it too so the fix is persisted
+if [[ -L "$WORKTREE_DIR/CLAUDE.md" ]]; then
+  git -C "$WORKTREE_DIR" add CLAUDE.md 2>/dev/null || true
+fi
 
 # Count added markdown bullet lines (lines starting with "- ") in the staged AGENTS.md diff
 rules_added=$(git -C "$WORKTREE_DIR" diff --cached AGENTS.md \
