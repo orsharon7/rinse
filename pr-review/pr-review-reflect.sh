@@ -175,11 +175,24 @@ EOF
   log "Created ${AGENTS_FILE}"
 fi
 
-# Ensure CLAUDE.md symlink exists for Claude Code compatibility
-if [[ ! -L "${WORKTREE_DIR}/CLAUDE.md" ]]; then
-  ln -sf AGENTS.md "${WORKTREE_DIR}/CLAUDE.md"
+# Ensure CLAUDE.md is a symlink pointing to AGENTS.md for Claude Code compatibility
+_claude_md="${WORKTREE_DIR}/CLAUDE.md"
+if [[ -L "$_claude_md" ]]; then
+  _target=$(readlink "$_claude_md")
+  if [[ "$_target" != "AGENTS.md" ]]; then
+    log "CLAUDE.md symlink points to '${_target}' instead of 'AGENTS.md' — recreating"
+    rm -f "$_claude_md"
+    ln -sf AGENTS.md "$_claude_md"
+  fi
+elif [[ -e "$_claude_md" ]]; then
+  log "CLAUDE.md exists as a regular file — replacing with symlink"
+  rm -f "$_claude_md"
+  ln -sf AGENTS.md "$_claude_md"
+else
+  ln -sf AGENTS.md "$_claude_md"
   log "Created CLAUDE.md → AGENTS.md symlink"
 fi
+unset _claude_md _target
 
 # ─── Build reflection prompt ──────────────────────────────────────────────────
 
