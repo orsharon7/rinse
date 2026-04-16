@@ -132,7 +132,6 @@ AGENTS_FILE="${WORKTREE_DIR}/AGENTS.md"
 # Ensure CLAUDE.md is a symlink pointing to AGENTS.md for Claude Code compatibility
 # shellcheck source=_symlink-helper.sh
 source "${SCRIPT_DIR}/_symlink-helper.sh"
-ensure_claude_symlink "$WORKTREE_DIR"
 
 # ─── Check that the file has a COPILOT-RULES section ─────────────────────────
 
@@ -279,10 +278,6 @@ fi
 
 ensure_claude_symlink "$WORKTREE_DIR"
 log "Committing optimized rules to ${MAIN_BRANCH}..."
-
-# Re-enforce the symlink invariant immediately before staging so any agent
-# damage to CLAUDE.md is repaired at commit time (not just at script startup).
-ensure_claude_symlink "$WORKTREE_DIR"
 
 git -C "$WORKTREE_DIR" add AGENTS.md
 # Stage CLAUDE.md if it is a symlink and has uncommitted changes (e.g. repaired by ensure_claude_symlink).
