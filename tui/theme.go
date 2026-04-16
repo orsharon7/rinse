@@ -317,17 +317,11 @@ var (
 	// Catppuccin palette.
 	styleAppHeader = lipgloss.NewStyle().
 			Foreground(text).
-			BorderStyle(lipgloss.NormalBorder()).
-			BorderBottom(true).
-			BorderForeground(surface).
 			Padding(0, 1)
 
-	// styleAppFooter — bottom bar (top border + content row).
+	// styleAppFooter — bottom bar (single content row).
 	styleAppFooter = lipgloss.NewStyle().
 			Foreground(subtext).
-			BorderStyle(lipgloss.NormalBorder()).
-			BorderTop(true).
-			BorderForeground(surface).
 			Padding(0, 1)
 
 	styleFooterStatus    = lipgloss.NewStyle().Foreground(green)

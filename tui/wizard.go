@@ -386,9 +386,6 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSettingsKey(key, msg)
 
 	case viewHelp:
-		if key == "q" {
-			return m, tea.Quit
-		}
 		m.view = viewPRPicker
 		return m, nil
 	}
