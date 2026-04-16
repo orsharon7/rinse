@@ -279,6 +279,9 @@ fi
 
 log "Committing optimized rules to ${MAIN_BRANCH}..."
 git -C "$WORKTREE_DIR" add AGENTS.md
+if [[ -L "$WORKTREE_DIR/CLAUDE.md" ]]; then
+  git -C "$WORKTREE_DIR" add CLAUDE.md
+fi
 
 # Rough measure: total removed lines in the staged AGENTS.md diff (file-wide, not scoped to rules section)
 lines_removed=$(git -C "$WORKTREE_DIR" diff --cached AGENTS.md \

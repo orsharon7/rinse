@@ -273,9 +273,9 @@ esac
 # The agent only edits files — the script owns git operations.
 # This runs in the worktree (main branch), completely isolated from the PR branch.
 
-changed=$(git -C "$WORKTREE_DIR" status --porcelain AGENTS.md)
+changed=$(git -C "$WORKTREE_DIR" status --porcelain AGENTS.md CLAUDE.md)
 if [[ -z "$changed" ]]; then
-  log "No changes to AGENTS.md — nothing to commit"
+  log "No changes to AGENTS.md or CLAUDE.md — nothing to commit"
   exit 0
 fi
 
