@@ -229,7 +229,7 @@ esac
 
 # ─── Validate agent output ────────────────────────────────────────────────────
 
-changed=$(git -C "$WORKTREE_DIR" status --porcelain AGENTS.md)
+changed=$(git -C "$WORKTREE_DIR" status --porcelain AGENTS.md CLAUDE.md)
 
 if [[ $agent_exit -ne 0 ]]; then
   if [[ -n "$changed" ]]; then
@@ -241,7 +241,7 @@ if [[ $agent_exit -ne 0 ]]; then
 fi
 
 if [[ -z "$changed" ]]; then
-  log "No changes to AGENTS.md — rules already compact"
+  log "No changes to AGENTS.md or CLAUDE.md — rules already compact"
   exit 0
 fi
 
@@ -278,8 +278,15 @@ if [[ "$begin_line" -ge "$end_line" ]]; then
 fi
 
 log "Committing optimized rules to ${MAIN_BRANCH}..."
+
+# Re-enforce the symlink invariant immediately before staging so any agent
+# damage to CLAUDE.md is repaired at commit time (not just at script startup).
+ensure_claude_symlink "$WORKTREE_DIR"
+
 git -C "$WORKTREE_DIR" add AGENTS.md
-if [[ -L "$WORKTREE_DIR/CLAUDE.md" ]]; then
+# Stage CLAUDE.md if it is a symlink and has uncommitted changes (e.g. repaired by ensure_claude_symlink).
+if [[ -L "$WORKTREE_DIR/CLAUDE.md" ]] && \
+   [[ -n "$(git -C "$WORKTREE_DIR" status --porcelain -- CLAUDE.md)" ]]; then
   git -C "$WORKTREE_DIR" add CLAUDE.md
 fi
 

@@ -285,19 +285,16 @@ if [[ ! -f "$WORKTREE_DIR/AGENTS.md" ]]; then
 fi
 
 log "Committing updated rules to ${MAIN_BRANCH}..."
-git -C "$WORKTREE_DIR" add AGENTS.md
-# If ensure_claude_symlink created or repaired the CLAUDE.md symlink, stage it too so the fix is persisted
-if [[ -L "$WORKTREE_DIR/CLAUDE.md" ]]; then
-  git -C "$WORKTREE_DIR" add CLAUDE.md 2>/dev/null || true
-fi
 
-# If ensure_claude_symlink repaired the CLAUDE.md symlink, stage that too so the
-# fix is persisted rather than silently discarded on worktree cleanup.
-if [[ -L "$WORKTREE_DIR/CLAUDE.md" ]]; then
-  if ! git -C "$WORKTREE_DIR" diff --cached --quiet -- CLAUDE.md 2>/dev/null || \
-     [[ -n "$(git -C "$WORKTREE_DIR" status --porcelain -- CLAUDE.md)" ]]; then
-    git -C "$WORKTREE_DIR" add CLAUDE.md
-  fi
+# Re-enforce the symlink invariant immediately before staging so any agent
+# damage to CLAUDE.md is repaired at commit time (not just at script startup).
+ensure_claude_symlink "$WORKTREE_DIR"
+
+git -C "$WORKTREE_DIR" add AGENTS.md
+# Stage CLAUDE.md if it is a symlink and has uncommitted changes (e.g. repaired by ensure_claude_symlink).
+if [[ -L "$WORKTREE_DIR/CLAUDE.md" ]] && \
+   [[ -n "$(git -C "$WORKTREE_DIR" status --porcelain -- CLAUDE.md)" ]]; then
+  git -C "$WORKTREE_DIR" add CLAUDE.md
 fi
 
 # Count added markdown bullet lines (lines starting with "- ") in the staged AGENTS.md diff
