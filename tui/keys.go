@@ -25,6 +25,11 @@ type KeyMap struct {
 	// Wizard-specific
 	Settings key.Binding
 	ManualPR key.Binding
+	// Settings view navigation
+	Left   key.Binding
+	Right  key.Binding
+	Tab    key.Binding
+	Toggle key.Binding
 }
 
 // Keys is the global singleton KeyMap used by all views.
@@ -84,6 +89,22 @@ var Keys = KeyMap{
 	ManualPR: key.NewBinding(
 		key.WithKeys("#"),
 		key.WithHelp("#", "enter PR number"),
+	),
+	Left: key.NewBinding(
+		key.WithKeys("left", "h"),
+		key.WithHelp("←/h", "previous"),
+	),
+	Right: key.NewBinding(
+		key.WithKeys("right", "l"),
+		key.WithHelp("→/l", "next"),
+	),
+	Tab: key.NewBinding(
+		key.WithKeys("tab"),
+		key.WithHelp("tab", "next field"),
+	),
+	Toggle: key.NewBinding(
+		key.WithKeys(" "),
+		key.WithHelp("space", "toggle"),
 	),
 }
 

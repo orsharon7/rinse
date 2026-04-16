@@ -435,10 +435,9 @@ func (m model) openSettings() (model, tea.Cmd) {
 }
 
 func (m model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	key := msg.String()
 	if m.settingsEditingModel {
-		switch key {
-		case "enter", "esc":
+		switch {
+		case key.Matches(msg, Keys.Confirm), key.Matches(msg, Keys.Back):
 			m.settingsEditingModel = false
 			m.settingsModelInput.Blur()
 			return m, nil
@@ -448,8 +447,8 @@ func (m model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	if m.settingsEditingBranch {
-		switch key {
-		case "enter", "esc":
+		switch {
+		case key.Matches(msg, Keys.Confirm), key.Matches(msg, Keys.Back):
 			m.settingsEditingBranch = false
 			m.settingsBranchInput.Blur()
 			return m, nil
@@ -460,42 +459,42 @@ func (m model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	maxField := sfCancel
-	switch key {
-	case "esc":
+	switch {
+	case key.Matches(msg, Keys.Back):
 		m.view = viewPRPicker
 		return m, nil
-	case "up", "k":
+	case key.Matches(msg, Keys.Up):
 		if m.settingsFocus > 0 {
 			m.settingsFocus--
 			if m.settingsFocus == sfReflectBranch && !m.settingsReflect {
 				m.settingsFocus--
 			}
 		}
-	case "down", "j", "tab":
+	case key.Matches(msg, Keys.Down), key.Matches(msg, Keys.Tab):
 		if m.settingsFocus < maxField {
 			m.settingsFocus++
 			if m.settingsFocus == sfReflectBranch && !m.settingsReflect {
 				m.settingsFocus++
 			}
 		}
-	case "left", "h":
+	case key.Matches(msg, Keys.Left):
 		if m.settingsFocus == sfRunner && m.settingsRunnerIdx > 0 {
 			m.settingsRunnerIdx--
 			m.settingsModelInput.Placeholder = runners[m.settingsRunnerIdx].defaultModel
 		}
-	case "right", "l":
+	case key.Matches(msg, Keys.Right):
 		if m.settingsFocus == sfRunner && m.settingsRunnerIdx < len(runners)-1 {
 			m.settingsRunnerIdx++
 			m.settingsModelInput.Placeholder = runners[m.settingsRunnerIdx].defaultModel
 		}
-	case " ":
+	case key.Matches(msg, Keys.Toggle):
 		switch m.settingsFocus {
 		case sfReflect:
 			m.settingsReflect = !m.settingsReflect
 		case sfAutoMerge:
 			m.settingsAutoMerge = !m.settingsAutoMerge
 		}
-	case "enter":
+	case key.Matches(msg, Keys.Confirm):
 		switch m.settingsFocus {
 		case sfRunner:
 			m.settingsRunnerIdx = (m.settingsRunnerIdx + 1) % len(runners)
