@@ -1,7 +1,8 @@
 // Package stats provides session history recording and summary reporting for rinse.
 //
 // Sessions are stored as JSON files under ~/.rinse/sessions/ with filenames
-// like 20060102-150405-owner-repo-PR42.json. The rinse stats command reads
+// like 20060102-150405-000000000-owner-repo-PR42.json (date, time, nanoseconds,
+// repo slug with slashes replaced by dashes, and PR number). The rinse stats command reads
 // all session files, aggregates metrics, and prints a formatted summary.
 package stats
 
