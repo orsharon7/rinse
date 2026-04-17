@@ -139,9 +139,7 @@ insights_init() {
   _INS_OUTCOME=""
   _INS_ITER_LOG="[]"
 
-  # Reset category counters
-  unset _INS_CATS
-  declare -g -A _INS_CATS 2>/dev/null || true
+  # Reset category counters (reset known keys directly; avoids unset+redeclare portability issues)
   local cats=(security error_handling performance type_safety testing documentation naming style logic general)
   local cat
   for cat in "${cats[@]}"; do

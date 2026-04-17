@@ -44,7 +44,13 @@
 SESSION_BASE_DIR="${PR_REVIEW_SESSION_DIR:-${HOME}/.pr-review/sessions}"
 
 # Lock timeout: treat a held lock as stale after this many seconds (default: 4 h)
-RINSE_LOCK_TIMEOUT="${RINSE_LOCK_TIMEOUT:-14400}"
+_RINSE_LOCK_TIMEOUT_DEFAULT=14400
+RINSE_LOCK_TIMEOUT="${RINSE_LOCK_TIMEOUT:-$_RINSE_LOCK_TIMEOUT_DEFAULT}"
+case "$RINSE_LOCK_TIMEOUT" in
+  ''|*[!0-9]*)
+    RINSE_LOCK_TIMEOUT="$_RINSE_LOCK_TIMEOUT_DEFAULT"
+    ;;
+esac
 
 # Label used on the GitHub PR to signal a runner is active
 RINSE_RUNNING_LABEL="${RINSE_RUNNING_LABEL:-rinse:running}"
