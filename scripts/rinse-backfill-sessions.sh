@@ -163,12 +163,24 @@ for logfile in "${LOGS_DIR}"/*.log; do
 
   # ── Determine outcome from log ────────────────────────────────────────────
   outcome="aborted"
-  if grep -Eq 'APPROVED|merged|Clean review' "$logfile" 2>/dev/null; then
-    if grep -Eq 'Auto-merg|squash' "$logfile" 2>/dev/null; then
-      outcome="merged"
-    else
-      outcome="approved"
-    fi
+  review_approved=false
+  merge_confirmed=false
+
+  if grep -Eq 'APPROVED|Clean review' "$logfile" 2>/dev/null; then
+    review_approved=true
+  fi
+
+  # Only treat terminal success messages as proof that the PR was merged.
+  # Pre-merge intent lines such as "Auto-merging..." or "squash" may be
+  # emitted before `gh pr merge` runs and therefore cannot confirm success.
+  if grep -Eq '✅ Merged, remote branch deleted|🎉 PR merged!|PR merged!' "$logfile" 2>/dev/null; then
+    merge_confirmed=true
+  fi
+
+  if [[ "$merge_confirmed" == true ]]; then
+    outcome="merged"
+  elif [[ "$review_approved" == true ]]; then
+    outcome="approved"
   elif grep -q "max iterations" "$logfile" 2>/dev/null; then
     outcome="max_iterations"
   elif grep -q "opencode exited with code" "$logfile" 2>/dev/null; then
