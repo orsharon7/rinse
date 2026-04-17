@@ -455,9 +455,13 @@ merged_at=$(echo "$_pr_json" | jq -r '.merged_at // ""')
 
 if [[ "$pr_state" == "closed" && -n "$merged_at" ]]; then
   log "🎉 PR already merged — nothing to do."
+  insights_finalize "already_merged"
+  [[ "${JSON_INSIGHTS:-false}" == true ]] && insights_print --json || insights_print
   exit 0
 elif [[ "$pr_state" == "closed" ]]; then
   log "📕 PR is closed (not merged) — nothing to do."
+  insights_finalize "closed"
+  [[ "${JSON_INSIGHTS:-false}" == true ]] && insights_print --json || insights_print
   exit 1
 fi
 
@@ -481,6 +485,8 @@ else
 
   if [[ "$rstate" == "APPROVED" ]]; then
     log "✅ PR already APPROVED by Copilot — nothing to do."
+    insights_finalize "approved"
+    [[ "${JSON_INSIGHTS:-false}" == true ]] && insights_print --json || insights_print
     exit 0
   fi
 

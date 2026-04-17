@@ -276,8 +276,16 @@ gh_lock_acquire() {
         return 0
       fi
 
-      # Is the lock stale?
-      if _gh_lock_is_stale "$existing_locked_at"; then
+      # Same host but recorded PID is dead? Steal immediately (crash recovery).
+      if [[ "$existing_host" == "$_SESSION_HOSTNAME" ]] \
+         && [[ "$existing_pid" -gt 0 ]] \
+         && ! kill -0 "$existing_pid" 2>/dev/null; then
+        >&2 echo "[rinse-lock] Lock held by dead PID ${existing_pid} on this host — stealing immediately for crash recovery"
+        local dead_pid_id
+        dead_pid_id=$(echo "$existing_comment" | jq -r '.id')
+        gh api "repos/${_SESSION_REPO}/issues/comments/${dead_pid_id}" -X DELETE >/dev/null 2>&1 || true
+      # Is the lock stale (by timeout)?
+      elif _gh_lock_is_stale "$existing_locked_at"; then
         >&2 echo "[rinse-lock] Stale lock from ${existing_host} (PID ${existing_pid}, locked at ${existing_locked_at}) — stealing"
         # Delete the stale comment so we can replace it
         local stale_id
