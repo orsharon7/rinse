@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # pr-review-stats.sh — Per-run telemetry for RINSE Pro dashboard
 #
-# Stores each run's stats in ~/.rinse/stats.json (JSON Lines format).
+# Stores each run's stats in $XDG_DATA_HOME/rinse/stats.json (JSON Lines format).
 # All telemetry is LOCAL — nothing is transmitted anywhere.
 # Opt-in: first call prompts the user; subsequent calls honour the saved choice.
 #
@@ -46,9 +46,12 @@ fi
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-RINSE_DIR="${HOME}/.rinse"
-RINSE_STATS_FILE="${RINSE_DIR}/stats.json"
-RINSE_CONFIG_FILE="${RINSE_DIR}/config.json"
+# Honor XDG Base Directory Specification so users on Linux/macOS don't end up
+# with a separate ~/.rinse tree alongside os.UserConfigDir()/rinse.
+RINSE_CONFIG_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/rinse"
+RINSE_DATA_DIR="${XDG_DATA_HOME:-${HOME}/.local/share}/rinse"
+RINSE_STATS_FILE="${RINSE_DATA_DIR}/stats.json"
+RINSE_CONFIG_FILE="${RINSE_CONFIG_DIR}/config.json"
 STATS_SCHEMA_VERSION=1
 
 # ─── Config helpers ───────────────────────────────────────────────────────────
@@ -56,20 +59,27 @@ STATS_SCHEMA_VERSION=1
 _rinse_config_get() {
   local key="$1"
   if [[ -f "$RINSE_CONFIG_FILE" ]]; then
-    jq -r --arg k "$key" '.[$k] // empty' "$RINSE_CONFIG_FILE" 2>/dev/null || true
+    # Normalize JSON booleans (true/false) to strings for backward compatibility
+    # with callers that compare against the string "true"/"false".
+    jq -r --arg k "$key" '
+      .[$k] // empty |
+      if type == "boolean" then if . then "true" else "false" end else . end
+    ' "$RINSE_CONFIG_FILE" 2>/dev/null || true
   fi
   return 0
 }
 
 _rinse_config_set() {
   local key="$1" value="$2"
-  mkdir -p "$RINSE_DIR"
+  mkdir -p "$RINSE_CONFIG_DIR"
   local tmp
-  tmp=$(mktemp "${RINSE_DIR}/.config.XXXXXX")
+  tmp=$(mktemp "${RINSE_CONFIG_DIR}/.config.XXXXXX")
+  # Use --argjson so "true"/"false" values are stored as JSON booleans rather
+  # than strings, keeping the config file properly typed.
   if [[ -f "$RINSE_CONFIG_FILE" ]]; then
-    jq --arg k "$key" --arg v "$value" '.[$k] = $v' "$RINSE_CONFIG_FILE" > "$tmp"
+    jq --arg k "$key" --argjson v "$value" '.[$k] = $v' "$RINSE_CONFIG_FILE" > "$tmp"
   else
-    jq -n --arg k "$key" --arg v "$value" '{($k): $v}' > "$tmp"
+    jq -n --arg k "$key" --argjson v "$value" '{($k): $v}' > "$tmp"
   fi
   mv "$tmp" "$RINSE_CONFIG_FILE"
 }
@@ -174,7 +184,7 @@ stats_record() {
   end_epoch=$(date +%s)
   duration=$(( end_epoch - _STATS_START_EPOCH ))
 
-  mkdir -p "$RINSE_DIR"
+  mkdir -p "$RINSE_DATA_DIR"
 
   # Append a JSON object (one record per line — JSON Lines)
   jq -cn \
