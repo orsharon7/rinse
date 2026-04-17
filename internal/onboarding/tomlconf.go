@@ -2,6 +2,7 @@ package onboarding
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -10,7 +11,13 @@ import (
 func TomlConfigPath() string {
 	dir, err := os.UserConfigDir()
 	if err != nil {
-		dir = os.Getenv("HOME")
+		// os.UserHomeDir() is safer than os.Getenv("HOME") — it never returns "".
+		home, herr := os.UserHomeDir()
+		if herr != nil {
+			dir = os.TempDir()
+		} else {
+			dir = filepath.Join(home, ".config")
+		}
 	}
 	return filepath.Join(dir, "rinse", "config.toml")
 }
@@ -19,7 +26,8 @@ func TomlConfigPath() string {
 // Called during Step C after the user confirms defaults.
 func WriteTomlConfig(cycleName string, d Defaults) error {
 	path := TomlConfigPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	targetDir := filepath.Dir(path)
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
 		return err
 	}
 
@@ -40,8 +48,23 @@ func WriteTomlConfig(cycleName string, d Defaults) error {
 		cycleName,
 	)
 
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
+	// Use os.CreateTemp in the target dir to avoid fixed-name temp file collisions.
+	f, err := os.CreateTemp(targetDir, filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+
+	if err := f.Chmod(0o644); err != nil {
+		f.Close()
+		return err
+	}
+	if _, err := io.WriteString(f, content); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)

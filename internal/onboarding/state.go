@@ -51,7 +51,13 @@ type State struct {
 func StatePath() string {
 	dir, err := os.UserConfigDir()
 	if err != nil {
-		dir = os.Getenv("HOME")
+		// os.UserHomeDir() is safer than os.Getenv("HOME") — it never returns "".
+		home, herr := os.UserHomeDir()
+		if herr != nil {
+			dir = os.TempDir()
+		} else {
+			dir = filepath.Join(home, ".config")
+		}
 	}
 	return filepath.Join(dir, "rinse", "onboarding-state.json")
 }

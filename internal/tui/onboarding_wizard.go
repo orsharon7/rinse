@@ -228,9 +228,10 @@ func (m wizModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				SaveHistory:      m.saveHistory,
 			},
 		}
-		_ = onboarding.SaveState(s)
+		if err := onboarding.SaveState(s); err != nil {
+			fmt.Fprintf(os.Stderr, "rinse: state write: %v\n", err)
+		}
 		m.view = wizStepE
-		if len(m.celebFrames) > 1 {
 			return m, tea.Tick(120*time.Millisecond, func(t time.Time) tea.Msg { return wizCelebFrameMsg{} })
 		}
 		return m, nil
@@ -424,10 +425,12 @@ func (m wizModel) handleWelcomeKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 			return m, saveStepCmd(onboarding.State{Version: onboarding.StateVersion})
 		} else {
 			// Skip setup
-			_ = onboarding.SaveState(onboarding.State{
+			if err := onboarding.SaveState(onboarding.State{
 				Version: onboarding.StateVersion,
 				Skipped: true,
-			})
+			}); err != nil {
+				fmt.Fprintf(os.Stderr, "rinse: state write: %v\n", err)
+			}
 			m.outcome = WizardSkipped
 			return m, tea.Quit
 		}
@@ -642,10 +645,12 @@ func (m wizModel) handleStepEKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 	switch {
 	case key.Matches(msg, Keys.Confirm) || key.Matches(msg, Keys.WizGoCycles): // "Go to my cycles"
 		// Persist onboarding completion so future launches do not re-run the wizard.
-		_ = onboarding.SaveState(onboarding.State{
+		if err := onboarding.SaveState(onboarding.State{
 			Version:       onboarding.StateVersion,
 			CompletedStep: onboarding.StepE,
-		})
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "rinse: state write: %v\n", err)
+		}
 		m.outcome = WizardCompleted
 		m.view = wizDone
 		return m, tea.Quit

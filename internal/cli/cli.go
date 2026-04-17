@@ -108,14 +108,16 @@ func runStatusCmd(args []string) {
 		switch rest[i] {
 		case "--repo":
 			i++
-			if i < len(rest) {
-				repo = rest[i]
+			if i >= len(rest) || strings.HasPrefix(rest[i], "-") {
+				fatalf(asJSON, "--repo requires a value (e.g. --repo owner/repo)")
 			}
+			repo = rest[i]
 		case "--pr":
 			i++
-			if i < len(rest) {
-				prNum = rest[i]
+			if i >= len(rest) || strings.HasPrefix(rest[i], "-") {
+				fatalf(asJSON, "--pr requires a value (e.g. --pr 42)")
 			}
+			prNum = rest[i]
 		case "--json":
 			asJSON = true
 		default:
@@ -269,31 +271,36 @@ func runStartCmd(args []string) {
 		switch args[i] {
 		case "--repo":
 			i++
-			if i < len(args) {
-				repo = args[i]
+			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+				fatalf(asJSON, "--repo requires a value (e.g. --repo owner/repo)")
 			}
+			repo = args[i]
 		case "--cwd":
 			i++
-			if i < len(args) {
-				cwd = args[i]
+			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+				fatalf(asJSON, "--cwd requires a value (e.g. --cwd /path/to/repo)")
 			}
+			cwd = args[i]
 		case "--model":
 			i++
-			if i < len(args) {
-				model = args[i]
+			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+				fatalf(asJSON, "--model requires a value (e.g. --model claude-sonnet-4-6)")
 			}
+			model = args[i]
 		case "--runner":
 			i++
-			if i < len(args) {
-				runnerName = args[i]
+			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+				fatalf(asJSON, "--runner requires a value (e.g. --runner opencode)")
 			}
+			runnerName = args[i]
 		case "--reflect":
 			doReflect = true
 		case "--reflect-main-branch":
 			i++
-			if i < len(args) {
-				reflectMain = args[i]
+			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+				fatalf(asJSON, "--reflect-main-branch requires a value (e.g. --reflect-main-branch main)")
 			}
+			reflectMain = args[i]
 		case "--auto-merge":
 			autoMerge = true
 		case "--json":
@@ -411,6 +418,8 @@ func resolveScript(scriptName string) (string, error) {
 		candidates := []string{
 			filepath.Join(binDir, "scripts"),
 			filepath.Join(binDir, "..", "scripts"),
+			filepath.Join(binDir, "pr-review"),
+			filepath.Join(binDir, "..", "pr-review"),
 			binDir,
 		}
 		for _, c := range candidates {
