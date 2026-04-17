@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"time"
@@ -76,6 +77,7 @@ func confirmationHTML(e Entry) string {
 	if name == "" {
 		name = e.Email
 	}
+	name = html.EscapeString(name)
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>

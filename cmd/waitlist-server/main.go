@@ -22,6 +22,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/orsharon7/rinse/internal/waitlist"
 )
@@ -36,7 +37,15 @@ func main() {
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	log.Printf("waitlist-server listening on %s", addr)
-	if err := http.ListenAndServe(addr, srv); err != nil {
+	httpSrv := &http.Server{
+		Addr:              addr,
+		Handler:           srv,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+	if err := httpSrv.ListenAndServe(); err != nil {
 		log.Fatalf("waitlist-server: %v", err)
 	}
 }

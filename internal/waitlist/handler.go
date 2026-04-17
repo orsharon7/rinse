@@ -2,6 +2,7 @@ package waitlist
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/csv"
 	"encoding/json"
 	"errors"
@@ -42,6 +43,7 @@ type joinRequest struct {
 // It validates the input, stores the entry in Supabase, and fires a
 // confirmation email. Duplicate emails return 409.
 func (h *Handler) Join(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB limit
 	var req joinRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid JSON body", http.StatusBadRequest)
@@ -132,7 +134,8 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 	cw.Flush()
 }
 
-// checkAdminAuth validates the Bearer token in the Authorization header.
+// checkAdminAuth validates the Bearer token in the Authorization header
+// using a constant-time comparison to prevent timing attacks.
 func (h *Handler) checkAdminAuth(r *http.Request) bool {
 	auth := r.Header.Get("Authorization")
 	const prefix = "Bearer "
@@ -140,7 +143,10 @@ func (h *Handler) checkAdminAuth(r *http.Request) bool {
 		return false
 	}
 	token := strings.TrimPrefix(auth, prefix)
-	return token == h.adminSecret
+	if token == "" || h.adminSecret == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(token), []byte(h.adminSecret)) == 1
 }
 
 func jsonError(w http.ResponseWriter, msg string, status int) {
