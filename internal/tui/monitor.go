@@ -572,6 +572,8 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if etaSt == etaOverdue {
 				m.toastMsg = "⚠ overdue"
 				m.overdueAnnounced = true
+				cmds = append(cmds, tea.Tick(3*time.Second,
+					func(time.Time) tea.Msg { return clearToastMsg{} }))
 			}
 		}
 

@@ -19,19 +19,19 @@ func writeSession(t *testing.T, dir string, name string, data []byte) {
 	}
 }
 
-// overrideSessionsDir temporarily overrides the sessions directory used by Load
-// via a package-level test hook in internal/stats, avoiding process-wide
-// mutation of HOME/USERPROFILE and related variables.
+// overrideSessionsDir redirects the sessions directory used by Load by
+// pointing HOME at a temporary directory and creating the expected
+// <HOME>/.rinse/sessions path.
 // It returns the sessions directory path.
 func overrideSessionsDir(t *testing.T) string {
 	t.Helper()
-	sessDir := filepath.Join(t.TempDir(), "sessions")
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	sessDir := filepath.Join(tempHome, ".rinse", "sessions")
 	if err := os.MkdirAll(sessDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-
-	restore := stats.SetSessionsDir(sessDir)
-	t.Cleanup(restore)
 	return sessDir
 }
 
