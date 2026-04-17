@@ -27,7 +27,13 @@ var ErrLocked = errors.New("lock: held by another process")
 
 // Dir is the default base directory for lock files.
 // It mirrors the DAEMON_LOCK_DIR convention from the shell scripts.
-var Dir = filepath.Join(os.Getenv("HOME"), ".pr-review", "locks")
+var Dir = func() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = os.Getenv("HOME")
+	}
+	return filepath.Join(home, ".pr-review", "locks")
+}()
 
 // Lock represents a per-PR advisory lock on disk.
 type Lock struct {

@@ -52,8 +52,9 @@ func (s Session) ElapsedWall() time.Duration {
 	return s.EndedAt.Sub(s.StartedAt).Round(time.Second)
 }
 
-// sessionsDir returns the directory where sessions are persisted.
-func sessionsDir() (string, error) {
+// sessionsDir is the directory resolver for session persistence.
+// It is a variable so tests can override it with a temp directory.
+var sessionsDir = func() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("session: resolve home dir: %w", err)
@@ -176,7 +177,7 @@ func PrintSummary(s Session, jsonMode bool) {
 		for i, c := range s.CommentsByRound {
 			parts[i] = fmt.Sprintf("%d", c)
 		}
-		commentsStr += fmt.Sprintf(" across %d Copilot review rounds", len(s.CommentsByRound))
+		commentsStr += fmt.Sprintf(" across %d Copilot review rounds (%s)", len(s.CommentsByRound), strings.Join(parts, ", "))
 	} else if len(s.CommentsByRound) == 1 {
 		commentsStr += " in 1 Copilot review round"
 	}

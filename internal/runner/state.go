@@ -12,7 +12,13 @@ import (
 
 // stateDir is the base directory for per-PR state files.
 // Mirrors the STATE_DIR convention in the shell scripts; scoped per-repo.
-var stateDir = filepath.Join(os.Getenv("HOME"), ".pr-review", "state")
+var stateDir = func() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = os.Getenv("HOME")
+	}
+	return filepath.Join(home, ".pr-review", "state")
+}()
 
 // PRState is the checkpoint persisted between runner iterations.
 // It enables crash recovery and partial-resume: if the process dies mid-cycle,
