@@ -125,7 +125,10 @@ func Save(s Session) error {
 			return nil // CI/non-TTY: silently off
 		}
 		optedIn, promptErr := PromptOptIn()
-		if promptErr != nil || !optedIn {
+		if promptErr != nil {
+			return promptErr
+		}
+		if !optedIn {
 			return nil
 		}
 	}
