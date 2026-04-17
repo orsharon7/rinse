@@ -1,4 +1,4 @@
-package main
+package tui
 
 import (
 	"encoding/json"
@@ -8,9 +8,10 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/orsharon7/rinse/internal/config"
 )
 
-// version is set at build time via -ldflags.
+// version is set by Run() from the value injected at build time via -ldflags.
 var version = "dev"
 
 // ── PR data ───────────────────────────────────────────────────────────────────
@@ -124,65 +125,6 @@ const (
 	sfCancel
 )
 
-// ── Shared helpers ────────────────────────────────────────────────────────────
-
-func truncate(s string, n int) string {
-	runes := []rune(s)
-	if len(runes) <= n {
-		return s
-	}
-	if n <= 0 {
-		return ""
-	}
-	if n == 1 {
-		return "…"
-	}
-	return string(runes[:n-1]) + "…"
-}
-
-func clamp(v, lo, hi int) int {
-	if v < lo {
-		return lo
-	}
-	if v > hi {
-		return hi
-	}
-	return v
-}
-
-// wrapLine splits s into lines of at most w visible runes, breaking at spaces.
-func wrapLine(s string, w int) []string {
-	if w <= 0 {
-		return []string{s}
-	}
-	runes := []rune(s)
-	var lines []string
-	for len(runes) > 0 {
-		if len(runes) <= w {
-			lines = append(lines, string(runes))
-			break
-		}
-		cut := w
-		for cut > w-12 && cut > 0 && runes[cut-1] != ' ' {
-			cut--
-		}
-		if cut <= 0 {
-			cut = w
-		}
-		lines = append(lines, strings.TrimRight(string(runes[:cut]), " "))
-		runes = runes[cut:]
-		for len(runes) > 0 && runes[0] == ' ' {
-			runes = runes[1:]
-		}
-	}
-	return lines
-}
-
-// renderKeyHint renders a "key action" pair in the standard hint style.
-func renderKeyHint(key, desc string) string {
-	return styleHintKey.Render(key) + " " + styleHintDesc.Render(desc)
-}
-
 // shortRunnerName returns the runner's short name.
 func shortRunnerName(idx int) string {
 	if idx < 0 || idx >= len(runners) {
@@ -194,4 +136,68 @@ func shortRunnerName(idx int) string {
 // fmtPRNumber formats a PR number like "#14 " left-padded.
 func fmtPRNumber(n int) string {
 	return fmt.Sprintf("#%-4d", n)
+}
+
+// Run is the entry point for the RINSE TUI. ver is the version string injected
+// at build time via -ldflags.
+func Run(ver string) error {
+	version = ver
+
+	m := initialModel()
+
+	p := tea.NewProgram(m,
+		tea.WithAltScreen(),
+		tea.WithMouseCellMotion(),
+	)
+
+	final, err := p.Run()
+	if err != nil {
+		return err
+	}
+
+	fm := final.(model)
+	if fm.view != viewDone || len(fm.finalCmd) == 0 {
+		return nil
+	}
+
+	rName := shortRunnerName(fm.runnerIdx)
+	runnerCmd := append(fm.finalCmd, "--no-interactive")
+
+	return RunMonitor(fm.prNum, fm.repo, strings.TrimSpace(rName), fm.modelOverride, fm.prTitle, fm.path, fm.autoMerge, runnerCmd)
+}
+
+// initialModel builds a fresh wizard model with settings loaded from disk.
+func initialModel() model {
+	repo := detectRepo()
+
+	cfg := config.LoadConfig(len(runners))
+	var rc config.RepoConfig
+	hasRepoConfig := false
+	if repo != "" {
+		if loaded, ok := config.LoadRepoConfig(repo); ok {
+			rc = loaded
+			hasRepoConfig = true
+		}
+	}
+	if !hasRepoConfig && cfg.LastRunner > 0 && cfg.LastRunner < len(runners) {
+		rc.Runner = cfg.LastRunner
+	}
+	if rc.Model == "" {
+		rc.Model = cfg.LastModel
+	}
+
+	path := detectCWD()
+	if repo == "" {
+		path = rc.Path
+		if path == "" {
+			path = detectCWD()
+		}
+	}
+
+	return newModel(repo, path, rc, cfg, hasRepoConfig)
+}
+
+// saveConfig persists wizard settings to disk.
+func saveConfig(cfg config.Config) {
+	config.SaveConfig(cfg)
 }

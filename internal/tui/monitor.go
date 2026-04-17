@@ -1,4 +1,4 @@
-package main
+package tui
 
 import (
 	"bufio"
@@ -16,6 +16,8 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/orsharon7/rinse/internal/stats"
+	"github.com/orsharon7/rinse/internal/theme"
 )
 
 // ansiRe strips ANSI escape sequences for pattern matching only.
@@ -25,6 +27,68 @@ var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[mK]`)
 var commentCountRe = regexp.MustCompile(`(\d+)\s+comment\(s\)`)
 
 func stripANSI(s string) string { return ansiRe.ReplaceAllString(s, "") }
+
+// ── Timing helpers ────────────────────────────────────────────────────────────
+
+// formatElapsed formats d per spec:
+//
+//	0 – 59m59s  → mm:ss        (e.g. "04:37")
+//	1h – 99h59m → h:mm:ss      (e.g. "1:04:37")   hours NOT zero-padded
+//	100h+       → hh:mm:ss     (e.g. "100:04:37")
+func formatElapsed(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	totalSec := int(d.Seconds())
+	h := totalSec / 3600
+	m := (totalSec % 3600) / 60
+	s := totalSec % 60
+	if h == 0 {
+		return fmt.Sprintf("%02d:%02d", m, s)
+	}
+	return fmt.Sprintf("%d:%02d:%02d", h, m, s)
+}
+
+// etaState describes which ETA display branch applies.
+type etaState int
+
+const (
+	etaHidden     etaState = iota // phase not yet started (pending)
+	etaUnknown                    // running but no estimatedEndAt
+	etaComputable                 // ETA today
+	etaFutureDay                  // ETA tomorrow or later
+	etaOverdue                    // past estimated end
+	etaCompleted                  // cycle done
+	etaCancelled                  // cycle cancelled
+	etaError                      // cycle error
+)
+
+// resolveETA computes the ETA display state given current phase and optional
+// server-supplied estimatedEndAt. now is the clock-offset-adjusted current time.
+func resolveETA(p phase, estimatedEndAt *time.Time, now time.Time) (etaState, time.Time) {
+	switch p {
+	case phaseStarting:
+		return etaHidden, time.Time{}
+	case phaseDone:
+		return etaCompleted, time.Time{}
+	case phaseError:
+		return etaError, time.Time{}
+	}
+	// Active phases (waiting/fixing/reflecting).
+	if estimatedEndAt == nil {
+		return etaUnknown, time.Time{}
+	}
+	eta := *estimatedEndAt
+	if eta.Before(now) {
+		return etaOverdue, eta
+	}
+	etaLocal := eta.Local()
+	nowLocal := now.Local()
+	if etaLocal.Year() == nowLocal.Year() && etaLocal.YearDay() == nowLocal.YearDay() {
+		return etaComputable, eta
+	}
+	return etaFutureDay, eta
+}
 
 // ── Phase ─────────────────────────────────────────────────────────────────────
 
@@ -60,19 +124,19 @@ func (p phase) String() string {
 func (p phase) Style() lipgloss.Style {
 	switch p {
 	case phaseStarting:
-		return stylePhaseWaiting
+		return theme.StylePhaseWaiting
 	case phaseWaiting:
-		return stylePhaseWaiting
+		return theme.StylePhaseWaiting
 	case phaseFixing:
-		return stylePhaseFixing
+		return theme.StylePhaseFixing
 	case phaseReflecting:
-		return stylePhaseReflect
+		return theme.StylePhaseReflect
 	case phaseDone:
-		return stylePhaseDone
+		return theme.StylePhaseDone
 	case phaseError:
-		return stylePhaseErr
+		return theme.StylePhaseErr
 	}
-	return stylePhaseWaiting
+	return theme.StylePhaseWaiting
 }
 
 // ── Messages ──────────────────────────────────────────────────────────────────
@@ -113,7 +177,7 @@ type postCycleOption struct {
 
 func buildPostCycleOptions(defaultBranch string) []postCycleOption {
 	return []postCycleOption{
-		{label: "Merge PR + delete remote & local branch + checkout " + IconArrow + " " + defaultBranch},
+		{label: "Merge PR + delete remote & local branch + checkout " + theme.IconArrow + " " + defaultBranch},
 		{label: "Merge PR only"},
 		{label: "Open PR in browser"},
 		{label: "Do nothing (exit)"},
@@ -174,15 +238,27 @@ type monitorModel struct {
 	cmd      *exec.Cmd
 	exitCode int
 	done     bool
+
+	// timing: server-driven time derivation per UX spec (RIN-42).
+	// clockOffset is computed once per connection as serverNow - Date.now().
+	// For the local runner, it remains zero (runner IS the server).
+	clockOffset        time.Duration
+	lastStateChangedAt time.Time     // wall-clock of most recent phase transition
+	frozenElapsed      *time.Duration // set when entering done/error; nil while active
+	estimatedEndAt     *time.Time     // server-supplied ETA (nil until runner emits it)
+	overdueAnnounced   bool           // prevents repeated toast on overdue crossing
+
+	// timing tooltip (toggled by 't' key)
+	showTimingTooltip bool
 }
 
 func newMonitorModel(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge bool, cmd *exec.Cmd) monitorModel {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
-	sp.Style = lipgloss.NewStyle().Foreground(mauve)
+	sp.Style = lipgloss.NewStyle().Foreground(theme.Mauve)
 
 	vp := viewport.New(80, 20)
-	vp.Style = lipgloss.NewStyle().Foreground(text)
+	vp.Style = lipgloss.NewStyle().Foreground(theme.Text)
 
 	defaultBr := detectLocalDefaultBranch(cwd)
 
@@ -202,6 +278,7 @@ func newMonitorModel(pr, repo, runnerName, modelName, prTitle, cwd string, autoM
 		cmd:                cmd,
 		renderedLog:        &strings.Builder{},
 		postCycleDefaultBr: defaultBr,
+		lastStateChangedAt: time.Now(),
 	}
 }
 
@@ -222,6 +299,39 @@ func detectLocalDefaultBranch(cwd string) string {
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
+
+// elapsedForDisplay returns the duration to show in the elapsed badge.
+// Returns frozenElapsed when the cycle has ended; ticks live otherwise.
+// Returns 0 during phaseStarting (not yet shown per state-mapping spec).
+func (m monitorModel) elapsedForDisplay() time.Duration {
+	if m.frozenElapsed != nil {
+		return *m.frozenElapsed
+	}
+	if m.phase == phaseStarting {
+		return 0
+	}
+	return (time.Since(m.started) + m.clockOffset).Round(time.Second)
+}
+
+// nowAdjusted returns the clock-offset-adjusted current time.
+func (m monitorModel) nowAdjusted() time.Time {
+	return time.Now().Add(m.clockOffset)
+}
+
+// applyPhaseChange records a phase transition: updates lastStateChangedAt and
+// freezes elapsed when entering a terminal phase. Returns the updated model.
+func (m monitorModel) applyPhaseChange(newPhase phase) monitorModel {
+	if newPhase == m.phase {
+		return m
+	}
+	m.lastStateChangedAt = time.Now()
+	if newPhase == phaseDone || newPhase == phaseError {
+		d := (time.Since(m.started) + m.clockOffset).Round(time.Second)
+		m.frozenElapsed = &d
+	}
+	m.phase = newPhase
+	return m
+}
 
 func (m monitorModel) Init() tea.Cmd {
 	return tea.Batch(m.spinner.Tick, tick())
@@ -288,18 +398,18 @@ func (m monitorModel) renderPhaseBreadcrumb() string {
 		var part string
 		switch {
 		case m.phase == phaseError && p == phaseDone:
-			part = stylePhaseErr.Render(IconCross + " error")
+			part = theme.StylePhaseErr.Render(theme.IconCross + " error")
 		case p < currentPhase:
-			part = styleLogDebug.Render(IconCheck + " " + names[i])
+			part = theme.StyleLogDebug.Render(theme.IconCheck + " " + names[i])
 		case p == currentPhase:
-			part = m.phase.Style().Render(IconRadioOn + " " + names[i])
+			part = m.phase.Style().Render(theme.IconRadioOn + " " + names[i])
 		default:
-			part = styleMuted.Render(IconCircle + " " + names[i])
+			part = theme.StyleMuted.Render(theme.IconCircle + " " + names[i])
 		}
 		parts = append(parts, part)
 	}
 
-	sep := styleMuted.Render(" › ")
+	sep := theme.StyleMuted.Render(" › ")
 	return "  " + strings.Join(parts, sep)
 }
 
@@ -308,10 +418,10 @@ func (m monitorModel) renderPhaseBreadcrumb() string {
 func (m monitorModel) renderHelp() string {
 	helpStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(surface).
+		BorderForeground(theme.Surface).
 		Padding(1, 4)
 
-	title := gradientString("MONITOR SHORTCUTS", mauve, lavender, true)
+	title := theme.GradientString("MONITOR SHORTCUTS", theme.Mauve, theme.Lavender, true)
 
 	type krow struct{ key, desc string }
 	rows := []krow{
@@ -319,6 +429,7 @@ func (m monitorModel) renderHelp() string {
 		{"↓ / j", "scroll down"},
 		{"g", "jump to top"},
 		{"G", "jump to bottom"},
+		{"t", "timing tooltip"},
 		{"S", "save full session log"},
 		{"s", "save reflect log"},
 		{"?", "toggle this help"},
@@ -328,8 +439,8 @@ func (m monitorModel) renderHelp() string {
 	var lines []string
 	for _, r := range rows {
 		lines = append(lines,
-			styleHintKey.Render(fmt.Sprintf("  %-10s", r.key))+"  "+
-				lipgloss.NewStyle().Foreground(subtext).Render(r.desc))
+			theme.StyleHintKey.Render(fmt.Sprintf("  %-10s", r.key))+"  "+
+				lipgloss.NewStyle().Foreground(theme.Subtext).Render(r.desc))
 	}
 
 	return helpStyle.Render(title + "\n\n" + strings.Join(lines, "\n"))
@@ -367,6 +478,18 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// When the timing tooltip is open: any key closes it (except ctrl+c which quits).
+		if m.showTimingTooltip {
+			if key.Matches(msg, Keys.ForceQuit) {
+				if m.cmd != nil && m.cmd.Process != nil {
+					_ = m.cmd.Process.Kill()
+				}
+				return m, tea.Quit
+			}
+			m.showTimingTooltip = false
+			return m, nil
+		}
+
 		// Outside the help overlay: q or ctrl+c quits.
 		if key.Matches(msg, Keys.Quit) {
 			if m.cmd != nil && m.cmd.Process != nil {
@@ -381,6 +504,8 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if key.Matches(msg, Keys.Help) {
 			m.showHelp = true
+		} else if key.Matches(msg, Keys.TimingInfo) {
+			m.showTimingTooltip = !m.showTimingTooltip
 		} else {
 			switch msg.String() {
 			case "G":
@@ -395,9 +520,9 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						time.Now().Format("20060102-150405"))
 					content := strings.Join(m.reflectLines, "\n") + "\n"
 					if err := os.WriteFile(fname, []byte(content), 0o644); err != nil {
-						m.statusMsg = IconCross + " save failed"
+						m.statusMsg = theme.IconCross + " save failed"
 					} else {
-						m.statusMsg = IconCheck + " reflect log " + IconArrow + " " + fname
+						m.statusMsg = theme.IconCheck + " reflect log " + theme.IconArrow + " " + fname
 					}
 					cmds = append(cmds, tea.Tick(2*time.Second,
 						func(t time.Time) tea.Msg { return clearStatusMsg{} }))
@@ -415,7 +540,7 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				var savedParts []string
 				if err := os.WriteFile(mainFname, []byte(mainContent), 0o644); err != nil {
-					m.statusMsg = IconCross + " save failed"
+					m.statusMsg = theme.IconCross + " save failed"
 				} else {
 					savedParts = append(savedParts, mainFname)
 				}
@@ -427,7 +552,7 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 				if len(savedParts) > 0 {
-					m.statusMsg = IconCheck + " saved " + IconArrow + " " + strings.Join(savedParts, ", ")
+					m.statusMsg = theme.IconCheck + " saved " + theme.IconArrow + " " + strings.Join(savedParts, ", ")
 				}
 				cmds = append(cmds, tea.Tick(3*time.Second,
 					func(t time.Time) tea.Msg { return clearStatusMsg{} }))
@@ -441,6 +566,15 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		cmds = append(cmds, tick())
+		// Check for overdue crossing once per tick while cycle is active.
+		if !m.overdueAnnounced && m.estimatedEndAt != nil && m.phase != phaseDone && m.phase != phaseError {
+			if m.nowAdjusted().After(*m.estimatedEndAt) {
+				m.overdueAnnounced = true
+				m.toastMsg = theme.StyleBadgeOverdue.Render(" OVERDUE ")
+				cmds = append(cmds, tea.Tick(5*time.Second,
+					func(t time.Time) tea.Msg { return clearToastMsg{} }))
+			}
+		}
 
 	case spinner.TickMsg:
 		var spcmd tea.Cmd
@@ -454,7 +588,7 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Detect "ready to merge" signals.
 		if isReadyToMerge(plain) {
 			m.readyToMerge = true
-			m.toastMsg = IconCheck + "  PR ready to merge!"
+			m.toastMsg = theme.IconCheck + "  PR ready to merge!"
 			cmds = append(cmds, tea.Tick(4*time.Second,
 				func(t time.Time) tea.Msg { return clearToastMsg{} }))
 		}
@@ -487,7 +621,7 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if n > 0 {
 				m.rulesExtracted += n
-				m.toastMsg = fmt.Sprintf(IconRadioOn+"  +%d rule(s) extracted", n)
+				m.toastMsg = fmt.Sprintf(theme.IconRadioOn+"  +%d rule(s) extracted", n)
 				cmds = append(cmds, tea.Tick(3*time.Second,
 					func(t time.Time) tea.Msg { return clearToastMsg{} }))
 			}
@@ -516,7 +650,7 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				entry := iterEntry{num: m.iter, result: iterApproved}
 				m.iterHistory = append(m.iterHistory, entry)
 			}
-			m.toastMsg = IconCheck + "  Copilot APPROVED!"
+			m.toastMsg = theme.IconCheck + "  Copilot APPROVED!"
 			cmds = append(cmds, tea.Tick(5*time.Second,
 				func(t time.Time) tea.Msg { return clearToastMsg{} }))
 		}
@@ -563,7 +697,7 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.renderedLog.WriteString(colorLine(raw) + "\n")
 		}
 
-		m.phase = nextPhase
+		m = m.applyPhaseChange(nextPhase)
 
 		if strings.Contains(plain, "Iteration") {
 			var n int
@@ -583,14 +717,14 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.done = true
 		m.exitCode = msg.exitCode
 		if msg.exitCode == 0 {
-			m.phase = phaseDone
+			m = m.applyPhaseChange(phaseDone)
 			if m.readyToMerge && !m.autoMerge {
 				m.showPostCycleMenu = true
 				m.postCycleCursor = 0
 				m.postCycleOptions = buildPostCycleOptions(m.postCycleDefaultBr)
 			}
 		} else {
-			m.phase = phaseError
+			m = m.applyPhaseChange(phaseError)
 		}
 		m.viewport.SetContent(m.renderedLog.String())
 		if m.atBottom {
@@ -663,21 +797,21 @@ func (m monitorModel) executePostCycleAction(choice int) (tea.Model, tea.Cmd) {
 			}
 			localBranch, revErr := runShell("git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD")
 			if revErr != nil {
-				return actionDoneMsg{output: IconCross + " Merged, remote branch deleted. (local cleanup skipped)", err: revErr}
+				return actionDoneMsg{output: theme.IconCross + " Merged, remote branch deleted. (local cleanup skipped)", err: revErr}
 			}
 			localBranch = strings.TrimSpace(localBranch)
 			if localBranch == "" || localBranch == defaultBr {
-				return actionDoneMsg{output: IconCheck + " Merged, remote branch deleted."}
+				return actionDoneMsg{output: theme.IconCheck + " Merged, remote branch deleted."}
 			}
 			if _, coErr := runShell("git", "-C", cwd, "checkout", defaultBr); coErr != nil {
-				return actionDoneMsg{output: IconCross + " Merged, remote branch deleted. (checkout " + defaultBr + " failed)", err: coErr}
+				return actionDoneMsg{output: theme.IconCross + " Merged, remote branch deleted. (checkout " + defaultBr + " failed)", err: coErr}
 			}
 			if _, delErr := runShell("git", "-C", cwd, "branch", "-d", localBranch); delErr != nil {
 				if _, delErrF := runShell("git", "-C", cwd, "branch", "-D", localBranch); delErrF != nil {
-					return actionDoneMsg{output: IconCross + " Merged, remote branch deleted. (local branch delete failed)", err: delErrF}
+					return actionDoneMsg{output: theme.IconCross + " Merged, remote branch deleted. (local branch delete failed)", err: delErrF}
 				}
 			}
-			return actionDoneMsg{output: IconCheck + " Merged, remote branch deleted, local branch deleted."}
+			return actionDoneMsg{output: theme.IconCheck + " Merged, remote branch deleted, local branch deleted."}
 		}
 	case 1:
 		return m, func() tea.Msg {
@@ -728,13 +862,13 @@ func (m monitorModel) renderWaitProgress() string {
 		label = "Copilot reviewing"
 	}
 	elapsed := m.waitElapsed
-	max := m.waitMax
-	if max < 1 {
-		max = 1
+	mx := m.waitMax
+	if mx < 1 {
+		mx = 1
 	}
 
 	barW := 20
-	filled := elapsed * barW / max
+	filled := elapsed * barW / mx
 	if filled > barW {
 		filled = barW
 	}
@@ -742,15 +876,15 @@ func (m monitorModel) renderWaitProgress() string {
 	if empty < 0 {
 		empty = 0
 	}
-	pct := elapsed * 100 / max
+	pct := elapsed * 100 / mx
 
-	bar := stylePhaseWaiting.Render(strings.Repeat("━", filled)) +
-		styleMuted.Render(strings.Repeat("─", empty))
+	bar := theme.StylePhaseWaiting.Render(strings.Repeat("━", filled)) +
+		theme.StyleMuted.Render(strings.Repeat("─", empty))
 
 	return m.spinner.View() + " " +
-		stylePhaseWaiting.Render(label) + "  " +
+		theme.StylePhaseWaiting.Render(label) + "  " +
 		bar + "  " +
-		styleMuted.Render(fmt.Sprintf("%ds / %ds (%d%%)", elapsed, max, pct))
+		theme.StyleMuted.Render(fmt.Sprintf("%ds / %ds (%d%%)", elapsed, mx, pct))
 }
 
 func inferPhase(plain string, current phase) phase {
@@ -802,7 +936,6 @@ func extractReflectEntry(plain string) string {
 }
 
 // ── View ──────────────────────────────────────────────────────────────────────
-// Redesigned monitor layout with Crush-style slash-separated header.
 
 func (m monitorModel) View() string {
 	totalW := m.width
@@ -816,6 +949,14 @@ func (m monitorModel) View() string {
 			h = 24
 		}
 		return lipgloss.Place(totalW, h, lipgloss.Center, lipgloss.Center, m.renderHelp())
+	}
+
+	if m.showTimingTooltip {
+		h := m.height
+		if h <= 0 {
+			h = 24
+		}
+		return lipgloss.Place(totalW, h, lipgloss.Center, lipgloss.Center, m.renderTimingTooltip())
 	}
 
 	if m.showPostCycleMenu {
@@ -834,20 +975,20 @@ func (m monitorModel) View() string {
 	logH := m.logHeight()
 
 	// ── Header line 1: Compact brand with PR context ─────────────────────────
-	elapsed := time.Since(m.started).Round(time.Second)
+	elapsed := m.elapsedForDisplay()
 
 	prCtx := "#" + m.pr
 	if m.repo != "" {
-		prCtx += " " + IconSep + " " + m.repo
+		prCtx += " " + theme.IconSep + " " + m.repo
 	}
 	if m.runner != "" {
-		prCtx += " " + IconSep + " " + m.runner
+		prCtx += " " + theme.IconSep + " " + m.runner
 	}
-	headerLine1 := renderCompactBrandWithDetails(totalW-2, prCtx)
+	headerLine1 := theme.RenderCompactBrandWithDetails(totalW-2, prCtx)
 	if m.prTitle != "" {
-		headerLine1 += "\n  " + styleMuted.Render(`"`) +
-			lipgloss.NewStyle().Foreground(text).Italic(true).Render(truncate(m.prTitle, 50)) +
-			styleMuted.Render(`"`)
+		headerLine1 += "\n  " + theme.StyleMuted.Render(`"`) +
+			lipgloss.NewStyle().Foreground(theme.Text).Italic(true).Render(theme.Truncate(m.prTitle, 50)) +
+			theme.StyleMuted.Render(`"`)
 	}
 
 	// ── Header line 2: Compact stat badges ────────────────────────────────────
@@ -856,17 +997,45 @@ func (m monitorModel) View() string {
 		iterStr = fmt.Sprintf("%d", m.iter)
 	}
 
+	// Elapsed badge: hidden during phaseStarting; dimmed when done/cancelled.
+	var elapsedBadge string
+	if m.phase != phaseStarting {
+		elapsedStr := formatElapsed(elapsed)
+		elapsedBadge = theme.StyleBadgeTime.Render(fmt.Sprintf(" %s ", elapsedStr))
+	}
+
 	badges := []string{
-		styleBadgeIter.Render(fmt.Sprintf(" iter %s ", iterStr)),
-		styleBadgeTime.Render(fmt.Sprintf(" %s ", elapsed.String())),
+		theme.StyleBadgeIter.Render(fmt.Sprintf(" iter %s ", iterStr)),
+	}
+	if elapsedBadge != "" {
+		badges = append(badges, elapsedBadge)
+	}
+
+	// ETA badge: state-driven per UX spec.
+	etaSt, etaTime := resolveETA(m.phase, m.estimatedEndAt, m.nowAdjusted())
+	switch etaSt {
+	case etaUnknown:
+		badges = append(badges, theme.StyleBadgeETA.Render(" ETA — "))
+	case etaComputable:
+		badges = append(badges, theme.StyleBadgeETA.Render(" ETA "+etaTime.Local().Format("15:04")+" "))
+	case etaFutureDay:
+		badges = append(badges, theme.StyleBadgeETA.Render(" ETA "+etaTime.Local().Format("Mon 15:04")+" "))
+	case etaOverdue:
+		overdueDur := m.nowAdjusted().Sub(etaTime).Round(time.Second)
+		badges = append(badges, theme.StyleBadgeOverdue.Render(" +"+formatElapsed(overdueDur)+" "))
+	case etaCompleted:
+		badges = append(badges, theme.StyleBadgeETA.Render(" Completed "))
+	case etaError:
+		badges = append(badges, theme.StyleBadgeETA.Render(" ETA — "))
+	// etaHidden and etaCancelled: nothing added
 	}
 	if m.totalComments > 0 {
 		badges = append(badges,
-			styleBadgeComment.Render(fmt.Sprintf(" %d comments ", m.totalComments)))
+			theme.StyleBadgeComment.Render(fmt.Sprintf(" %d comments ", m.totalComments)))
 	}
 	if m.rulesExtracted > 0 {
 		badges = append(badges,
-			styleBadgeRules.Render(fmt.Sprintf(" +%d rules ", m.rulesExtracted)))
+			theme.StyleBadgeRules.Render(fmt.Sprintf(" +%d rules ", m.rulesExtracted)))
 	}
 
 	headerLine2 := "  " + strings.Join(badges, "  ")
@@ -878,14 +1047,14 @@ func (m monitorModel) View() string {
 	if headerWidth < 0 {
 		headerWidth = 0
 	}
-	header := styleHeader.Width(headerWidth).Render(headerLine1 + "\n" + headerLine2)
+	header := theme.StyleHeader.Width(headerWidth).Render(headerLine1 + "\n" + headerLine2)
 
 	// ── Phase breadcrumb ──────────────────────────────────────────────────────
 	breadcrumb := m.renderPhaseBreadcrumb()
 
 	// ── Toast notification ────────────────────────────────────────────────────
 	if m.toastMsg != "" {
-		toastRendered := styleToast.Render(m.toastMsg)
+		toastRendered := theme.StyleToast.Render(m.toastMsg)
 		toastW := lipgloss.Width(toastRendered)
 		breadcrumbW := lipgloss.Width(breadcrumb)
 		gap := totalW - breadcrumbW - toastW - 2
@@ -911,12 +1080,12 @@ func (m monitorModel) View() string {
 	// ── Status bar ────────────────────────────────────────────────────────────
 	var phaseStr string
 	if m.statusMsg != "" {
-		phaseStr = styleTeal.Render(m.statusMsg)
+		phaseStr = theme.StyleTeal.Render(m.statusMsg)
 	} else if m.done {
 		if m.exitCode == 0 {
-			phaseStr = stylePhaseDone.Render(IconCheck + " done")
+			phaseStr = theme.StylePhaseDone.Render(theme.IconCheck + " done")
 		} else {
-			phaseStr = stylePhaseErr.Render(fmt.Sprintf(IconCross+" exited %d", m.exitCode))
+			phaseStr = theme.StylePhaseErr.Render(fmt.Sprintf(theme.IconCross+" exited %d", m.exitCode))
 		}
 	} else if m.phase == phaseWaiting && m.waitMax > 0 {
 		phaseStr = m.renderWaitProgress()
@@ -926,25 +1095,54 @@ func (m monitorModel) View() string {
 
 	scrollHint := ""
 	if !m.atBottom {
-		scrollHint = styleMuted.Render("  ↑ scrolled  G=bottom")
+		scrollHint = theme.StyleMuted.Render("  ↑ scrolled  G=bottom")
 	}
 
-	dot := styleMuted.Render(" " + IconSep + " ")
+	dot := theme.StyleMuted.Render(" " + theme.IconSep + " ")
 	keys := "  " + strings.Join([]string{
-		renderKeyHint("q", "quit"),
-		renderKeyHint("↑↓/jk", "scroll"),
-		renderKeyHint("s", "save reflect"),
-		renderKeyHint("S", "save all"),
-		renderKeyHint("?", "help"),
+		theme.RenderKeyHint("q", "quit"),
+		theme.RenderKeyHint("↑↓/jk", "scroll"),
+		theme.RenderKeyHint("t", "timing"),
+		theme.RenderKeyHint("s", "save reflect"),
+		theme.RenderKeyHint("S", "save all"),
+		theme.RenderKeyHint("?", "help"),
 	}, dot)
 
 	statusBarWidth := totalW - 2
 	if statusBarWidth < 0 {
 		statusBarWidth = 0
 	}
-	statusBar := styleStatusBar.Width(statusBarWidth).Render(phaseStr + scrollHint + keys)
+	statusBar := theme.StyleStatusBar.Width(statusBarWidth).Render(phaseStr + scrollHint + keys)
 
 	return header + "\n" + breadcrumb + "\n" + body + "\n" + statusBar
+}
+
+// renderTimingTooltip renders the last-state-change tooltip overlay.
+// Shows timestamp in UTC and local timezone, matching the UX spec (RIN-42 §3).
+func (m monitorModel) renderTimingTooltip() string {
+	t := m.lastStateChangedAt
+	utcStr := t.UTC().Format("Mon, 02 Jan 2006  15:04:05 UTC")
+	localStr := t.Local().Format("15:04:05 MST")
+
+	elapsedStr := formatElapsed(m.elapsedForDisplay())
+	elapsedLabel := theme.StyleMuted.Render("Elapsed:") + " " +
+		lipgloss.NewStyle().Foreground(theme.Text).Render(elapsedStr)
+
+	label := theme.StyleMuted.Render("Last state change")
+	utcLine := lipgloss.NewStyle().Foreground(theme.Text).Render(utcStr)
+	localLine := theme.StyleMuted.Render("(local: " + localStr + ")")
+
+	dismissHint := theme.StyleMuted.Render("  any key to dismiss")
+
+	content := label + "\n" + utcLine + "\n" + localLine + "\n\n" + elapsedLabel + "\n\n" + dismissHint
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(theme.Surface).
+		Padding(1, 3).
+		Render(content)
+
+	return box
 }
 
 // renderIterTimeline renders a compact horizontal timeline of iteration results.
@@ -953,47 +1151,47 @@ func (m monitorModel) renderIterTimeline() string {
 	for _, e := range m.iterHistory {
 		switch e.result {
 		case iterFixed:
-			dot := styleTimelineDot.Render(IconDot)
+			dot := theme.StyleTimelineDot.Render(theme.IconDot)
 			if e.comments > 0 {
-				dot = styleTimelineDot.Render(fmt.Sprintf(IconDot+"%d", e.comments))
+				dot = theme.StyleTimelineDot.Render(fmt.Sprintf(theme.IconDot+"%d", e.comments))
 			}
 			parts = append(parts, dot)
 		case iterClean:
-			parts = append(parts, styleTimelineDone.Render(IconCircle))
+			parts = append(parts, theme.StyleTimelineDone.Render(theme.IconCircle))
 		case iterApproved:
-			parts = append(parts, styleTimelineDone.Render(IconCheck))
+			parts = append(parts, theme.StyleTimelineDone.Render(theme.IconCheck))
 		case iterError:
-			parts = append(parts, styleTimelineErr.Render(IconCross))
+			parts = append(parts, theme.StyleTimelineErr.Render(theme.IconCross))
 		case iterRunning:
-			parts = append(parts, styleTimelineCurrent.Render(IconRunning))
+			parts = append(parts, theme.StyleTimelineCurrent.Render(theme.IconRunning))
 		}
 	}
-	return styleMuted.Render("history ") + strings.Join(parts, styleMuted.Render("›"))
+	return theme.StyleMuted.Render("history ") + strings.Join(parts, theme.StyleMuted.Render("›"))
 }
 
 // renderPostCycleMenu renders the post-cycle action menu with rounded border.
 func (m monitorModel) renderPostCycleMenu() string {
-	title := gradientString("PR READY TO MERGE", mauve, lavender, true)
-	subtitle := styleMuted.Render("  What would you like to do?")
+	title := theme.GradientString("PR READY TO MERGE", theme.Mauve, theme.Lavender, true)
+	subtitle := theme.StyleMuted.Render("  What would you like to do?")
 
 	var lines []string
 	for i, opt := range m.postCycleOptions {
 		if i == m.postCycleCursor {
-			lines = append(lines, styleSelected.Render("  "+IconArrow+" "+opt.label))
+			lines = append(lines, theme.StyleSelected.Render("  "+theme.IconArrow+" "+opt.label))
 		} else {
-			lines = append(lines, styleUnselected.Render("    "+opt.label))
+			lines = append(lines, theme.StyleUnselected.Render("    "+opt.label))
 		}
 	}
 
-	dot := styleMuted.Render(" " + IconSep + " ")
+	dot := theme.StyleMuted.Render(" " + theme.IconSep + " ")
 	hints := "  " + strings.Join([]string{
-		renderKeyHint("↑↓/jk", "move"),
-		renderKeyHint("enter", "confirm"),
-		renderKeyHint("q", "quit"),
+		theme.RenderKeyHint("↑↓/jk", "move"),
+		theme.RenderKeyHint("enter", "confirm"),
+		theme.RenderKeyHint("q", "quit"),
 	}, dot)
 
 	content := title + "\n" + subtitle + "\n\n" + strings.Join(lines, "\n") + "\n" + hints
-	return styleMenuBox.Render(content)
+	return theme.StyleMenuBox.Render(content)
 }
 
 // renderReflectPanel builds the right-side reflection panel.
@@ -1001,9 +1199,9 @@ func (m monitorModel) renderReflectPanel(h int) string {
 	panelW := m.reflectPanelWidth()
 	var b strings.Builder
 
-	title := styleReflectTitle.Render(IconRadioOn + " reflect")
+	title := theme.StyleReflectTitle.Render(theme.IconRadioOn + " reflect")
 	if m.rulesExtracted > 0 {
-		title += "  " + styleBadgeRules.Render(fmt.Sprintf(" +%d ", m.rulesExtracted))
+		title += "  " + theme.StyleBadgeRules.Render(fmt.Sprintf(" +%d ", m.rulesExtracted))
 	}
 	b.WriteString(title + "\n")
 
@@ -1022,22 +1220,22 @@ func (m monitorModel) renderReflectPanel(h int) string {
 		var icon string
 		switch {
 		case isErr:
-			icon = styleReflectFail.Render(IconCross + " ")
+			icon = theme.StyleReflectFail.Render(theme.IconCross + " ")
 		case strings.Contains(l, "complete") || strings.Contains(l, "pushed") || strings.Contains(l, "done"):
-			icon = styleReflectOK.Render(IconCheck + " ")
+			icon = theme.StyleReflectOK.Render(theme.IconCheck + " ")
 		case strings.Contains(l, "starting"):
-			icon = styleMuted.Render(IconRunning + " ")
+			icon = theme.StyleMuted.Render(theme.IconRunning + " ")
 		case strings.Contains(l, "No changes") || strings.Contains(l, "No top-level") || strings.Contains(l, "nothing"):
-			icon = styleMuted.Render(IconCircle + " ")
+			icon = theme.StyleMuted.Render(theme.IconCircle + " ")
 		default:
-			icon = styleMuted.Render("  ")
+			icon = theme.StyleMuted.Render("  ")
 		}
 
 		contentW := panelW - 2
 		if contentW < 10 {
 			contentW = 10
 		}
-		wrapped := wrapLine(l, contentW)
+		wrapped := theme.WrapLine(l, contentW)
 		if len(wrapped) > 2 {
 			wrapped = wrapped[:2]
 		}
@@ -1066,11 +1264,11 @@ func (m monitorModel) renderReflectPanel(h int) string {
 		var rendered string
 		switch {
 		case dl.isError:
-			rendered = styleReflectFail.Render(dl.text)
+			rendered = theme.StyleReflectFail.Render(dl.text)
 		case dl.isLatestEntry:
-			rendered = styleReflectNew.Render(dl.text)
+			rendered = theme.StyleReflectNew.Render(dl.text)
 		default:
-			rendered = styleReflectLine.Render(dl.text)
+			rendered = theme.StyleReflectLine.Render(dl.text)
 		}
 		b.WriteString(rendered + "\n")
 	}
@@ -1080,18 +1278,10 @@ func (m monitorModel) renderReflectPanel(h int) string {
 		b.WriteString("\n")
 	}
 
-	return styleReflectPanel.
+	return theme.StyleReflectPanel.
 		Width(panelW + 3).
 		Height(h).
 		Render(b.String())
-}
-
-func (m monitorModel) renderLines() string {
-	var b strings.Builder
-	for _, line := range m.lines {
-		b.WriteString(colorLine(line) + "\n")
-	}
-	return b.String()
 }
 
 func colorLine(line string) string {
@@ -1099,34 +1289,35 @@ func colorLine(line string) string {
 	trimmed := strings.TrimSpace(plain)
 	switch {
 	case strings.Contains(plain, "❌") || strings.Contains(plain, "ERROR"):
-		return styleLogErr.Render(plain)
+		return theme.StyleLogErr.Render(plain)
 	case strings.Contains(plain, "⚠️") || strings.Contains(plain, "WARN"):
-		return styleLogWarn.Render(plain)
+		return theme.StyleLogWarn.Render(plain)
 	case strings.Contains(plain, "━━━") || strings.Contains(plain, "Iteration"):
-		return styleLogIter.Render(plain)
+		return theme.StyleLogIter.Render(plain)
 	case strings.Contains(plain, "✅") || strings.Contains(plain, "APPROVED") ||
 		strings.Contains(plain, "Clean review") || strings.Contains(plain, "ready to merge"):
-		return styleLogSuccess.Render(plain)
+		return theme.StyleLogSuccess.Render(plain)
 	case strings.Contains(plain, "git") && (strings.Contains(plain, "push") ||
 		strings.Contains(plain, "commit") || strings.Contains(plain, "checkout")):
-		return styleLogGit.Render(plain)
+		return theme.StyleLogGit.Render(plain)
 	case strings.Contains(plain, "gh api") || strings.Contains(plain, "gh pr") ||
 		strings.Contains(plain, "Copilot review requested"):
-		return styleLogAPI.Render(plain)
+		return theme.StyleLogAPI.Render(plain)
 	case strings.HasPrefix(trimmed, "→") ||
 		strings.HasPrefix(trimmed, "←") ||
 		strings.HasPrefix(trimmed, "$") ||
 		strings.Contains(plain, "DEBUG"):
-		return styleLogDebug.Render(plain)
+		return theme.StyleLogDebug.Render(plain)
 	case strings.Contains(plain, "🚀") || strings.Contains(plain, "💬"):
-		return styleLogInfo.Render(plain)
+		return theme.StyleLogInfo.Render(plain)
 	default:
-		return styleLogAgent.Render(plain)
+		return theme.StyleLogAgent.Render(plain)
 	}
 }
 
 // ── RunMonitor ────────────────────────────────────────────────────────────────
 
+// RunMonitor starts the runner script and displays the live TUI monitor.
 func RunMonitor(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge bool, runnerArgs []string) error {
 	cmd := exec.Command(runnerArgs[0], runnerArgs[1:]...)
 	cmd.Stdin = os.Stdin
@@ -1186,8 +1377,29 @@ func RunMonitor(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge 
 	cm := newChannelMonitor(pr, repo, runnerName, modelName, prTitle, cwd, autoMerge, lineCh, doneCh)
 
 	p := tea.NewProgram(cm, tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
+	finalModel, err := p.Run()
+	if err != nil {
 		return err
+	}
+
+	// Persist session metrics for `rinse stats`.
+	if fm, ok := finalModel.(channelMonitor); ok {
+		m := fm.monitorModel
+		approved := m.done && m.exitCode == 0 &&
+			len(m.iterHistory) > 0 &&
+			m.iterHistory[len(m.iterHistory)-1].result == iterApproved
+		session := stats.Session{
+			StartedAt:     m.started,
+			EndedAt:       time.Now(),
+			Repo:          repo,
+			PR:            pr,
+			Runner:        runnerName,
+			Model:         modelName,
+			TotalComments: m.totalComments,
+			Iterations:    m.iter,
+			Approved:      approved,
+		}
+		_ = stats.Save(session)
 	}
 
 	if cmd.Process != nil {
