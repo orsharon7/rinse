@@ -162,6 +162,7 @@ document.documentElement.classList.add('js');
 (function () {
   const form = document.getElementById('waitlistForm');
   if (!form) return;
+  let restoreTimer = null;
   form.addEventListener('submit', async (e) => {
     if (!window.fetch) {
       // fetch unavailable; let the form POST naturally
@@ -181,17 +182,20 @@ document.documentElement.classList.add('js');
         headers: { Accept: 'application/json' },
       });
       if (res.ok) {
+        clearTimeout(restoreTimer);
         btn.textContent = 'You\'re on the list ✓';
         if (input) input.disabled = true;
       } else {
         btn.textContent = 'Try again';
         btn.disabled = false;
-        setTimeout(() => { btn.textContent = originalText; }, 2500);
+        clearTimeout(restoreTimer);
+        restoreTimer = setTimeout(() => { btn.textContent = originalText; }, 2500);
       }
     } catch {
       btn.textContent = 'Try again';
       btn.disabled = false;
-      setTimeout(() => { btn.textContent = originalText; }, 2500);
+      clearTimeout(restoreTimer);
+      restoreTimer = setTimeout(() => { btn.textContent = originalText; }, 2500);
     }
   });
 })();
