@@ -49,7 +49,10 @@ if [[ -z "$REPO" ]]; then
 fi
 
 SESSIONS_DIR="${HOME}/.rinse/sessions"
-[[ "$DRY_RUN" == false ]] && mkdir -p "$SESSIONS_DIR"
+if [[ "$DRY_RUN" == false ]]; then
+  mkdir -p "$SESSIONS_DIR"
+  chmod 700 "$SESSIONS_DIR"
+fi
 
 # UUID generator (same approach as pr-review-opencode.sh)
 _gen_uuid() {
@@ -68,6 +71,7 @@ _gen_uuid() {
 processed=0
 skipped=0
 
+shopt -s nullglob
 for logfile in "${LOGS_DIR}"/*.log; do
   [[ -f "$logfile" ]] || continue
 
@@ -146,8 +150,8 @@ for logfile in "${LOGS_DIR}"/*.log; do
 
   # ── Determine outcome from log ────────────────────────────────────────────
   outcome="aborted"
-  if grep -q "APPROVED\|merged\|Clean review" "$logfile" 2>/dev/null; then
-    if grep -q "Auto-merg\|squash" "$logfile" 2>/dev/null; then
+  if grep -Eq 'APPROVED|merged|Clean review' "$logfile" 2>/dev/null; then
+    if grep -Eq 'Auto-merg|squash' "$logfile" 2>/dev/null; then
       outcome="merged"
     else
       outcome="approved"
@@ -181,7 +185,7 @@ for logfile in "${LOGS_DIR}"/*.log; do
   bk_approved="false"
   [[ "$outcome" == "approved" || "$outcome" == "merged" ]] && bk_approved="true"
 
-  tmp_session_fname="$(dirname "$session_fname")/.tmp_session_$$.json"
+  tmp_session_fname="$(mktemp "$(dirname "$session_fname")/.tmp_session_XXXXXX.json")"
   if jq -n \
     --arg session_id     "$session_id" \
     --arg repo           "$REPO" \
@@ -216,6 +220,7 @@ for logfile in "${LOGS_DIR}"/*.log; do
       estimated_time_saved_seconds:  $saved
     }' > "$tmp_session_fname"; then
     mv "$tmp_session_fname" "$session_fname"
+    chmod 600 "$session_fname"
   else
     rm -f "$tmp_session_fname"
     >&2 echo "⚠️  jq failed — skipping ${session_fname}"
