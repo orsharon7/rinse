@@ -101,7 +101,24 @@ func RunInit() {
 		os.Exit(1)
 	}
 
-	if err := os.WriteFile(rinseConfigFile, append(data, '\n'), 0o644); err != nil {
+	// Write via temp file + rename for atomicity (avoids partial writes on crash).
+	tmp, err := os.CreateTemp(".", ".rinse.json.tmp.*")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: failed to create temp config: %v\n", err)
+		os.Exit(1)
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }() // clean up on failure
+	if _, err := tmp.Write(append(data, '\n')); err != nil {
+		_ = tmp.Close()
+		fmt.Fprintf(os.Stderr, "error: failed to write temp config: %v\n", err)
+		os.Exit(1)
+	}
+	if err := tmp.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "error: failed to close temp config: %v\n", err)
+		os.Exit(1)
+	}
+	if err := os.Rename(tmpName, rinseConfigFile); err != nil {
 		fmt.Fprintf(os.Stderr, "error: failed to write %s: %v\n", rinseConfigFile, err)
 		os.Exit(1)
 	}

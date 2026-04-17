@@ -149,7 +149,6 @@ insights_record_iteration() {
   _INS_TOTAL_COMMENTS=$(( _INS_TOTAL_COMMENTS + comment_count ))
 
   # Classify each comment
-  local iter_cats="{}"
   local i n
   n=$(printf '%s' "$comments_json" | jq 'length' 2>/dev/null || echo 0)
   for i in $(seq 0 $(( n - 1 ))); do

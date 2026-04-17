@@ -10,14 +10,17 @@
 #
 # 2. CROSS-MACHINE DEDUPLICATION (GitHub PR labels + lock comment)
 #    When a runner starts it:
-#      a. Checks for an existing `rinse:running` label on the PR.
-#      b. If absent, adds the label and posts a hidden lock comment with
-#         metadata (hostname, PID, timestamp, lock_id).
+#      a. Checks for an existing lock comment (containing the hidden marker) on
+#         the PR. The `rinse:running` label is added as a visible signal but is
+#         NOT used as the primary lock check (_gh_lock_label_exists is available
+#         but not wired into the acquisition flow).
+#      b. If no active lock comment is found, adds the label and posts a hidden
+#         lock comment with metadata (hostname, PID, timestamp, lock_id).
 #      c. Sleeps briefly and re-reads the comment to verify it won the race.
 #      d. If another runner already holds the lock (and it is not stale), this
 #         runner exits cleanly with RC=2.
-#    On exit (clean or crash) the lock is released: label removed, comment
-#    updated to "done".  Stale locks (default: 4 h) are automatically stolen.
+#    On exit (clean or crash) the lock is released: label removed, lock comment
+#    deleted.  Stale locks (default: 4 h) are automatically stolen.
 #
 # Usage — source this file then call the functions:
 #
@@ -128,9 +131,9 @@ session_recover() {
   [[ -f "$_SESSION_FILE" ]] || return 1
 
   local pid hostname status
-  pid=$(jq -r '.pid // 0' "$_SESSION_FILE")
-  hostname=$(jq -r '.hostname // ""' "$_SESSION_FILE")
-  status=$(jq -r '.status // "unknown"' "$_SESSION_FILE")
+  pid=$(jq -r '.pid // 0' "$_SESSION_FILE" 2>/dev/null || echo 0)
+  hostname=$(jq -r '.hostname // ""' "$_SESSION_FILE" 2>/dev/null || echo "")
+  status=$(jq -r '.status // "unknown"' "$_SESSION_FILE" 2>/dev/null || echo "unknown")
 
   # Only recover sessions from this host (cross-host crash → gh_lock will handle dedup)
   if [[ "$hostname" != "$_SESSION_HOSTNAME" ]]; then
@@ -161,7 +164,9 @@ session_clear() {
   [[ -z "$_SESSION_FILE" ]] && return 0
   if [[ -f "$_SESSION_FILE" ]]; then
     local tmp
-    tmp=$(jq '.status = "done"' "$_SESSION_FILE") && echo "$tmp" > "$_SESSION_FILE"
+    if tmp=$(jq '.status = "done"' "$_SESSION_FILE" 2>/dev/null); then
+      echo "$tmp" > "$_SESSION_FILE" || true
+    fi
     rm -f "$_SESSION_FILE"
   fi
 }
