@@ -3,6 +3,7 @@ package onboarding
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -73,25 +74,44 @@ func LoadState() (*State, error) {
 }
 
 // SaveState writes the state atomically (write-to-temp + rename).
-// Per spec: write failures are logged to stderr but must not block UX.
+// A unique temp file is used per write so concurrent saves do not clobber
+// each other's temp file. Per spec: write failures are logged to stderr
+// but must not block UX.
 func SaveState(s State) error {
 	path := StatePath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+
+	f, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+
+	if err := f.Chmod(0o644); err != nil {
+		f.Close()
+		return err
+	}
+	if _, err := io.WriteString(f, string(data)); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)
 }
 
 // DeleteState removes the onboarding state file.
-// Called on Step E completion or "Start over" action.
+// Called on "Start over" action. On Step E completion, state is updated
+// (not deleted) so that IsComplete() continues to return true.
 func DeleteState() error {
 	err := os.Remove(StatePath())
 	if os.IsNotExist(err) {

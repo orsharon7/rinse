@@ -108,6 +108,7 @@ type wizModel struct {
 	saveHistory      bool
 	cFocus           int // 0=toggle1, 1=toggle2, 2=toggle3, 3=next, 4=skip
 	configErr        string // error from TOML config write in Step C
+	writingConfig    bool   // true while WriteTomlConfig cmd is in-flight; prevents double-submit
 
 	// step D
 	cycleName     string
@@ -205,6 +206,9 @@ func (m wizModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case wizSplashDoneMsg:
+		if m.view != wizSplash {
+			return m, nil
+		}
 		m.spReady = true
 		return m.advanceFromSplash()
 
@@ -212,20 +216,19 @@ func (m wizModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.creatingCycle = false
 		m.createdID = msg.cycleID
 		m.cycleName = msg.cycleName
-		// Save step D, then move to E
-		go func() {
-			s := onboarding.State{
-				Version:        onboarding.StateVersion,
-				CompletedStep:  onboarding.StepD,
-				CycleNameDraft: m.cycleName,
-				Defaults: onboarding.Defaults{
-					RemindOnComplete: m.remindOnComplete,
-					AutoAdvance:      m.autoAdvance,
-					SaveHistory:      m.saveHistory,
-				},
-			}
-			_ = onboarding.SaveState(s)
-		}()
+		// Save step D synchronously before moving to E so a later Step E save
+		// cannot be overwritten by an earlier async write finishing late.
+		s := onboarding.State{
+			Version:        onboarding.StateVersion,
+			CompletedStep:  onboarding.StepD,
+			CycleNameDraft: m.cycleName,
+			Defaults: onboarding.Defaults{
+				RemindOnComplete: m.remindOnComplete,
+				AutoAdvance:      m.autoAdvance,
+				SaveHistory:      m.saveHistory,
+			},
+		}
+		_ = onboarding.SaveState(s)
 		m.view = wizStepE
 		if len(m.celebFrames) > 1 {
 			return m, tea.Tick(120*time.Millisecond, func(t time.Time) tea.Msg { return wizCelebFrameMsg{} })
@@ -239,11 +242,13 @@ func (m wizModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case wizConfigWrittenMsg:
 		m.configErr = ""
+		m.writingConfig = false
 		m.view = wizStepD
 		return m, nil
 
 	case wizConfigErrMsg:
 		// Config write failed — show inline error in Step C (per spec).
+		m.writingConfig = false
 		m.configErr = "Could not save settings: " + msg.err.Error() + ". Please try again."
 		return m, nil
 
@@ -415,8 +420,8 @@ func (m wizModel) handleWelcomeKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 	case key.Matches(msg, Keys.Confirm):
 		if m.welcomeChoice == 0 {
 			// Get started → Step A
-			saveStepAsync(onboarding.State{Version: onboarding.StateVersion})
 			m.view = wizStepA
+			return m, saveStepCmd(onboarding.State{Version: onboarding.StateVersion})
 		} else {
 			// Skip setup
 			_ = onboarding.SaveState(onboarding.State{
@@ -439,16 +444,15 @@ func (m wizModel) handleStepAKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 	switch {
 	case key.Matches(msg, Keys.Confirm) || key.Matches(msg, Keys.Toggle):
 		// "Sounds good, let me try it" or "Skip intro" — both go to Step B
-		saveStepAsync(onboarding.State{
-			Version:       onboarding.StateVersion,
-			CompletedStep: onboarding.StepA,
-		})
 		m.view = wizStepB
 		m.cycleInput.Focus()
 		if m.cycleName != "" {
 			m.cycleInput.SetValue(m.cycleName)
 		}
-		return m, textinput.Blink
+		return m, tea.Batch(saveStepCmd(onboarding.State{
+			Version:       onboarding.StateVersion,
+			CompletedStep: onboarding.StepA,
+		}), textinput.Blink)
 	case key.Matches(msg, Keys.Quit):
 		m.outcome = WizardAborted
 		return m, tea.Quit
@@ -485,15 +489,14 @@ func (m wizModel) handleStepBKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 		}
 		m.cycleInputErr = ""
 		m.cycleName = val
-		saveStepAsync(onboarding.State{
+		m.cycleInput.Blur()
+		m.view = wizStepC
+		m.cFocus = 0
+		return m, saveStepCmd(onboarding.State{
 			Version:        onboarding.StateVersion,
 			CompletedStep:  onboarding.StepB,
 			CycleNameDraft: m.cycleName,
 		})
-		m.cycleInput.Blur()
-		m.view = wizStepC
-		m.cFocus = 0
-		return m, nil
 
 	case key.Matches(msg, Keys.Quit):
 		m.outcome = WizardAborted
@@ -555,25 +558,31 @@ func (m wizModel) handleStepCKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 		case cFocusHist:
 			m.saveHistory = !m.saveHistory
 		case cFocusNext, cFocusSkip:
+			if m.writingConfig {
+				return m, nil
+			}
 			// "Skip for now" uses defaults (already set); both write config.
 			d := onboarding.Defaults{
 				RemindOnComplete: m.remindOnComplete,
 				AutoAdvance:      m.autoAdvance,
 				SaveHistory:      m.saveHistory,
 			}
-			saveStepAsync(onboarding.State{
-				Version:        onboarding.StateVersion,
-				CompletedStep:  onboarding.StepC,
-				CycleNameDraft: m.cycleName,
-				Defaults:       d,
-			})
 			cycleName := m.cycleName
-			return m, func() tea.Msg {
-				if err := onboarding.WriteTomlConfig(cycleName, d); err != nil {
-					return wizConfigErrMsg{err}
-				}
-				return wizConfigWrittenMsg{}
-			}
+			m.writingConfig = true
+			return m, tea.Batch(
+				saveStepCmd(onboarding.State{
+					Version:        onboarding.StateVersion,
+					CompletedStep:  onboarding.StepC,
+					CycleNameDraft: m.cycleName,
+					Defaults:       d,
+				}),
+				func() tea.Msg {
+					if err := onboarding.WriteTomlConfig(cycleName, d); err != nil {
+						return wizConfigErrMsg{err}
+					}
+					return wizConfigWrittenMsg{}
+				},
+			)
 		}
 
 	case key.Matches(msg, Keys.Quit):
@@ -1006,15 +1015,19 @@ func renderWizChoice(selected bool, label string) string {
 	return "  " + theme.StyleMuted.Render(label)
 }
 
-// ── Async helpers ─────────────────────────────────────────────────────────────
+// ── Save helpers ──────────────────────────────────────────────────────────────
 
-// saveStepAsync writes onboarding state in a goroutine (best-effort, non-blocking).
-func saveStepAsync(s onboarding.State) {
-	go func() {
+// saveStepCmd returns a tea.Cmd that writes onboarding state synchronously
+// inside the bubbletea runtime (best-effort; errors are logged to stderr).
+// Using a tea.Cmd instead of a raw goroutine ensures writes are serialized
+// by the runtime and avoids step-regression from out-of-order goroutines.
+func saveStepCmd(s onboarding.State) tea.Cmd {
+	return func() tea.Msg {
 		if err := onboarding.SaveState(s); err != nil {
 			fmt.Fprintf(os.Stderr, "rinse: state write: %v\n", err)
 		}
-	}()
+		return nil
+	}
 }
 
 // friendlyCycleErr converts a raw CreateCycle error into a short, user-facing
