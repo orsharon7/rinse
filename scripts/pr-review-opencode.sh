@@ -176,9 +176,13 @@ write_session_json() {
   pr_title=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.title' 2>/dev/null || echo "")
 
   local fname
+  local repo_session_slug="${REPO//\//-}"
   fname="${SESSION_STARTED_AT:0:10}-${SESSION_STARTED_AT:11:8}"
   fname="${fname//:/-}"  # replace colons with dashes (macOS-safe)
-  fname="${sessions_dir}/${fname}-${REPO_SLUG}-pr-${PR_NUMBER}.json"
+  fname="${sessions_dir}/${fname}-${repo_session_slug}-pr-${PR_NUMBER}.json"
+
+  local approved="false"
+  [[ "$SESSION_OUTCOME" == "approved" || "$SESSION_OUTCOME" == "merged" ]] && approved="true"
 
   jq -n \
     --arg session_id      "$SESSION_ID" \
@@ -190,6 +194,7 @@ write_session_json() {
     --arg runner          "opencode" \
     --arg model           "$MODEL" \
     --arg outcome         "$SESSION_OUTCOME" \
+    --argjson approved    "$approved" \
     --argjson iterations  "$iterations" \
     --argjson comments    "$comments_arr" \
     --argjson total       "$total_comments" \
@@ -206,6 +211,7 @@ write_session_json() {
       runner:                        $runner,
       model:                         $model,
       outcome:                       $outcome,
+      approved:                      $approved,
       iterations:                    $iterations,
       copilot_comments_by_iteration: $comments,
       total_comments:                $total,

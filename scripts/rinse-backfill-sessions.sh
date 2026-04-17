@@ -88,9 +88,21 @@ for logfile in "${LOGS_DIR}"/*.log; do
     last_ts="$first_ts"
   fi
 
-  # Normalise: replace space separator with T and append Z.
-  started_at="${first_ts/ /T}Z"
-  ended_at="${last_ts/ /T}Z"
+  # Convert local timestamps to UTC before formatting as RFC-3339Z.
+  # Log lines are written with local time (date '+%Y-%m-%d %H:%M:%S'), so we
+  # must convert through an epoch to get an accurate UTC representation.
+  _ts_to_utc() {
+    local ts="$1"
+    local epoch
+    epoch=$(date -j -f "%Y-%m-%d %H:%M:%S" "$ts" "+%s" 2>/dev/null) \
+      || epoch=$(date --date="$ts" "+%s" 2>/dev/null) \
+      || { echo "${ts/ /T}Z"; return; }
+    date -u -r "$epoch" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null \
+      || date -u --date="@${epoch}" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null \
+      || echo "${ts/ /T}Z"
+  }
+  started_at=$(_ts_to_utc "$first_ts")
+  ended_at=$(_ts_to_utc "$last_ts")
 
   # Compute file-slug for session filename (matches pattern used in Go/shell).
   repo_slug="${REPO//\//-}"
@@ -161,15 +173,20 @@ for logfile in "${LOGS_DIR}"/*.log; do
     continue
   fi
 
+  local bk_approved="false"
+  [[ "$outcome" == "approved" || "$outcome" == "merged" ]] && bk_approved="true"
+
   jq -n \
     --arg session_id     "$session_id" \
     --arg repo           "$REPO" \
     --arg pr             "$pr_num" \
+    --arg pr_title       "" \
     --arg started_at     "$started_at" \
     --arg ended_at       "$ended_at" \
     --arg runner         "opencode" \
     --arg model          "unknown" \
     --arg outcome        "$outcome" \
+    --argjson approved   "$bk_approved" \
     --argjson iterations "$iterations" \
     --argjson comments   "$comments_json" \
     --argjson total      "$total_comments" \
@@ -179,12 +196,14 @@ for logfile in "${LOGS_DIR}"/*.log; do
       session_id:                    $session_id,
       repo:                          $repo,
       pr:                            $pr,
+      pr_title:                      $pr_title,
       started_at:                    $started_at,
       ended_at:                      $ended_at,
       duration_seconds:              $duration,
       runner:                        $runner,
       model:                         $model,
       outcome:                       $outcome,
+      approved:                      $approved,
       iterations:                    $iterations,
       copilot_comments_by_iteration: $comments,
       total_comments:                $total,

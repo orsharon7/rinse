@@ -92,8 +92,9 @@ type Result struct {
 // Run honours the "never swallow errors" engineering standard: subprocess
 // errors are propagated with context rather than swallowed.
 //
-// A stats.Session is always persisted to ~/.rinse/sessions/ at the end of the
-// run, regardless of outcome.
+// A stats.Session is persisted to ~/.rinse/sessions/ on most exit paths.
+// Early exits before session initialisation (e.g. lock acquisition failure,
+// checkpoint load failure) do not persist a session record.
 func Run(opts Opts) (Result, error) {
 	if err := validateOpts(&opts); err != nil {
 		return Result{}, err
@@ -109,7 +110,6 @@ func Run(opts Opts) (Result, error) {
 	session.PRTitle = opts.PRTitle
 
 	persistSession := func(outcome stats.Outcome) {
-		session.Iterations = session.Iterations // already tracked below
 		session.Finish(outcome, 240)
 		if err := stats.Save(session); err != nil {
 			log.Error("runner: save session", "error", err)

@@ -31,7 +31,9 @@ const (
 // newUUID generates a random UUID v4 string.
 func newUUID() string {
 	b := make([]byte, 16)
-	_, _ = rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("stats: failed to generate UUID: %v", err))
+	}
 	// Set version 4 (bits 12-15 of byte 6 to 0100)
 	b[6] = (b[6] & 0x0f) | 0x40
 	// Set variant bits (bits 6-7 of byte 8 to 10)
@@ -57,7 +59,7 @@ type Session struct {
 	// Outcomes
 	Outcome                    Outcome  `json:"outcome"`
 	Iterations                 int      `json:"iterations"`
-	CopilotCommentsByIteration []int    `json:"copilot_comments_by_iteration,omitempty"`
+	CopilotCommentsByIteration []int    `json:"copilot_comments_by_iteration"`
 	TotalComments              int      `json:"total_comments"`
 	EstimatedTimeSavedSeconds  int      `json:"estimated_time_saved_seconds"`
 	Approved                   bool     `json:"approved"`
@@ -103,8 +105,46 @@ func (s *Session) Finish(outcome Outcome, estimatedSecondsPerComment int) {
 	s.EstimatedTimeSavedSeconds = s.TotalComments * estimatedSecondsPerComment
 }
 
+// UnmarshalJSON keeps Approved consistent when older or shell-written session
+// files omit the explicit "approved" field and only persist "outcome".
+func (s *Session) UnmarshalJSON(data []byte) error {
+	type sessionAlias Session
+	aux := struct {
+		sessionAlias
+		Approved *bool `json:"approved"`
+	}{}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	*s = Session(aux.sessionAlias)
+	if aux.Approved != nil {
+		s.Approved = *aux.Approved
+	} else {
+		s.Approved = s.Outcome == OutcomeApproved || s.Outcome == OutcomeMerged
+	}
+
+	return nil
+}
+
+// MarshalJSON ensures Go-written session files always emit an "approved" value
+// that is consistent with the outcome.
+func (s Session) MarshalJSON() ([]byte, error) {
+	type sessionAlias Session
+	alias := sessionAlias(s)
+	alias.Approved = s.Outcome == OutcomeApproved || s.Outcome == OutcomeMerged
+
+	return json.Marshal(alias)
+}
+
 // SessionsDir returns the directory where session JSON files are stored.
+// The RINSE_SESSIONS_DIR environment variable overrides the default location,
+// which is useful for test isolation.
 func SessionsDir() (string, error) {
+	if override := os.Getenv("RINSE_SESSIONS_DIR"); override != "" {
+		return override, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -175,12 +215,13 @@ func Load() ([]Session, error) {
 
 // Summary holds aggregated metrics across a set of sessions.
 type Summary struct {
-	TotalSessions    int
-	TotalComments    int
-	TotalIterations  int
-	ApprovedSessions int
-	TotalDurationSec float64
-	PatternCounts    map[string]int
+	TotalSessions         int
+	TotalComments         int
+	TotalIterations       int
+	ApprovedSessions      int
+	TotalDurationSec      float64
+	TotalTimeSavedSeconds int
+	PatternCounts         map[string]int
 	// Last30Days is a filtered summary over the last 30 days.
 	Last30Days *Summary
 }
@@ -194,9 +235,10 @@ func (s *Summary) AvgIterations() float64 {
 }
 
 // EstTimeSavedHours returns a rough estimate of hours saved.
-// Assumes each comment would take a developer ~3 minutes to address manually.
+// Uses TotalTimeSavedSeconds (populated by Summarize from per-session
+// EstimatedTimeSavedSeconds, which assumes 240 s/comment, matching Finish).
 func (s *Summary) EstTimeSavedHours() float64 {
-	return math.Round(float64(s.TotalComments)*3/60*10) / 10
+	return math.Round(float64(s.TotalTimeSavedSeconds)/3600*10) / 10
 }
 
 // TopPatterns returns up to n patterns ordered by frequency (descending).
@@ -246,6 +288,13 @@ func Summarize(sessions []Session) Summary {
 			sum.TotalComments += s.TotalComments
 			sum.TotalIterations += s.Iterations
 			sum.TotalDurationSec += s.DurationSeconds()
+			// Accumulate time-saved using the per-session precomputed value when
+			// available, falling back to 240 s/comment for older session files.
+			if s.EstimatedTimeSavedSeconds > 0 {
+				sum.TotalTimeSavedSeconds += s.EstimatedTimeSavedSeconds
+			} else {
+				sum.TotalTimeSavedSeconds += s.TotalComments * 240
+			}
 			if s.Approved {
 				sum.ApprovedSessions++
 			}
