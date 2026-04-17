@@ -566,6 +566,14 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		cmds = append(cmds, tick())
+		// Overdue detection: fire a toast once when ETA is crossed.
+		if !m.overdueAnnounced {
+			etaSt, _ := resolveETA(m.phase, m.estimatedEndAt, m.nowAdjusted())
+			if etaSt == etaOverdue {
+				m.toastMsg = "⚠ overdue"
+				m.overdueAnnounced = true
+			}
+		}
 
 	case spinner.TickMsg:
 		var spcmd tea.Cmd
@@ -1002,9 +1010,20 @@ func (m monitorModel) View() string {
 		badges = append(badges, elapsedBadge)
 	}
 
-	// ETA badge: hidden because estimatedEndAt is not yet wired to the runner.
-	// When the runner emits ETA data and sets m.estimatedEndAt, this block can
-	// be re-enabled to show the ETA badge.
+	// ETA badge: show when estimatedEndAt is available.
+	etaSt, etaTime := resolveETA(m.phase, m.estimatedEndAt, m.nowAdjusted())
+	switch etaSt {
+	case etaComputable:
+		badges = append(badges,
+			theme.StyleBadgeETA.Render(fmt.Sprintf(" ETA %s ", etaTime.Local().Format("15:04"))))
+	case etaFutureDay:
+		badges = append(badges,
+			theme.StyleBadgeETA.Render(fmt.Sprintf(" ETA %s ", etaTime.Local().Format("Jan 2 15:04"))))
+	case etaOverdue:
+		badges = append(badges,
+			theme.StyleBadgeOverdue.Render(" overdue "))
+	}
+
 	if m.totalComments > 0 {
 		badges = append(badges,
 			theme.StyleBadgeComment.Render(fmt.Sprintf(" %d comments ", m.totalComments)))
