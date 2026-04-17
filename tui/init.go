@@ -90,7 +90,7 @@ func RunInit() {
 
 	reflectBranch := ""
 	if reflect {
-		fmt.Print("Reflection branch (leave blank for default 'main'): ")
+		fmt.Print("Reflection branch (leave blank to use the repo default branch): ")
 		branchLine, _ := reader.ReadString('\n')
 		reflectBranch = strings.TrimSpace(branchLine)
 	}
