@@ -27,7 +27,7 @@ Request review → wait → read comments → fix → repeat. Rinse handles ever
 
 ```bash
 git clone https://github.com/orsharon7/rinse.git
-cd rinse/tui
+cd rinse
 make install
 ```
 
@@ -39,7 +39,6 @@ Or build and install manually (requires Go ≥ 1.24):
 
 ```bash
 mkdir -p ~/.local/bin
-cd tui
 go build -ldflags "-X main.version=$(git describe --tags --always)" -o ~/.local/bin/rinse .
 ```
 
