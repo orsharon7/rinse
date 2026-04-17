@@ -20,7 +20,9 @@ until your PR is approved. You pick the PR; RINSE handles the rest.
 USAGE
 
   rinse              Launch the interactive PR picker (recommended)
+  rinse init         Create a per-repo .rinse.json config (guided setup)
   rinse stats        Show session history and time-saved metrics
+  rinse trends       Show quality improvement trends over the last 4 weeks
   rinse --version    Print the installed version
   rinse --help       Show this help
 
@@ -65,6 +67,12 @@ SETTINGS  (press s inside the PR picker)
 
 COMMANDS
 
+  rinse init
+
+    Scaffolds a per-repo .rinse.json config in the current directory.
+    Prompts for engine, model, reflection settings, and auto-merge preference.
+    Commit .rinse.json to share consistent defaults with your team.
+
   rinse stats
 
     Reads session history from ~/.rinse/sessions/ and prints:
@@ -78,6 +86,12 @@ COMMANDS
       Top patterns:
         1. Missing error handling  (41x)
         2. Unused imports          (28x)
+
+  rinse trends
+
+    Shows quality improvement trends across sessions, bucketed by week
+    (last 4 weeks). Useful for tracking whether your codebase is improving
+    over time as RINSE builds up its reflection rules.
 
 ENVIRONMENT VARIABLES
 
