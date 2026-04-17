@@ -24,7 +24,9 @@ const rinseConfigFile = ".rinse.json"
 // RunInit implements the `rinse init` subcommand.
 // It scaffolds a .rinse.json config in the current directory with sensible
 // defaults, prompting the user to choose engine and reflection settings.
-func RunInit() {
+// It returns an error if the operation fails; the caller is responsible for
+// deciding when to exit.
+func RunInit() error {
 	reader := bufio.NewReader(os.Stdin)
 
 	// Check if config already exists.
@@ -34,11 +36,10 @@ func RunInit() {
 		line = strings.TrimSpace(strings.ToLower(line))
 		if line != "y" && line != "yes" {
 			fmt.Println("Aborted.")
-			os.Exit(0)
+			return nil
 		}
 	} else if !os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "error: failed to stat %s: %v\n", rinseConfigFile, err)
-		os.Exit(1)
+		return fmt.Errorf("failed to stat %s: %w", rinseConfigFile, err)
 	}
 
 	fmt.Println("Initializing Rinse config for this repo...")
@@ -114,35 +115,50 @@ func RunInit() {
 
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: failed to encode config: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to encode config: %w", err)
 	}
 
 	// Write atomically via temp file + rename to avoid partial writes.
 	tmpFile, err := os.CreateTemp(".", ".rinse.json.tmp*")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: failed to create temp file: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to create temp file: %w", err)
 	}
 	tmpName := tmpFile.Name()
+	// Set permissions to 0644 so the committed file is world-readable.
+	if err := tmpFile.Chmod(0o644); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpName)
+		return fmt.Errorf("failed to set permissions on temp file: %w", err)
+	}
 	if _, err := tmpFile.Write(append(data, '\n')); err != nil {
 		tmpFile.Close()
 		os.Remove(tmpName)
-		fmt.Fprintf(os.Stderr, "error: failed to write temp config: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to write temp config: %w", err)
 	}
 	if err := tmpFile.Close(); err != nil {
 		os.Remove(tmpName)
-		fmt.Fprintf(os.Stderr, "error: failed to close temp config: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to close temp config: %w", err)
 	}
+	// os.Rename fails on Windows when the destination already exists, so
+	// explicitly remove it first when present.
 	if err := os.Rename(tmpName, rinseConfigFile); err != nil {
-		os.Remove(tmpName)
-		fmt.Fprintf(os.Stderr, "error: failed to write %s: %v\n", rinseConfigFile, err)
-		os.Exit(1)
+		if _, statErr := os.Stat(rinseConfigFile); statErr == nil {
+			if removeErr := os.Remove(rinseConfigFile); removeErr != nil {
+				os.Remove(tmpName)
+				return fmt.Errorf("failed to write %s: %w", rinseConfigFile, removeErr)
+			}
+			if retryErr := os.Rename(tmpName, rinseConfigFile); retryErr != nil {
+				os.Remove(tmpName)
+				return fmt.Errorf("failed to write %s: %w", rinseConfigFile, retryErr)
+			}
+		} else {
+			os.Remove(tmpName)
+			return fmt.Errorf("failed to write %s: %w", rinseConfigFile, err)
+		}
 	}
 
 	fmt.Printf("\n✓ Created %s\n", rinseConfigFile)
 	fmt.Println()
 	fmt.Println("Tip: commit .rinse.json so your team shares the same settings.")
+	return nil
 }
