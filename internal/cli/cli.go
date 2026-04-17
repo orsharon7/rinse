@@ -378,6 +378,10 @@ func runStartCmd(args []string) {
 	if model == "" {
 		model = r.defaultModel
 	}
+	if reflectMain != "" && !doReflect {
+		// --reflect-main-branch implies --reflect; treat as if the user passed both.
+		doReflect = true
+	}
 	if doReflect && reflectMain == "" {
 		reflectMain = detectDefaultBranch(repo)
 	}
