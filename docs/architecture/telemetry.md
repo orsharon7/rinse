@@ -91,18 +91,20 @@ ALTER TABLE config_snapshots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE teams            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE team_members     ENABLE ROW LEVEL SECURITY;
 
--- Isolation policy (applied to each table)
-CREATE POLICY "team_isolation" ON sessions
+-- Sessions
+CREATE POLICY team_isolation ON sessions
   FOR ALL USING (team_id = (auth.jwt() ->> 'team_id')::uuid);
 
-CREATE POLICY "team_isolation" ON cycles
+-- Cycles
+CREATE POLICY team_isolation ON cycles
   FOR ALL USING (team_id = (auth.jwt() ->> 'team_id')::uuid);
 
-CREATE POLICY "team_isolation" ON config_snapshots
+-- Config snapshots
+CREATE POLICY team_isolation ON config_snapshots
   FOR ALL USING (team_id = (auth.jwt() ->> 'team_id')::uuid);
 
--- Teams: visible to members only
-CREATE POLICY "team_self" ON teams
+-- Teams: members can see their own team only
+CREATE POLICY team_self ON teams
   FOR SELECT USING (
     id IN (SELECT team_id FROM team_members WHERE user_id = auth.uid())
   );
@@ -173,7 +175,7 @@ Offline behaviour: `rinse sync` exits 0 with a warning if Supabase is unreachabl
 
 ```bash
 brew install supabase/tap/supabase
-cd /path/to/rinse
+cd /Users/luli/dev/rinse
 supabase init
 supabase start
 # Studio:    http://localhost:54323
