@@ -142,21 +142,20 @@ func RunInit() error {
 		os.Remove(tmpName)
 		return fmt.Errorf("failed to close temp config: %w", err)
 	}
-	// os.Rename fails on Windows when the destination already exists, so
-	// explicitly remove it first when present.
+	// only remove and retry when the rename error explicitly indicates that
+	// the destination already exists.
 	if err := os.Rename(tmpName, rinseConfigFile); err != nil {
-		if _, statErr := os.Stat(rinseConfigFile); statErr == nil {
-			if removeErr := os.Remove(rinseConfigFile); removeErr != nil {
-				os.Remove(tmpName)
-				return fmt.Errorf("failed to write %s: %w", rinseConfigFile, removeErr)
-			}
-			if retryErr := os.Rename(tmpName, rinseConfigFile); retryErr != nil {
-				os.Remove(tmpName)
-				return fmt.Errorf("failed to write %s: %w", rinseConfigFile, retryErr)
-			}
-		} else {
+		if !os.IsExist(err) {
 			os.Remove(tmpName)
 			return fmt.Errorf("failed to write %s: %w", rinseConfigFile, err)
+		}
+		if removeErr := os.Remove(rinseConfigFile); removeErr != nil {
+			os.Remove(tmpName)
+			return fmt.Errorf("failed to write %s: %w", rinseConfigFile, removeErr)
+		}
+		if retryErr := os.Rename(tmpName, rinseConfigFile); retryErr != nil {
+			os.Remove(tmpName)
+			return fmt.Errorf("failed to write %s: %w", rinseConfigFile, retryErr)
 		}
 	}
 
