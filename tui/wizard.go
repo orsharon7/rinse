@@ -104,30 +104,32 @@ func initialModel() model {
 		rc.Model = cfg.LastModel
 	}
 
-	// Apply per-repo .rinse.json overrides (created by `rinse init`) so the TUI
-	// honours team-shared defaults when the file is present in the repo root.
-	// Resolve the git repo root so .rinse.json is found even when the user runs
-	// `rinse` from a subdirectory of the repo.
-	rinseConfigDir := detectGitRoot()
-	if rinseConfigDir == "" {
-		rinseConfigDir = detectCWD()
-	}
-	if repoCfg, ok := LoadRepoRinseConfig(rinseConfigDir); ok {
-		for i, r := range runners {
-			if strings.EqualFold(r.name, repoCfg.Engine) {
-				rc.Runner = i
-				break
+	// Apply per-repo .rinse.json defaults (created by `rinse init`) only when
+	// there is no saved per-repo config yet, so persisted user choices are not
+	// overwritten on subsequent runs. Resolve the git repo root so .rinse.json
+	// is found even when the user runs `rinse` from a subdirectory of the repo.
+	if !hasRepoConfig {
+		rinseConfigDir := detectGitRoot()
+		if rinseConfigDir == "" {
+			rinseConfigDir = detectCWD()
+		}
+		if repoCfg, ok := LoadRepoRinseConfig(rinseConfigDir); ok {
+			for i, r := range runners {
+				if strings.EqualFold(r.name, repoCfg.Engine) {
+					rc.Runner = i
+					break
+				}
 			}
+			if repoCfg.Model != "" {
+				rc.Model = repoCfg.Model
+			}
+			rc.Reflect = repoCfg.Reflect
+			if repoCfg.ReflectBranch != "" {
+				rc.Branch = repoCfg.ReflectBranch
+			}
+			rc.AutoMerge = repoCfg.AutoMerge
+			hasRepoConfig = true
 		}
-		if repoCfg.Model != "" {
-			rc.Model = repoCfg.Model
-		}
-		rc.Reflect = repoCfg.Reflect
-		if repoCfg.ReflectBranch != "" {
-			rc.Branch = repoCfg.ReflectBranch
-		}
-		rc.AutoMerge = repoCfg.AutoMerge
-		hasRepoConfig = true
 	}
 
 	path := detectCWD()

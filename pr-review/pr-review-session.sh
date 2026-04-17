@@ -15,7 +15,9 @@
 #         NOT used as the primary lock check (_gh_lock_label_exists is available
 #         but not wired into the acquisition flow).
 #      b. If no active lock comment is found, adds the label and posts a hidden
-#         lock comment with metadata (hostname, PID, timestamp, lock_id).
+#         lock comment with metadata (timestamp, lock_id). Hostname and PID are
+#         omitted from the comment to avoid embedding internal hostnames in
+#         PR-visible metadata; a random lock_id is used for self-identification.
 #      c. Sleeps briefly and re-reads the comment to verify it won the race.
 #      d. If another runner already holds the lock (and it is not stale), this
 #         runner exits cleanly with RC=2.
@@ -65,6 +67,7 @@ _SESSION_FILE=""       # full path to the session JSON file
 _SESSION_HOSTNAME=""   # $(hostname)
 _SESSION_PID=$$        # this runner's PID
 _LOCK_COMMENT_ID=""    # GitHub comment ID of the lock comment we created
+_RINSE_LOCK_ID=""      # random lock_id for this acquire (used for self-identification)
 
 # ─── Session: init ────────────────────────────────────────────────────────────
 
@@ -259,8 +262,12 @@ _gh_lock_is_stale() {
 gh_lock_acquire() {
   [[ -z "$_SESSION_REPO" ]] && { >&2 echo "[rinse-lock] session_init not called"; return 0; }
 
+  # Generate a random lock_id — used for self-identification instead of
+  # embedding the internal hostname in PR-visible metadata.
   local lock_id
-  lock_id="$(date -u +%Y%m%dT%H%M%S)-${_SESSION_PID}"
+  lock_id="$(cat /proc/sys/kernel/random/uuid 2>/dev/null || \
+    printf '%s-%s-%s' "$(date -u +%Y%m%dT%H%M%S)" "${_SESSION_PID}" "${RANDOM}${RANDOM}")"
+  _RINSE_LOCK_ID="$lock_id"
 
   # Ensure the label exists in the repo
   _gh_lock_ensure_label_created
@@ -275,27 +282,26 @@ gh_lock_acquire() {
     existing_meta=$(_gh_lock_parse_metadata "$body")
 
     if [[ -n "$existing_meta" ]]; then
-      local existing_host existing_pid existing_locked_at
-      existing_host=$(echo "$existing_meta" | jq -r '.hostname // ""' 2>/dev/null || printf '%s' "")
-      existing_pid=$(echo "$existing_meta" | jq -r '.pid // 0' 2>/dev/null || printf '%s' "0")
+      local existing_lid existing_locked_at
+      existing_lid=$(echo "$existing_meta" | jq -r '.lock_id // ""' 2>/dev/null || printf '%s' "")
       existing_locked_at=$(echo "$existing_meta" | jq -r '.locked_at // ""' 2>/dev/null || printf '%s' "")
 
-      # Is this our own lock (same host, same PID)? Re-use it.
-      if [[ "$existing_host" == "$_SESSION_HOSTNAME" && "$existing_pid" == "$_SESSION_PID" ]]; then
+      # Is this our own lock (same lock_id)? Re-use it.
+      if [[ -n "$_RINSE_LOCK_ID" && "$existing_lid" == "$_RINSE_LOCK_ID" ]]; then
         _LOCK_COMMENT_ID=$(echo "$existing_comment" | jq -r '.id')
         return 0
       fi
 
       # Is the lock stale?
       if _gh_lock_is_stale "$existing_locked_at"; then
-        >&2 echo "[rinse-lock] Stale lock from ${existing_host} (PID ${existing_pid}, locked at ${existing_locked_at}) — stealing"
+        >&2 echo "[rinse-lock] Stale lock (locked at ${existing_locked_at}) — stealing"
         # Delete the stale comment so we can replace it
         local stale_id
         stale_id=$(echo "$existing_comment" | jq -r '.id')
         gh api "repos/${_SESSION_REPO}/issues/comments/${stale_id}" -X DELETE >/dev/null 2>&1 || true
       else
-        >&2 echo "[rinse-lock] PR #${_SESSION_PR} is already locked by ${existing_host} (PID ${existing_pid})"
-        >&2 echo "[rinse-lock] Lock held since ${existing_locked_at} — skipping to avoid duplicate run"
+        >&2 echo "[rinse-lock] PR #${_SESSION_PR} is already locked (since ${existing_locked_at})"
+        >&2 echo "[rinse-lock] Skipping to avoid duplicate run"
         return 1
       fi
     fi
@@ -307,11 +313,9 @@ gh_lock_acquire() {
 
   local meta_json
   meta_json=$(jq -n \
-    --arg hostname "$_SESSION_HOSTNAME" \
-    --argjson pid "$_SESSION_PID" \
     --arg locked_at "$locked_at" \
     --arg lock_id "$lock_id" \
-    '{hostname: $hostname, pid: $pid, locked_at: $locked_at, lock_id: $lock_id}')
+    '{locked_at: $locked_at, lock_id: $lock_id}')
 
   local comment_body
   comment_body="$(printf '%s\n%s\n%s' "$_RINSE_LOCK_MARKER" "$meta_json" "-->")"
@@ -366,16 +370,15 @@ gh_lock_release() {
       -X DELETE >/dev/null 2>&1 || true
     _LOCK_COMMENT_ID=""
   else
-    # Fallback: find and delete any lock comment left by this host/PID
+    # Fallback: find and delete any lock comment that carries our lock_id
     local comment
     comment=$(_gh_lock_find_comment)
     if [[ -n "$comment" ]]; then
-      local body meta host pid
+      local body meta lid
       body=$(echo "$comment" | jq -r '.body // ""')
       meta=$(_gh_lock_parse_metadata "$body")
-      host=$(echo "$meta" | jq -r '.hostname // ""')
-      pid=$(echo "$meta" | jq -r '.pid // 0')
-      if [[ "$host" == "$_SESSION_HOSTNAME" && "$pid" == "$_SESSION_PID" ]]; then
+      lid=$(echo "$meta" | jq -r '.lock_id // ""')
+      if [[ -n "$_RINSE_LOCK_ID" && "$lid" == "$_RINSE_LOCK_ID" ]]; then
         local cid
         cid=$(echo "$comment" | jq -r '.id')
         gh api "repos/${_SESSION_REPO}/issues/comments/${cid}" -X DELETE >/dev/null 2>&1 || true
