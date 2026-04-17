@@ -427,7 +427,8 @@ func runStartCmd(args []string) {
 //
 //  1. $RINSE_SCRIPT_DIR
 //  2. $PR_REVIEW_SCRIPT_DIR  (legacy alias)
-//  3. <binDir>/scripts/, <binDir>/../scripts/, <binDir>/  (install layouts)
+//  3. <binDir>/scripts/, <binDir>/../scripts/, <binDir>/pr-review/,
+//     <binDir>/../pr-review/, <binDir>/  (install layouts)
 func resolveScript(scriptName string) (string, error) {
 	scriptDir := os.Getenv("RINSE_SCRIPT_DIR")
 	if scriptDir == "" {
@@ -459,7 +460,7 @@ func resolveScript(scriptName string) (string, error) {
 
 	script := filepath.Join(scriptDir, scriptName)
 	if _, err := os.Stat(script); err != nil {
-		return "", fmt.Errorf("runner script not found: %s; set RINSE_SCRIPT_DIR to override the search path", script)
+		return "", fmt.Errorf("runner script not found: %s; set RINSE_SCRIPT_DIR (or legacy PR_REVIEW_SCRIPT_DIR) to override the search path", script)
 	}
 	return script, nil
 }
@@ -469,7 +470,10 @@ func resolveScript(scriptName string) (string, error) {
 // execInherited runs args with inherited stdio and returns the exit code.
 // Used in --json mode so streaming output is visible throughout.
 func execInherited(args []string) int {
-	code, _ := execInheritedForJSON(args)
+	code, msg := execInheritedForJSON(args)
+	if msg != "" {
+		fmt.Fprintln(os.Stderr, msg)
+	}
 	return code
 }
 
