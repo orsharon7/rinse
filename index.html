@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet" />
+  <script>document.documentElement.classList.add('js')</script>
   <link rel="stylesheet" href="style.css" />
 
 </head>
@@ -36,7 +37,7 @@
       </div>
 
       <div class="terminal fade-in delay-3" role="region" aria-label="Terminal demo">
-        <div class="terminal-line"><span class="prompt">$</span> <span class="typed" id="typedCmd"></span><span class="cursor" id="cursor">▋</span></div>
+        <div class="terminal-line"><span class="prompt">$</span> <span class="typed" id="typedCmd"></span><span class="cursor" id="cursor" aria-hidden="true">▋</span></div>
         <div class="terminal-output" id="termOutput" aria-hidden="true"></div>
       </div>
     </div>

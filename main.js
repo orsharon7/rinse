@@ -40,22 +40,26 @@ document.documentElement.classList.add('js');
   const label = document.getElementById('copyLabel');
   if (!btn) return;
 
+  function setLabel(text) {
+    if (label) { label.textContent = text; } else { btn.setAttribute('aria-label', text); }
+  }
+
   btn.addEventListener('click', () => {
     if (!navigator.clipboard || !navigator.clipboard.writeText) {
-      label.textContent = 'Failed';
-      setTimeout(() => { label.textContent = 'Copy'; }, 2000);
+      setLabel('Failed');
+      setTimeout(() => { setLabel('Copy'); }, 2000);
       return;
     }
     navigator.clipboard.writeText('brew install rinse').then(() => {
-      label.textContent = 'Copied ✓';
+      setLabel('Copied ✓');
       btn.classList.add('copied');
       setTimeout(() => {
-        label.textContent = 'Copy';
+        setLabel('Copy');
         btn.classList.remove('copied');
       }, 2000);
     }).catch(() => {
-      label.textContent = 'Failed';
-      setTimeout(() => { label.textContent = 'Copy'; }, 2000);
+      setLabel('Failed');
+      setTimeout(() => { setLabel('Copy'); }, 2000);
     });
   });
 })();
