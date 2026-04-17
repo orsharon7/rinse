@@ -1,6 +1,36 @@
-# tools
+# rinse
 
 CLI automation tools for GitHub Copilot PR review workflows.
+
+## Install
+
+### Homebrew (recommended)
+
+```bash
+brew tap orsharon7/rinse https://github.com/orsharon7/rinse
+brew install rinse
+```
+
+This installs the `rinse` TUI binary and the `pr-review` wrapper, with all
+helper scripts bundled in `$(brew --prefix)/opt/rinse/libexec/pr-review/`.
+
+### One-line installer
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/orsharon7/rinse/main/install.sh)
+```
+
+### Build from source
+
+Requires Go ≥ 1.24:
+
+```bash
+git clone https://github.com/orsharon7/rinse.git
+cd rinse
+bash install.sh
+```
+
+---
 
 ## pr-review
 
