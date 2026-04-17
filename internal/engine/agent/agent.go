@@ -52,20 +52,45 @@ type PRContext struct {
 // GetReviewState fetches the current Copilot review state for the PR.
 // It shells out to the pr-review.sh script to keep all GitHub API logic
 // in one place during the transition from shell to Go.
-func GetReviewState(scriptDir, repo, pr, cwd string) (ReviewState, error) {
-	// pr-review.sh <pr> status --repo <repo> outputs JSON to stdout.
-	cmd := exec.Command("bash",
+// lastKnownReviewID, if non-empty, is passed via --last-known so the script
+// can return "no_change" instead of re-surfacing an already-processed review.
+func GetReviewState(scriptDir, repo, pr, cwd, lastKnownReviewID string) (ReviewState, error) {
+	// pr-review.sh <pr> status --repo <repo> [--last-known <id>] outputs JSON to stdout.
+	args := []string{
 		filepath.Join(scriptDir, "pr-review.sh"),
 		pr, "status",
 		"--repo", repo,
-	)
+	}
+	if strings.TrimSpace(lastKnownReviewID) != "" {
+		args = append(args, "--last-known", lastKnownReviewID)
+	}
+	cmd := exec.Command("bash", args...)
 	cmd.Dir = cwd
 	out, err := cmd.Output()
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
-			return ReviewState{}, fmt.Errorf("agent: pr-review.sh status: exit %d: %s",
-				exitErr.ExitCode(), string(exitErr.Stderr))
+			stdout := strings.TrimSpace(string(out))
+			stderr := strings.TrimSpace(string(exitErr.Stderr))
+			switch {
+			case stdout != "" && stderr != "":
+				return ReviewState{}, fmt.Errorf(
+					"agent: pr-review.sh status: exit %d: stdout: %s; stderr: %s",
+					exitErr.ExitCode(), stdout, stderr,
+				)
+			case stdout != "":
+				return ReviewState{}, fmt.Errorf(
+					"agent: pr-review.sh status: exit %d: stdout: %s",
+					exitErr.ExitCode(), stdout,
+				)
+			case stderr != "":
+				return ReviewState{}, fmt.Errorf(
+					"agent: pr-review.sh status: exit %d: stderr: %s",
+					exitErr.ExitCode(), stderr,
+				)
+			default:
+				return ReviewState{}, fmt.Errorf("agent: pr-review.sh status: exit %d", exitErr.ExitCode())
+			}
 		}
 		return ReviewState{}, fmt.Errorf("agent: pr-review.sh status: %w", err)
 	}
@@ -91,8 +116,27 @@ func GetComments(scriptDir, repo, pr, cwd string) ([]Comment, error) {
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
-			return nil, fmt.Errorf("agent: pr-review.sh comments: exit %d: %s",
-				exitErr.ExitCode(), string(exitErr.Stderr))
+			stdout := strings.TrimSpace(string(out))
+			stderr := strings.TrimSpace(string(exitErr.Stderr))
+			switch {
+			case stdout != "" && stderr != "":
+				return nil, fmt.Errorf(
+					"agent: pr-review.sh comments: exit %d: stdout: %s; stderr: %s",
+					exitErr.ExitCode(), stdout, stderr,
+				)
+			case stdout != "":
+				return nil, fmt.Errorf(
+					"agent: pr-review.sh comments: exit %d: stdout: %s",
+					exitErr.ExitCode(), stdout,
+				)
+			case stderr != "":
+				return nil, fmt.Errorf(
+					"agent: pr-review.sh comments: exit %d: stderr: %s",
+					exitErr.ExitCode(), stderr,
+				)
+			default:
+				return nil, fmt.Errorf("agent: pr-review.sh comments: exit %d", exitErr.ExitCode())
+			}
 		}
 		return nil, fmt.Errorf("agent: pr-review.sh comments: %w", err)
 	}
@@ -165,6 +209,7 @@ func PushAndRequestReview(scriptDir, repo, pr, cwd string) error {
 	pushCmd.Dir = cwd
 	pushCmd.Stdout = os.Stdout
 	pushCmd.Stderr = os.Stderr
+	pushCmd.Stdin = os.Stdin
 	if err := pushCmd.Run(); err != nil {
 		return fmt.Errorf("agent: pr-review.sh push: %w", err)
 	}
@@ -177,6 +222,7 @@ func PushAndRequestReview(scriptDir, repo, pr, cwd string) error {
 	requestCmd.Dir = cwd
 	requestCmd.Stdout = os.Stdout
 	requestCmd.Stderr = os.Stderr
+	requestCmd.Stdin = os.Stdin
 	if err := requestCmd.Run(); err != nil {
 		return fmt.Errorf("agent: pr-review.sh request: %w", err)
 	}

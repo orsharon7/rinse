@@ -44,6 +44,11 @@ func tempStateDir(t *testing.T) {
 			// Fall back to $HOME env var so stateDir is always restored to a
 			// valid path even when os.UserHomeDir() fails.
 			home = os.Getenv("HOME")
+			if home == "" {
+				// Avoid restoring stateDir to a relative path such as
+				// ".pr-review/state" when no home directory can be determined.
+				return
+			}
 		}
 		runner.SetStateDir(filepath.Join(home, ".pr-review", "state"))
 	})

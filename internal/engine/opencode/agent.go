@@ -46,7 +46,7 @@ func (a *Agent) Run(opts engine.RunOpts) (engine.Result, error) {
 	}
 
 	// 1. Review state.
-	rs, err := agent.GetReviewState(scriptDir, opts.Repo, opts.PR, opts.CWD)
+	rs, err := agent.GetReviewState(scriptDir, opts.Repo, opts.PR, opts.CWD, "")
 	if err != nil {
 		return engine.Result{}, fmt.Errorf("opencode: get review state: %w", err)
 	}
@@ -119,7 +119,7 @@ func runOpencode(cwd, model, prompt string) error {
 	cmd.Dir = cwd
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Stdin = nil
+	cmd.Stdin = os.Stdin
 
 	if err := cmd.Run(); err != nil {
 		var exitErr *exec.ExitError
