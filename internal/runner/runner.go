@@ -110,10 +110,12 @@ func Run(opts Opts) (Result, error) {
 	session.PRTitle = opts.PRTitle
 
 	persistSession := func(outcome stats.Outcome) {
+		session.ComputeQuality()
 		session.Finish(outcome, 240)
 		if err := stats.Save(session); err != nil {
 			log.Error("runner: save session", "error", err)
 		}
+		stats.PrintQualityReport(session)
 	}
 
 	// ── 1. Acquire lock ──────────────────────────────────────────────────────

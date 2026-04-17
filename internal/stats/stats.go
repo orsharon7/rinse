@@ -120,7 +120,7 @@ func (s *Session) ComputeQuality() {
 		return
 	}
 	delta := quality.Compute(s.CopilotCommentsByIteration,
-		quality.CategoryCounts{}, // category data not available from shell logs
+		quality.CategoryCounts{}, // TODO: populate from per-comment classification once shell log parsing is available
 		quality.CategoryCounts{})
 	s.Quality = &delta
 }
@@ -498,9 +498,7 @@ func PrintTrends(sessions []Session) {
 	for i := range weeks {
 		weeksAgo := 3 - i
 		start := now.AddDate(0, 0, -7*(weeksAgo+1))
-		end := now.AddDate(0, 0, -7*weeksAgo)
 		weeks[i].label = start.Format("Jan 02")
-		_ = end
 	}
 
 	for _, s := range sessions {
