@@ -1177,24 +1177,9 @@ func (m monitorModel) View() string {
 		badges = append(badges, elapsedBadge)
 	}
 
-	// ETA badge: state-driven per UX spec.
-	etaSt, etaTime := resolveETA(m.phase, m.estimatedEndAt, m.nowAdjusted())
-	switch etaSt {
-	case etaUnknown:
-		badges = append(badges, theme.StyleBadgeETA.Render(" ETA — "))
-	case etaComputable:
-		badges = append(badges, theme.StyleBadgeETA.Render(" ETA "+etaTime.Local().Format("15:04")+" "))
-	case etaFutureDay:
-		badges = append(badges, theme.StyleBadgeETA.Render(" ETA "+etaTime.Local().Format("Mon 15:04")+" "))
-	case etaOverdue:
-		overdueDur := m.nowAdjusted().Sub(etaTime).Round(time.Second)
-		badges = append(badges, theme.StyleBadgeOverdue.Render(" +"+formatElapsed(overdueDur)+" "))
-	case etaCompleted:
-		badges = append(badges, theme.StyleBadgeETA.Render(" Completed "))
-	case etaError:
-		badges = append(badges, theme.StyleBadgeETA.Render(" ETA — "))
-	// etaHidden and etaCancelled: nothing added
-	}
+	// ETA badge is omitted: m.estimatedEndAt is never assigned (no runner-supplied
+	// ETA source exists yet), so all ETA branches would be dead. Re-enable once
+	// the runner emits timing data and the monitor parses it into m.estimatedEndAt.
 	if m.totalComments > 0 {
 		badges = append(badges,
 			theme.StyleBadgeComment.Render(fmt.Sprintf(" %d comments ", m.totalComments)))
