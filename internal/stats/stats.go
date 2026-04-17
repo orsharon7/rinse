@@ -207,7 +207,10 @@ func PromptOptIn() (bool, error) {
 	fmt.Print("  Enable local stats? [y/N]: ")
 
 	var resp string
-	fmt.Scanln(&resp)
+	if _, err := fmt.Scanln(&resp); err != nil {
+		// Read failed (EOF / closed terminal) — treat as no response without persisting any preference.
+		return false, nil
+	}
 	optIn := strings.ToLower(strings.TrimSpace(resp)) == "y"
 	if err := SetOptIn(optIn); err != nil {
 		return false, err
@@ -234,7 +237,10 @@ func Save(s Session) error {
 			return nil // CI/non-TTY: silently off
 		}
 		optedIn, promptErr := PromptOptIn()
-		if promptErr != nil || !optedIn {
+		if promptErr != nil {
+			return promptErr
+		}
+		if !optedIn {
 			return nil
 		}
 	}
