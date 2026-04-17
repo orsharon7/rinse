@@ -189,11 +189,20 @@ func TestSummarize_OutcomeCounts(t *testing.T) {
 }
 
 func TestSummarize_CutoffBoundaryExact30Days(t *testing.T) {
-	// A session exactly 30 days ago (just after the cutoff) should NOT be in Last30Days.
-	// A session 29 days ago should be included.
+	// A session at the 30-day cutoff should NOT be in Last30Days because
+	// Summarize uses StartedAt.After(cutoff). A session 29 days ago should
+	// be included.
+	base := time.Now()
+
+	atCutoff := makeSess(stats.OutcomeClean, 0, 1, 1)
+	atCutoff.StartedAt = base.Add(-30 * 24 * time.Hour)
+
+	withinWindow := makeSess(stats.OutcomeClean, 0, 1, 1)
+	withinWindow.StartedAt = base.Add(-29 * 24 * time.Hour)
+
 	sessions := []stats.Session{
-		makeSess(stats.OutcomeClean, 29, 1, 1), // included
-		makeSess(stats.OutcomeClean, 31, 1, 1), // excluded
+		withinWindow, // included
+		atCutoff,     // excluded
 	}
 	sum := stats.Summarize(sessions)
 	if sum.Last30Days.TotalSessions != 1 {

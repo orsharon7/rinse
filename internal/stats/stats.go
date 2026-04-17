@@ -74,13 +74,21 @@ func SessionsDir() (string, error) {
 
 // configDir returns the directory for rinse config files.
 // Uses os.UserConfigDir() (same root as internal/config/config.go) to avoid
-// a second config root at ~/.rinse.
+// a second config root at ~/.rinse. If the platform config dir cannot be
+// resolved, fall back to a home-based config path so stats preferences remain
+// usable in degraded environments.
 func configDir() (string, error) {
 	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
+	if err == nil {
+		return filepath.Join(dir, "rinse"), nil
 	}
-	return filepath.Join(dir, "rinse"), nil
+
+	home, homeErr := os.UserHomeDir()
+	if homeErr != nil {
+		return "", fmt.Errorf("resolve config dir: user config dir: %w; user home dir: %v", err, homeErr)
+	}
+
+	return filepath.Join(home, ".config", "rinse"), nil
 }
 
 // config holds user preferences persisted in stats.json under configDir().
