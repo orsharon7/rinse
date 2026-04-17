@@ -144,11 +144,26 @@ func Save(s Session) error {
 	}
 
 	repoSlug := strings.ReplaceAll(s.Repo, "/", "-")
+	safePR := strings.Map(func(r rune) rune {
+		switch {
+		case r >= '0' && r <= '9':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r
+		case r >= 'a' && r <= 'z':
+			return r
+		default:
+			return '-'
+		}
+	}, s.PR)
+	if safePR == "" {
+		safePR = "unknown"
+	}
 	fname := fmt.Sprintf("%s-%09d-%s-PR%s.json",
 		s.StartedAt.Format("20060102-150405"),
 		s.StartedAt.Nanosecond(),
 		repoSlug,
-		s.PR,
+		safePR,
 	)
 	path := filepath.Join(dir, fname)
 
