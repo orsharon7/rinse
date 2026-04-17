@@ -7,14 +7,20 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/orsharon7/rinse/internal/db"
 	"github.com/orsharon7/rinse/internal/engine"
 	"github.com/orsharon7/rinse/internal/engine/lock"
 )
 
 // DefaultMaxIterations is used when Opts.MaxIterations is 0.
 const DefaultMaxIterations = 10
+
+// DefaultPollInterval is used when Opts.PollInterval is 0.
+const DefaultPollInterval = 30 * time.Second
 
 // ErrMaxIterations is returned when the runner exits because it reached the
 // configured iteration limit without Copilot approval.
@@ -36,6 +42,16 @@ type Opts struct {
 	// PR is the pull request number as a string.
 	PR string
 
+	// PRTitle is the human-readable PR title, stored in telemetry.
+	PRTitle string
+
+	// Branch is the PR head branch name, stored in telemetry.
+	Branch string
+
+	// RunnerName is the agent CLI name ("opencode" or "claude"), stored in
+	// telemetry. Defaults to "opencode" when empty.
+	RunnerName string
+
 	// CWD is the local working directory for the repository checkout.
 	CWD string
 
@@ -52,11 +68,16 @@ type Opts struct {
 	MaxWaitPolls int
 
 	// PollInterval is how long to wait between Copilot review status checks.
-	// Defaults to 30s when zero.
+	// Defaults to DefaultPollInterval when zero.
 	PollInterval time.Duration
 
 	// Agent is the engine.Agent implementation to drive.
 	Agent engine.Agent
+
+	// DB is an optional telemetry database handle. When non-nil, each run is
+	// recorded to the sessions / comment_events tables. DB errors are logged
+	// but never abort the review cycle (fire-and-forget semantics).
+	DB *db.DB
 
 	// Logger is an optional structured logger. Falls back to slog.Default().
 	Logger *slog.Logger
@@ -70,6 +91,9 @@ type Result struct {
 	// Iterations is the number of fix cycles that were executed.
 	Iterations int
 
+	// TotalComments is the sum of comments addressed across all iterations.
+	TotalComments int
+
 	// ResumedFromIteration is non-zero when the run resumed from a checkpoint.
 	ResumedFromIteration int
 }
@@ -78,12 +102,15 @@ type Result struct {
 //
 //  1. Acquire a per-PR on-disk lock (atomic, stale-lock aware).
 //  2. Load any existing checkpoint (crash recovery / partial resume).
-//  3. Loop: invoke Agent, checkpoint state, push & re-request review.
-//  4. Exit when Copilot approves, PR is merged/closed, or max iterations reached.
-//  5. Clear the checkpoint on terminal outcomes.
+//  3. Insert a telemetry session row (outcome="open").
+//  4. Loop: invoke Agent, checkpoint state, push & re-request review.
+//  5. Exit when Copilot approves, PR is merged/closed, or max iterations reached.
+//  6. Clear the checkpoint on terminal outcomes.
+//  7. Finalize the telemetry session row with outcome and duration.
 //
 // Run honours the "never swallow errors" engineering standard: subprocess
-// errors are propagated with context rather than swallowed.
+// errors are propagated with context rather than swallowed. DB errors are
+// fire-and-forget and never abort the cycle.
 func Run(opts Opts) (Result, error) {
 	if err := validateOpts(&opts); err != nil {
 		return Result{}, err
@@ -124,7 +151,45 @@ func Run(opts Opts) (Result, error) {
 		)
 	}
 
-	// ── 3. Main cycle loop ────────────────────────────────────────────────────
+	// ── 3. Telemetry session start ────────────────────────────────────────────
+	startedAt := time.Now()
+	sessionID := sessionID(opts.Repo, opts.PR, startedAt)
+	prNum, _ := strconv.Atoi(opts.PR)
+
+	if opts.DB != nil && resumedFrom == 0 {
+		// Only insert a new row on fresh runs; resumed runs already have a row.
+		if dbErr := opts.DB.InsertSession(db.SessionRow{
+			ID:       sessionID,
+			Repo:     opts.Repo,
+			PRNumber: prNum,
+			PRTitle:  opts.PRTitle,
+			Branch:   opts.Branch,
+			Runner:   opts.RunnerName,
+			Model:    opts.Model,
+
+			StartedAt:          startedAt,
+			Iterations:         0,
+			TotalCommentsFixed: 0,
+			Outcome:            "open",
+		}); dbErr != nil {
+			log.Warn("runner: telemetry: insert session", "error", dbErr)
+		}
+	}
+
+	// finalizeSession is deferred so every exit path records a terminal outcome.
+	totalComments := 0
+	finalizeSession := func(outcome string, iterations int) {
+		if opts.DB == nil {
+			return
+		}
+		now := time.Now()
+		dur := int(now.Sub(startedAt).Seconds())
+		if dbErr := opts.DB.FinalizeSession(sessionID, now, dur, totalComments, iterations, outcome); dbErr != nil {
+			log.Warn("runner: telemetry: finalize session", "error", dbErr)
+		}
+	}
+
+	// ── 4. Main cycle loop ────────────────────────────────────────────────────
 	waitPolls := 0
 	for state.Iteration < opts.MaxIterations {
 		log.Info("runner: starting iteration",
@@ -145,8 +210,10 @@ func Run(opts Opts) (Result, error) {
 			// Hard agent failure — persist state so we can resume, then surface.
 			state.LastAgentAction = "error"
 			_ = saveState(state)
+			finalizeSession("failed", state.Iteration)
 			return Result{
 				Iterations:           state.Iteration,
+				TotalComments:        totalComments,
 				ResumedFromIteration: resumedFrom,
 			}, fmt.Errorf("runner: agent %s iteration %d: %w", opts.Agent.Name(), state.Iteration+1, err)
 		}
@@ -160,8 +227,10 @@ func Run(opts Opts) (Result, error) {
 					"pr", opts.PR,
 					"wait_polls", waitPolls,
 				)
+				finalizeSession("failed", state.Iteration)
 				return Result{
 					Iterations:           state.Iteration,
+					TotalComments:        totalComments,
 					ResumedFromIteration: resumedFrom,
 				}, ErrMaxWaitPolls
 			}
@@ -177,10 +246,19 @@ func Run(opts Opts) (Result, error) {
 		waitPolls = 0 // reset on actionable result
 
 		state.Iteration++
+		totalComments += agentResult.Comments
 
 		// Persist the review ID so the next iteration can detect no_change.
 		if agentResult.ReviewID != "" {
 			state.LastReviewID = agentResult.ReviewID
+		}
+
+		// Record comment event for this iteration.
+		if opts.DB != nil {
+			evID := fmt.Sprintf("%s-iter%d", sessionID, state.Iteration)
+			if dbErr := opts.DB.InsertCommentEvent(evID, sessionID, state.Iteration, agentResult.Comments); dbErr != nil {
+				log.Warn("runner: telemetry: insert comment event", "error", dbErr)
+			}
 		}
 
 		if agentResult.Approved {
@@ -192,9 +270,11 @@ func Run(opts Opts) (Result, error) {
 			)
 			// Terminal success — clear the checkpoint.
 			_ = clearState(opts.Repo, opts.PR)
+			finalizeSession("merged", state.Iteration)
 			return Result{
 				Approved:             true,
 				Iterations:           state.Iteration,
+				TotalComments:        totalComments,
 				ResumedFromIteration: resumedFrom,
 			}, nil
 		}
@@ -223,18 +303,28 @@ func Run(opts Opts) (Result, error) {
 		time.Sleep(opts.PollInterval)
 	}
 
-	// ── 4. Max iterations reached ─────────────────────────────────────────────
+	// ── 5. Max iterations reached ─────────────────────────────────────────────
 	log.Warn("runner: max iterations reached without approval",
 		"repo", opts.Repo,
 		"pr", opts.PR,
 		"iterations", state.Iteration,
 	)
+	finalizeSession("failed", state.Iteration)
 	// Keep state on disk so a human or future run can inspect it.
 	return Result{
 		Approved:             false,
 		Iterations:           state.Iteration,
+		TotalComments:        totalComments,
 		ResumedFromIteration: resumedFrom,
 	}, ErrMaxIterations
+}
+
+// sessionID returns a stable, unique session identifier for a run.
+// Format: "{repo-slug}-pr{pr}-{unix-nano}" — ensures uniqueness even for
+// concurrent runs on different machines.
+func sessionID(repo, pr string, t time.Time) string {
+	slug := strings.NewReplacer("/", "-", ".", "-").Replace(repo)
+	return fmt.Sprintf("%s-pr%s-%d", slug, pr, t.UnixNano())
 }
 
 // validateOpts checks required fields and applies defaults.
@@ -258,7 +348,10 @@ func validateOpts(o *Opts) error {
 		o.MaxWaitPolls = 60
 	}
 	if o.PollInterval <= 0 {
-		o.PollInterval = 30 * time.Second
+		o.PollInterval = DefaultPollInterval
+	}
+	if o.RunnerName == "" {
+		o.RunnerName = "opencode"
 	}
 	return nil
 }
