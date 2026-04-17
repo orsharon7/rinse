@@ -79,6 +79,13 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Exclude trusted-scripts checkout from git staging
+        run: |
+          # Prevent _rinse-base/ (a nested git repo) from being staged by
+          # `git add -A` inside the review-loop script, which would corrupt
+          # the PR branch with a gitlink or a large untracked directory.
+          echo "_rinse-base/" >> .git/info/exclude
+
       - name: Configure git identity
         run: |
           git config user.name  "rinse[bot]"
