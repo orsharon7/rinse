@@ -101,17 +101,17 @@
             <h2 class="pro-h2">Team dashboard — coming soon.</h2>
             <p class="pro-desc">Track AI comment debt across your whole org. See which repos are worst, set thresholds, and enforce clean code in CI.</p>
           </div>
-          <form class="waitlist-form fade-in delay-1" id="waitlistForm" action="https://formspree.io/f/rinse-waitlist" method="POST">
-            <input
-              class="waitlist-input"
-              type="email"
-              name="email"
-              placeholder="you@company.com"
-              aria-label="Work email"
-              required
-            />
-            <button class="waitlist-btn" type="submit">Join waitlist</button>
-          </form>
+          <!-- Tally waitlist form — replace TALLY_FORM_ID with your form ID from tally.so -->
+          <div class="waitlist-form fade-in delay-1">
+            <button
+              class="waitlist-btn"
+              data-tally-open="TALLY_FORM_ID"
+              data-tally-layout="modal"
+              data-tally-width="420"
+              data-tally-emoji-text="👋"
+              data-tally-emoji-animation="wave"
+            >Join Pro waitlist</button>
+          </div>
         </div>
       </div>
     </div>
@@ -132,5 +132,7 @@
   </footer>
 
   <script src="main.js"></script>
+  <!-- Tally embed script — powers the Pro waitlist popup -->
+  <script async src="https://tally.so/widgets/embed.js"></script>
 </body>
 </html>

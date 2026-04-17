@@ -14,6 +14,7 @@
 [![License: BSL 1.1](https://img.shields.io/badge/License-BSL_1.1-purple.svg)](./LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/orsharon7/rinse)](https://github.com/orsharon7/rinse/releases)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/orsharon7/rinse/pulls)
+[![Landing page](https://img.shields.io/badge/site-orsharon7.github.io%2Frinse-blue)](https://orsharon7.github.io/rinse)
 
 ---
 
