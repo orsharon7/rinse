@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/orsharon7/rinse/internal/config"
+	"github.com/orsharon7/rinse/internal/runner"
 )
 
 // version is set by Run() from the value injected at build time via -ldflags.
@@ -86,14 +87,14 @@ func detectCWD() string {
 
 // ── Runner definitions ────────────────────────────────────────────────────────
 
-type runner struct {
+type agentDef struct {
 	name         string
 	desc         string
 	script       string
 	defaultModel string
 }
 
-var runners = []runner{
+var runners = []agentDef{
 	{"opencode", "GitHub Copilot · no API key", "pr-review-opencode.sh", "github-copilot/claude-sonnet-4.6"},
 	{"claude", "Claude Code · Anthropic key", "pr-review-claude-v2.sh", "claude-sonnet-4-6"},
 }
@@ -156,14 +157,60 @@ func Run(ver string) error {
 	}
 
 	fm := final.(model)
-	if fm.view != viewDone || len(fm.finalCmd) == 0 {
+	if fm.view != viewDone {
 		return nil
 	}
 
-	rName := shortRunnerName(fm.runnerIdx)
-	runnerCmd := append(fm.finalCmd, "--no-interactive")
+	rName := strings.TrimSpace(shortRunnerName(fm.runnerIdx))
 
-	return RunMonitor(fm.prNum, fm.repo, strings.TrimSpace(rName), fm.modelOverride, fm.prTitle, fm.path, fm.autoMerge, runnerCmd)
+	// ── Pure-Go runner path (preferred) ───────────────────────────────────────
+	// Attempt to build runner.Opts. If successful, use the native Go runner
+	// which drives the agent directly without shelling out to bash scripts.
+	if runOpts, err := fm.buildRunOpts(); err == nil {
+		return RunWithGoRunner(fm.prNum, fm.repo, rName, fm.modelOverride, fm.prTitle, fm.path, fm.autoMerge, runOpts)
+	}
+
+	// ── Script fallback ───────────────────────────────────────────────────────
+	// If buildRunOpts fails (e.g. agent not installed), fall back to the legacy
+	// bash-script runner path.
+	if len(fm.finalCmd) == 0 {
+		return nil
+	}
+	runnerCmd := append(fm.finalCmd, "--no-interactive")
+	return RunMonitor(fm.prNum, fm.repo, rName, fm.modelOverride, fm.prTitle, fm.path, fm.autoMerge, runnerCmd)
+}
+
+// RunWithGoRunner starts the native Go runner in a goroutine and wires its
+// LineSink output to the TUI monitor via a buffered line channel.
+func RunWithGoRunner(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge bool, opts runner.Opts) error {
+	lineCh := make(chan string, 512)
+	doneCh := make(chan int, 1)
+
+	// Wire LineSink to the line channel so the TUI monitor receives progress.
+	opts.LineSink = func(line string) {
+		lineCh <- line
+	}
+	if opts.Reflect != nil {
+		opts.Reflect.LineSink = opts.LineSink
+	}
+	if opts.Optimize != nil {
+		opts.Optimize.LineSink = opts.LineSink
+	}
+
+	go func() {
+		result, err := runner.Run(opts)
+		close(lineCh)
+		if err != nil {
+			// runner.ErrMaxIterations is non-fatal from the TUI perspective.
+			doneCh <- 1
+		} else if result.Approved {
+			doneCh <- 0
+		} else {
+			doneCh <- 0
+		}
+	}()
+
+	return RunMonitorFromChannels(pr, repo, runnerName, modelName, prTitle, cwd, autoMerge, lineCh, doneCh)
 }
 
 // initialModel builds a fresh wizard model with settings loaded from disk.
