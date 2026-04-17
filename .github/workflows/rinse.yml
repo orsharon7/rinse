@@ -32,6 +32,7 @@ jobs:
 
     # Skip PRs from forks: they cannot access repository secrets.
     if: github.event.pull_request.head.repo.full_name == github.repository
+    environment: rinse
 
     steps:
       - name: Checkout PR branch

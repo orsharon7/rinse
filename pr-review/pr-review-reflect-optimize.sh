@@ -306,8 +306,11 @@ git -C "$WORKTREE_DIR" commit \
 MAX_PUSH_ATTEMPTS=5
 push_attempt=1
 while true; do
-  push_output=$(git -C "$WORKTREE_DIR" push origin "HEAD:${MAIN_BRANCH}" 2>&1)
-  push_exit=$?
+  if push_output=$(git -C "$WORKTREE_DIR" push origin "HEAD:${MAIN_BRANCH}" 2>&1); then
+    push_exit=0
+  else
+    push_exit=$?
+  fi
   echo "$push_output" | tee -a "$LOGFILE"
 
   if [[ $push_exit -eq 0 ]]; then
@@ -315,7 +318,7 @@ while true; do
   fi
 
   # Detect non-fast-forward rejection (parallel push conflict)
-  if echo "$push_output" | grep -qE 'rejected|non-fast-forward|fetch first'; then
+  if echo "$push_output" | grep -qE 'non-fast-forward|fetch first|\[rejected\].*\(non-fast-forward\)'; then
     if [[ $push_attempt -ge $MAX_PUSH_ATTEMPTS ]]; then
       log "⚠️  Push still failing after ${MAX_PUSH_ATTEMPTS} attempts — aborting"
       exit 1
