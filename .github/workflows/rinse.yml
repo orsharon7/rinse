@@ -103,7 +103,7 @@ jobs:
           NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
         run: |
           set -euo pipefail
-          # jq and shellcheck are pre-installed on ubuntu-latest runners.
+          # jq is pre-installed on ubuntu-latest runners.
           # Install a pinned Claude Code CLI version for reproducible runs.
           : > "${NPM_CONFIG_USERCONFIG}"
           npm install -g @anthropic-ai/claude-code@1.0.64
