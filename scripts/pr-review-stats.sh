@@ -58,6 +58,7 @@ _rinse_config_get() {
   if [[ -f "$RINSE_CONFIG_FILE" ]]; then
     jq -r --arg k "$key" '.[$k] // empty' "$RINSE_CONFIG_FILE" 2>/dev/null || true
   fi
+  return 0
 }
 
 _rinse_config_set() {
@@ -102,6 +103,7 @@ _stats_check_optin() {
     echo "  You can opt out at any time:"
     echo "    pr-review-stats.sh opt-out"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    local _answer=""
     read -r -p "  Enable local stats? [y/N] " _answer </dev/tty
     echo ""
 
