@@ -224,7 +224,9 @@ func (m wizModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				SaveHistory:      m.saveHistory,
 			},
 		}
-		_ = onboarding.SaveState(s)
+		if err := onboarding.SaveState(s); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to save onboarding state for step %q: %v\n", onboarding.StepD, err)
+		}
 		m.view = wizStepE
 		if len(m.celebFrames) > 1 {
 			return m, tea.Tick(120*time.Millisecond, func(t time.Time) tea.Msg { return wizCelebFrameMsg{} })
@@ -417,10 +419,12 @@ func (m wizModel) handleWelcomeKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 			return m, saveStepCmd(onboarding.State{Version: onboarding.StateVersion})
 		} else {
 			// Skip setup
-			_ = onboarding.SaveState(onboarding.State{
+			if err := onboarding.SaveState(onboarding.State{
 				Version: onboarding.StateVersion,
 				Skipped: true,
-			})
+			}); err != nil {
+				fmt.Fprintf(os.Stderr, "failed to save onboarding skipped state: %v\n", err)
+			}
 			m.outcome = WizardSkipped
 			return m, tea.Quit
 		}
@@ -557,28 +561,30 @@ func (m wizModel) handleStepCKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 			if m.writingConfig {
 				return m, nil
 			}
-			// "Skip for now" uses defaults (already set); both write config.
+			// "Skip for now" uses defaults (already set); only mark Step C complete
+			// after the TOML config has been written successfully.
 			d := onboarding.Defaults{
 				RemindOnComplete: m.remindOnComplete,
 				AutoAdvance:      m.autoAdvance,
 				SaveHistory:      m.saveHistory,
 			}
 			cycleName := m.cycleName
+			state := onboarding.State{
+				Version:        onboarding.StateVersion,
+				CompletedStep:  onboarding.StepC,
+				CycleNameDraft: m.cycleName,
+				Defaults:       d,
+			}
 			m.writingConfig = true
-			return m, tea.Batch(
-				saveStepCmd(onboarding.State{
-					Version:        onboarding.StateVersion,
-					CompletedStep:  onboarding.StepC,
-					CycleNameDraft: m.cycleName,
-					Defaults:       d,
-				}),
-				func() tea.Msg {
-					if err := onboarding.WriteTomlConfig(cycleName, d); err != nil {
-						return wizConfigErrMsg{err}
-					}
-					return wizConfigWrittenMsg{}
-				},
-			)
+			return m, func() tea.Msg {
+				if err := onboarding.WriteTomlConfig(cycleName, d); err != nil {
+					return wizConfigErrMsg{err}
+				}
+				if cmd := saveStepCmd(state); cmd != nil {
+					cmd()
+				}
+				return wizConfigWrittenMsg{}
+			}
 		}
 
 	case key.Matches(msg, Keys.Quit):
@@ -593,10 +599,6 @@ func (m wizModel) handleStepCKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 
 func (m wizModel) handleStepDKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 	if m.creatingCycle {
-		if key.Matches(msg, Keys.ForceQuit) {
-			m.outcome = WizardAborted
-			return m, tea.Quit
-		}
 		return m, nil
 	}
 
@@ -638,10 +640,12 @@ func (m wizModel) handleStepEKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 	switch {
 	case key.Matches(msg, Keys.Confirm) || key.Matches(msg, Keys.WizGoCycles): // "Go to my cycles"
 		// Persist onboarding completion so future launches do not re-run the wizard.
-		_ = onboarding.SaveState(onboarding.State{
+		if err := onboarding.SaveState(onboarding.State{
 			Version:       onboarding.StateVersion,
 			CompletedStep: onboarding.StepE,
-		})
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to save onboarding completion state: %v\n", err)
+		}
 		m.outcome = WizardCompleted
 		m.view = wizDone
 		return m, tea.Quit

@@ -75,8 +75,8 @@ func LoadState() (*State, error) {
 
 // SaveState writes the state atomically (write-to-temp + rename).
 // A unique temp file is used per write so concurrent saves do not clobber
-// each other's temp file. Per spec: write failures are logged to stderr
-// but must not block UX.
+// each other's temp file. Write failures are returned to the caller so it
+// can log or ignore them without blocking UX.
 func SaveState(s State) error {
 	path := StatePath()
 	dir := filepath.Dir(path)
