@@ -101,6 +101,9 @@ type Result struct {
 
 	// ResumedFromIteration is non-zero when the run resumed from a checkpoint.
 	ResumedFromIteration int
+
+	// Session is the recorded session metrics for this run.
+	Session stats.Session
 }
 
 // Run drives the PR review lifecycle:
@@ -225,6 +228,7 @@ func Run(opts Opts) (Result, error) {
 				Iterations:           state.Iteration,
 				TotalComments:        totalComments,
 				ResumedFromIteration: resumedFrom,
+				Session:              session,
 			}, fmt.Errorf("runner: agent %s iteration %d: %w", opts.Agent.Name(), state.Iteration+1, err)
 		}
 
@@ -243,6 +247,7 @@ func Run(opts Opts) (Result, error) {
 					Iterations:           state.Iteration,
 					TotalComments:        totalComments,
 					ResumedFromIteration: resumedFrom,
+					Session:              session,
 				}, ErrMaxWaitPolls
 			}
 			log.Info("runner: waiting for actionable review",
@@ -293,6 +298,7 @@ func Run(opts Opts) (Result, error) {
 				Iterations:           state.Iteration,
 				TotalComments:        totalComments,
 				ResumedFromIteration: resumedFrom,
+				Session:              session,
 			}, nil
 		}
 

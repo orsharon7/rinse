@@ -37,6 +37,30 @@ set -euo pipefail
 # STATE_DIR and LOGFILE are scoped per-repo after REPO is known (see below)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# ─── Session metrics (written on EXIT) ────────────────────────────────────────
+
+# Generate a UUID v4 without external tools.
+_gen_uuid() {
+  local raw
+  raw=$(od -An -tx1 -N16 /dev/urandom 2>/dev/null | tr -d ' \n') || raw=""
+  if [[ ${#raw} -eq 32 ]]; then
+    # Patch version (4) and variant (8-b) bits.
+    raw="${raw:0:12}4${raw:13:3}$(printf '%x' "$(( (16#${raw:16:1} & 0x3) | 0x8 ))")${raw:17:3}${raw:20:12}"
+    printf '%s-%s-%s-%s-%s\n' "${raw:0:8}" "${raw:8:4}" "${raw:12:4}" "${raw:16:4}" "${raw:20:12}"
+  else
+    # Fallback: timestamp + RANDOM (not cryptographic, sufficient for file naming)
+    printf '%08x-%04x-4%03x-%04x-%012x\n' \
+      "$(date +%s)" "$RANDOM" "$(( RANDOM & 0xfff ))" \
+      "$(( (RANDOM & 0x3fff) | 0x8000 ))" "$(( RANDOM * RANDOM * RANDOM ))"
+  fi
+}
+
+SESSION_ID="$(_gen_uuid)"
+SESSION_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+SESSION_STARTED_EPOCH="$(date +%s)"
+SESSION_OUTCOME="aborted"             # updated to final outcome before EXIT writes JSON
+declare -a SESSION_COMMENTS_BY_ITER=() # populated each main-loop iteration
+
 # ─── UI ───────────────────────────────────────────────────────────────────────
 
 # shellcheck source=pr-review-ui.sh
@@ -195,6 +219,7 @@ if [[ "$USE_WORKTREE" == true ]]; then
     gh_lock_release
     _stats_exit_trap "$_trapped_exit"
   }
+  # Override the earlier EXIT trap with one that also runs worktree cleanup.
   trap cleanup_pr_worktree EXIT
 
   git -C "$REPO_ROOT" worktree prune 2>/dev/null || true
@@ -572,6 +597,7 @@ while true; do
 
   if ! wait_for_review; then
     log "❌ Timed out waiting for Copilot — aborting"
+    SESSION_OUTCOME="aborted"
     exit 1
   fi
 
@@ -682,6 +708,8 @@ while true; do
     exit 0
   fi
 
+  # ── Record comments for this iteration in session metrics ─────────────────
+  SESSION_COMMENTS_BY_ITER+=("$comment_count")
   ui_outcome "💬" "${comment_count} comment(s) in review ${rid}" "$GUM_WARN"
   log "💬 ${comment_count} comment(s) in review ${rid} — invoking opencode (${MODEL})..."
 
@@ -762,6 +790,7 @@ PROMPT_EOF
 
   if [[ $oc_exit -ne 0 ]]; then
     log "❌ opencode exited with code ${oc_exit} — aborting"
+    SESSION_OUTCOME="error"
     if [[ -n "$reflect_pid" ]]; then
       kill "$reflect_pid" 2>/dev/null || true
       ui_reflect_log "killed (opencode failed)" false
