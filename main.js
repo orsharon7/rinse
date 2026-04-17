@@ -1,4 +1,5 @@
 /* ─── JS PROGRESSIVE ENHANCEMENT ────────────────────────── */
+// Added early via inline script in <head>; kept here as fallback.
 document.documentElement.classList.add('js');
 
 /* ─── NAV SCROLL BORDER ──────────────────────────────────── */
@@ -40,6 +41,11 @@ document.documentElement.classList.add('js');
   if (!btn) return;
 
   btn.addEventListener('click', () => {
+    if (!navigator.clipboard || !navigator.clipboard.writeText) {
+      label.textContent = 'Failed';
+      setTimeout(() => { label.textContent = 'Copy'; }, 2000);
+      return;
+    }
     navigator.clipboard.writeText('brew install rinse').then(() => {
       label.textContent = 'Copied ✓';
       btn.classList.add('copied');
@@ -68,6 +74,19 @@ document.documentElement.classList.add('js');
     { text: '- // Note: the following was auto-completed.', cls: 'tline-red' },
     { text: '✓ Done. 12 AI comments cleaned.', cls: 'tline-green' },
   ];
+
+  // Respect prefers-reduced-motion: render final static state immediately
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    typedCmd.textContent = CMD;
+    cursor.style.display = 'none';
+    OUTPUT_LINES.forEach(line => {
+      const span = document.createElement('span');
+      span.className = `tline ${line.cls}`;
+      span.textContent = line.text;
+      termOut.appendChild(span);
+    });
+    return;
+  }
 
   let phase = 'typing'; // typing | output | pausing
   let charIdx = 0;
@@ -140,6 +159,8 @@ document.documentElement.classList.add('js');
     const input = form.querySelector('.waitlist-input');
     if (!btn) return;
     const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Sending…';
     try {
       const res = await fetch(form.action, {
         method: 'POST',
@@ -148,14 +169,15 @@ document.documentElement.classList.add('js');
       });
       if (res.ok) {
         btn.textContent = 'You\'re on the list ✓';
-        btn.disabled = true;
         if (input) input.disabled = true;
       } else {
         btn.textContent = 'Try again';
+        btn.disabled = false;
         setTimeout(() => { btn.textContent = originalText; }, 2500);
       }
     } catch {
       btn.textContent = 'Try again';
+      btn.disabled = false;
       setTimeout(() => { btn.textContent = originalText; }, 2500);
     }
   });
