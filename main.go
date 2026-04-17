@@ -19,7 +19,9 @@ until your PR is approved. You pick the PR; RINSE handles the rest.
 USAGE
 
   rinse              Launch the interactive PR picker (recommended)
+  rinse init         Scaffold a per-repo .rinse.json config (interactive)
   rinse stats        Show session history and time-saved metrics
+  rinse trends       Show quality improvement trends (last 4 weeks)
   rinse --version    Print the installed version
   rinse --help       Show this help
 
@@ -64,6 +66,27 @@ SETTINGS  (press s inside the PR picker)
 
 COMMANDS
 
+  rinse init
+
+    Scaffolds a per-repo .rinse.json config in the current directory.
+    Prompts you to choose an engine (opencode or claude), enable reflection,
+    and set the reflection branch. Existing config is kept unless you confirm
+    overwrite.
+
+    Example:
+
+      $ cd your-repo
+      $ rinse init
+      Initializing Rinse config for this repo...
+
+      Select engine:
+        [1] opencode — GitHub Copilot, no API key required (default)
+        [2] claude   — Claude Code, requires an Anthropic API key
+
+      Enable reflection? (y/N): y
+      Reflection branch [main]:
+      Wrote .rinse.json
+
   rinse stats
 
     Reads session history from ~/.rinse/sessions/ and prints:
@@ -77,6 +100,30 @@ COMMANDS
       Top patterns:
         1. Missing error handling  (41x)
         2. Unused imports          (28x)
+
+  rinse trends
+
+    Shows quality improvement trends across sessions, grouped into weekly
+    buckets for the last 4 weeks. Useful for tracking whether your codebase
+    is improving over time.
+
+    Metrics displayed per week:
+
+      Quality Score  — average post-review quality score (0–100)
+      Fix Rate       — average comments fixed per iteration (λ)
+      Avg Iterations — average iterations needed to reach approval
+
+    Example:
+
+      RINSE Quality Trends — (last 4 weeks)
+
+      Quality Score over time:
+        Mar 28  ████████████████████  82.4
+        Apr 04  ██████████████████    78.1
+        Apr 11  ████████████████████  83.7
+        Apr 18  ██████████████████████ 89.2
+
+      Runs on data in ~/.rinse/sessions/. No network calls required.
 
 ENVIRONMENT VARIABLES
 
