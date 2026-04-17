@@ -16,8 +16,11 @@ import (
 // user's home directory so checkpoints survive reboots.
 var stateDir = func() string {
 	home, err := os.UserHomeDir()
-	if err != nil {
+	if err != nil || home == "" {
 		home = os.Getenv("HOME")
+	}
+	if home == "" {
+		home = os.TempDir()
 	}
 	return filepath.Join(home, ".pr-review", "state")
 }()

@@ -29,8 +29,11 @@ var ErrLocked = errors.New("lock: held by another process")
 // It mirrors the DAEMON_LOCK_DIR convention from the shell scripts.
 var Dir = func() string {
 	home, err := os.UserHomeDir()
-	if err != nil {
+	if err != nil || home == "" {
 		home = os.Getenv("HOME")
+	}
+	if home == "" {
+		home = os.TempDir()
 	}
 	return filepath.Join(home, ".pr-review", "locks")
 }()
