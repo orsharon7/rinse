@@ -71,5 +71,5 @@ func WriteTomlConfig(cycleName string, d Defaults) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	return replaceFile(tmp, path)
 }

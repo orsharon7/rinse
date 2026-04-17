@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 const StateVersion = 1
@@ -103,8 +104,8 @@ func stepOrdinal(step Step) int {
 
 // SaveState writes the state atomically (write-to-temp + rename).
 // A unique temp file is used per write so concurrent saves do not clobber
-// each other's temp file. Per spec: write failures are logged to stderr
-// but must not block UX.
+// each other's temp file. SaveState returns any write error; callers are
+// responsible for logging or surfacing it.
 //
 // SaveState is monotonic with respect to CompletedStep: if the on-disk state
 // already records a step that is ahead of s.CompletedStep, the higher step is
@@ -147,7 +148,7 @@ func SaveState(s State) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	return replaceFile(tmp, path)
 }
 
 // DeleteState removes the onboarding state file.
@@ -168,4 +169,17 @@ func IsComplete() bool {
 		return false
 	}
 	return s.CompletedStep == StepE || s.Skipped
+}
+
+// replaceFile moves src to dst atomically where the OS supports it.
+// On Windows, os.Rename fails if dst already exists, so we remove dst first.
+// There is a small race window on Windows, but this is the safest portable
+// approach without platform-specific syscalls.
+func replaceFile(src, dst string) error {
+	if runtime.GOOS == "windows" {
+		if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return os.Rename(src, dst)
 }
