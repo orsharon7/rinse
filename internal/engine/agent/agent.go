@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -66,13 +67,14 @@ func GetReviewState(scriptDir, repo, pr, cwd, lastKnownReviewID string) (ReviewS
 	}
 	cmd := exec.Command("bash", args...)
 	cmd.Dir = cwd
-	cmd.Stderr = os.Stderr
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
 	out, err := cmd.Output()
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			stdout := strings.TrimSpace(string(out))
-			stderr := strings.TrimSpace(string(exitErr.Stderr))
+			stderr := strings.TrimSpace(stderrBuf.String())
 			switch {
 			case stdout != "" && stderr != "":
 				return ReviewState{}, fmt.Errorf(
@@ -113,13 +115,14 @@ func GetComments(scriptDir, repo, pr, cwd string) ([]Comment, error) {
 		"--repo", repo,
 	)
 	cmd.Dir = cwd
-	cmd.Stderr = os.Stderr
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
 	out, err := cmd.Output()
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			stdout := strings.TrimSpace(string(out))
-			stderr := strings.TrimSpace(string(exitErr.Stderr))
+			stderr := strings.TrimSpace(stderrBuf.String())
 			switch {
 			case stdout != "" && stderr != "":
 				return nil, fmt.Errorf(

@@ -36,21 +36,27 @@ func (s *stubAgent) Run(_ engine.RunOpts) (engine.Result, error) {
 
 func tempStateDir(t *testing.T) {
 	t.Helper()
+
+	restoreDir := ""
+	home, err := os.UserHomeDir()
+	if err != nil {
+		// Fall back to $HOME so the restore target is determined before the
+		// state dir is overridden for this test.
+		home = os.Getenv("HOME")
+	}
+	if home != "" {
+		restoreDir = filepath.Join(home, ".pr-review", "state")
+	}
+
 	// runner.SetStateDir is exported via state_test_hook.go for test isolation.
 	runner.SetStateDir(t.TempDir())
 	t.Cleanup(func() {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			// Fall back to $HOME env var so stateDir is always restored to a
-			// valid path even when os.UserHomeDir() fails.
-			home = os.Getenv("HOME")
-			if home == "" {
-				// Avoid restoring stateDir to a relative path such as
-				// ".pr-review/state" when no home directory can be determined.
-				return
-			}
+		if restoreDir == "" {
+			// Avoid restoring stateDir to a relative path such as
+			// ".pr-review/state" when no home directory can be determined.
+			return
 		}
-		runner.SetStateDir(filepath.Join(home, ".pr-review", "state"))
+		runner.SetStateDir(restoreDir)
 	})
 }
 
