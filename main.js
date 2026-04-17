@@ -48,6 +48,7 @@ document.documentElement.classList.add('js');
 
   btn.addEventListener('click', () => {
     if (!navigator.clipboard || !navigator.clipboard.writeText) {
+      btn.classList.remove('copied');
       setLabel('Failed');
       clearTimeout(copyResetTimer);
       copyResetTimer = setTimeout(() => { setLabel('Copy'); }, 2000);
@@ -62,6 +63,7 @@ document.documentElement.classList.add('js');
         btn.classList.remove('copied');
       }, 2000);
     }).catch(() => {
+      btn.classList.remove('copied');
       setLabel('Failed');
       clearTimeout(copyResetTimer);
       copyResetTimer = setTimeout(() => { setLabel('Copy'); }, 2000);
@@ -196,6 +198,8 @@ document.documentElement.classList.add('js');
       btn.disabled = false;
       clearTimeout(restoreTimer);
       restoreTimer = setTimeout(() => { btn.textContent = originalText; }, 2500);
+      // Fall back to native form POST if fetch fails (e.g. CORS/network/content blockers)
+      form.submit();
     }
   });
 })();
