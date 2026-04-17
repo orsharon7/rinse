@@ -162,11 +162,11 @@ if [[ "$USE_WORKTREE" == true ]]; then
     session_clear
     gh_lock_release
     local should_print_insights=false
-    if [[ "${DRY_RUN:-false}" != true && -z "${_INS_OUTCOME:-}" ]]; then
+    if [[ "${DRY_RUN:-false}" != true && -z "${_INS_OUTCOME:-}" && "${_INS_START_EPOCH:-0}" -gt 0 ]]; then
       should_print_insights=true
     fi
     # Best-effort insights finalization (mirrors non-worktree _cleanup_on_exit)
-    if [[ -z "${_INS_OUTCOME:-}" ]]; then
+    if [[ -z "${_INS_OUTCOME:-}" && "${_INS_START_EPOCH:-0}" -gt 0 ]]; then
       local outcome="error"
       [[ $rc -eq 0 ]] && outcome="clean"
       insights_finalize "$outcome"
@@ -612,13 +612,12 @@ while true; do
   log "💬 ${comment_count} comment(s) in review ${rid} — invoking opencode (${MODEL})..."
 
   # Record insights for this iteration (classify comments by category)
+  comments_json=$(echo "$comments" | jq '.')
   insights_record_iteration "$comment_count" "$comments_json"
 
   # ── Step 4: Build prompt and invoke opencode ──────────────────────────────
 
   ui_step 4 "Fix comments with opencode (${MODEL})"
-
-  comments_json=$(echo "$comments" | jq '.')
 
   read -r -d '' PROMPT << PROMPT_EOF || true
 You are fixing GitHub Copilot code review comments on PR #${PR_NUMBER} in ${REPO}.

@@ -140,20 +140,43 @@ func RunInit() {
 		fmt.Fprintf(os.Stderr, "error: failed to close temp file: %v\n", cerr)
 		os.Exit(1)
 	}
-	// Remove the existing target before renaming; os.Rename on Windows will not
-	// overwrite an existing file, so we must remove it first (after the user has
-	// already confirmed the overwrite prompt above).
+	// Preserve any existing target until the new file has been moved into place.
+	// This avoids losing the original config if the final rename fails.
+	backupName := rinseConfigFile + ".bak"
+	hadExisting := false
 	if _, serr := os.Stat(rinseConfigFile); serr == nil {
-		if rerr := os.Remove(rinseConfigFile); rerr != nil {
+		hadExisting = true
+		if rerr := os.Remove(backupName); rerr != nil && !os.IsNotExist(rerr) {
 			os.Remove(tmpName)
-			fmt.Fprintf(os.Stderr, "error: failed to remove existing %s: %v\n", rinseConfigFile, rerr)
+			fmt.Fprintf(os.Stderr, "error: failed to remove backup %s: %v\n", backupName, rerr)
 			os.Exit(1)
 		}
+		if rerr := os.Rename(rinseConfigFile, backupName); rerr != nil {
+			os.Remove(tmpName)
+			fmt.Fprintf(os.Stderr, "error: failed to back up existing %s: %v\n", rinseConfigFile, rerr)
+			os.Exit(1)
+		}
+	} else if !os.IsNotExist(serr) {
+		os.Remove(tmpName)
+		fmt.Fprintf(os.Stderr, "error: failed to stat %s: %v\n", rinseConfigFile, serr)
+		os.Exit(1)
 	}
 	if rerr := os.Rename(tmpName, rinseConfigFile); rerr != nil {
+		if hadExisting {
+			if rerr2 := os.Rename(backupName, rinseConfigFile); rerr2 != nil {
+				fmt.Fprintf(os.Stderr, "error: failed to write %s: %v (also failed to restore backup: %v)\n", rinseConfigFile, rerr, rerr2)
+				os.Remove(tmpName)
+				os.Exit(1)
+			}
+		}
 		os.Remove(tmpName)
 		fmt.Fprintf(os.Stderr, "error: failed to write %s: %v\n", rinseConfigFile, rerr)
 		os.Exit(1)
+	}
+	if hadExisting {
+		if rerr := os.Remove(backupName); rerr != nil && !os.IsNotExist(rerr) {
+			fmt.Fprintf(os.Stderr, "warning: created %s but failed to remove backup %s: %v\n", rinseConfigFile, backupName, rerr)
+		}
 	}
 
 	fmt.Printf("\n✓ Created %s\n", rinseConfigFile)
