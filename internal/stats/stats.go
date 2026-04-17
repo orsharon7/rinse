@@ -164,7 +164,12 @@ func saveConfig(cfg config) error {
 		return err
 	}
 	if err := os.Rename(tmpPath, configPath); err != nil {
-		return err
+		// On Windows, os.Rename fails if the destination already exists.
+		// Do a best-effort remove before retrying.
+		_ = os.Remove(configPath)
+		if err := os.Rename(tmpPath, configPath); err != nil {
+			return err
+		}
 	}
 
 	success = true

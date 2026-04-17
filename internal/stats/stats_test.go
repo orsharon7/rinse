@@ -188,14 +188,39 @@ func TestSummarize_OutcomeCounts(t *testing.T) {
 
 // ── IsOptedIn / SetOptIn / Save opt-out tests ─────────────────────────────────
 
-// overrideHome redirects both HOME (and XDG_CONFIG_HOME if set) to a temp
-// directory so that configDir() and SessionsDir() resolve to isolated paths.
+// overrideHome redirects both home and config directory lookups to a temp
+// directory so that configDir() and SessionsDir() resolve to isolated paths on
+// all supported platforms, including Windows.
 func overrideHome(t *testing.T) string {
 	t.Helper()
 	tmpHome := t.TempDir()
+
+	// Unix/XDG-style home/config resolution.
 	t.Setenv("HOME", tmpHome)
 	// Clear XDG_CONFIG_HOME so we don't accidentally write to the real config dir.
 	t.Setenv("XDG_CONFIG_HOME", "")
+
+	// Windows-style home/config resolution used by os.UserHomeDir/UserConfigDir.
+	appData := filepath.Join(tmpHome, "AppData", "Roaming")
+	localAppData := filepath.Join(tmpHome, "AppData", "Local")
+	if err := os.MkdirAll(appData, 0o755); err != nil {
+		t.Fatalf("mkdir appdata: %v", err)
+	}
+	if err := os.MkdirAll(localAppData, 0o755); err != nil {
+		t.Fatalf("mkdir local appdata: %v", err)
+	}
+	t.Setenv("APPDATA", appData)
+	t.Setenv("LOCALAPPDATA", localAppData)
+	t.Setenv("USERPROFILE", tmpHome)
+
+	vol := filepath.VolumeName(tmpHome)
+	t.Setenv("HOMEDRIVE", vol)
+	if vol != "" {
+		t.Setenv("HOMEPATH", tmpHome[len(vol):])
+	} else {
+		t.Setenv("HOMEPATH", tmpHome)
+	}
+
 	return tmpHome
 }
 
