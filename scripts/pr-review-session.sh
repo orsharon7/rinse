@@ -404,9 +404,10 @@ _gh_lock_is_current_holder() {
 
   [[ -z "$comment" ]] && return 1
 
-  body=$(echo "$comment" | jq -r '.body // ""')
+  body=$(echo "$comment" | jq -r '.body // ""' 2>/dev/null || printf '')
   meta=$(_gh_lock_parse_metadata "$body")
-  lid=$(echo "$meta" | jq -r '.lock_id // ""')
+  [[ -z "$meta" ]] && return 1
+  lid=$(printf '%s\n' "$meta" | jq -r '.lock_id // ""' 2>/dev/null || printf '')
 
   [[ -n "$lid" && "$lid" == "$_RINSE_LOCK_ID" ]]
 }
@@ -432,12 +433,12 @@ gh_lock_release() {
     comment=$(_gh_lock_find_comment)
     if [[ -n "$comment" ]]; then
       local body meta lid
-      body=$(echo "$comment" | jq -r '.body // ""')
+      body=$(printf '%s\n' "$comment" | jq -r '.body // ""' 2>/dev/null || printf '')
       meta=$(_gh_lock_parse_metadata "$body")
-      lid=$(echo "$meta" | jq -r '.lock_id // ""')
+      lid=$(printf '%s\n' "$meta" | jq -r '.lock_id // ""' 2>/dev/null || printf '')
       if [[ -n "$_RINSE_LOCK_ID" && "$lid" == "$_RINSE_LOCK_ID" ]]; then
         local cid
-        cid=$(echo "$comment" | jq -r '.id')
+        cid=$(printf '%s\n' "$comment" | jq -r '.id // ""' 2>/dev/null || printf '')
         gh api "repos/${_SESSION_REPO}/issues/comments/${cid}" -X DELETE >/dev/null 2>&1 || true
       fi
     fi

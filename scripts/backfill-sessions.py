@@ -1,12 +1,34 @@
 #!/usr/bin/env python3
-"""Backfill RINSE cycles from log files into ~/.rinse/rinse.db"""
+"""Backfill RINSE cycles from log files into the local RINSE database."""
 
+import os
 import re, sqlite3, uuid, hashlib
 from datetime import datetime
 from pathlib import Path
 
-DB_PATH = Path.home() / ".rinse" / "rinse.db"
-LOG_DIR = Path.home() / ".pr-review" / "logs"
+
+def _xdg_data_home() -> Path:
+    return Path(
+        os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")
+    ).expanduser()
+
+
+def _resolve_db_path() -> Path:
+    override = os.environ.get("RINSE_DB_PATH")
+    if override:
+        return Path(override).expanduser()
+    return _xdg_data_home() / "rinse" / "rinse.db"
+
+
+def _resolve_log_dir() -> Path:
+    override = os.environ.get("RINSE_LOG_DIR")
+    if override:
+        return Path(override).expanduser()
+    return _xdg_data_home() / "pr-review" / "logs"
+
+
+DB_PATH = _resolve_db_path()
+LOG_DIR = _resolve_log_dir()
 
 # Create DB and schema
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
