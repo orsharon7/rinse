@@ -325,9 +325,9 @@ while true; do
     fi
     log "Push rejected (attempt ${push_attempt}/${MAX_PUSH_ATTEMPTS}) — fetching and rebasing onto ${MAIN_BRANCH}..."
     retry 3 bash -c 'set -euo pipefail; git -C "$1" fetch origin "$2" 2>&1 | tee -a "$3"' _ "$WORKTREE_DIR" "$MAIN_BRANCH" "$LOGFILE"
-    # Rebase our commit on top of the new upstream tip.
-    # Use -X ours so our optimized content wins on conflict (both sides touched the rules section).
-    if ! git -C "$WORKTREE_DIR" rebase "origin/${MAIN_BRANCH}" -X ours 2>&1 | tee -a "$LOGFILE"; then
+     # Rebase our commit on top of the new upstream tip.
+     # Use -X theirs so our optimized content wins on conflict (both sides touched the rules section).
+     if ! git -C "$WORKTREE_DIR" rebase -X theirs "origin/${MAIN_BRANCH}" 2>&1 | tee -a "$LOGFILE"; then
       log "⚠️  Rebase failed — aborting"
       git -C "$WORKTREE_DIR" rebase --abort 2>/dev/null || true
       exit 1
