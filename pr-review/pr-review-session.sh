@@ -336,7 +336,7 @@ gh_lock_acquire() {
   locked_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
   local meta_json
-  meta_json=$(jq -n \
+  meta_json=$(jq -cn \
     --arg locked_at "$locked_at" \
     --arg lock_id "$lock_id" \
     '{locked_at: $locked_at, lock_id: $lock_id}')

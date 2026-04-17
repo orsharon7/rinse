@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 DB_PATH = Path.home() / ".rinse" / "rinse.db"
-LOG_DIR = Path.home() / ".rinse" / "sessions" / "raw-logs"
+LOG_DIR = Path.home() / ".pr-review" / "logs"
 
 # Create DB and schema
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
