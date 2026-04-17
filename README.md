@@ -1,193 +1,152 @@
-# RINSE
-
-> **lather · rinse · repeat** — AI-powered PR review that fixes your code automatically.
-
-RINSE drives an AI agent in a loop to resolve GitHub Copilot review comments until your PR is approved. You pick the PR; RINSE handles the rest.
-
 ```
-$ rinse
+ ██████╗ ██╗███╗  ██╗███████╗███████╗
+ ██╔══██╗██║████╗ ██║██╔════╝██╔════╝
+ ██████╔╝██║██╔██╗██║███████╗█████╗  
+ ██╔══██╗██║██║╚████║╚════██║██╔══╝  
+ ██║  ██║██║██║  ███║███████║███████╗
+ ╚═╝  ╚═╝╚═╝╚═╝  ╚══╝╚══════╝╚══════╝
+  AI PR review · proves it saved you time
 ```
 
-That's it. RINSE opens an interactive picker, you select your PR, and the AI gets to work — fetching comments, applying fixes, requesting re-review, repeat — until the PR is clean.
+[![Go version](https://img.shields.io/github/go-mod/go-version/orsharon7/rinse)](https://go.dev/)
+[![License: BSL 1.1](LICENSE))
+[![Latest release](https://img.shields.io/github/v/release/orsharon7/rinse)](https://github.com/orsharon7/rinse/releases)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/orsharon7/rinse/pulls)
 
 ---
 
-## Why RINSE?
+**Rinse drives GitHub Copilot through your PR review loop so you don't have to.**
 
-The average PR review cycle looks like this:
-
-1. Open PR → Copilot leaves 8 comments
-2. You fix them → Copilot leaves 4 more
-3. You fix those → PR approved
-4. ~45 minutes of your morning gone
-
-RINSE does steps 2–3 for you, automatically. Our users report **saving 2–9 hours per developer per month** on review iteration alone.
-
-After each cycle, RINSE records what patterns it fixed. Run `rinse stats` to see how much time it has saved you — and what your codebase tends to get wrong.
+Request review → wait → read comments → fix → repeat. Rinse handles every step, in a loop, until Copilot approves. One command. Walk away.
 
 ---
 
-## Install
+## ⚡ Install
 
 ```bash
-brew install rinse
+curl -fsSL https://raw.githubusercontent.com/orsharon7/rinse/main/install.sh | bash
 ```
 
-**Requirements:** `gh` CLI (v2.88+), and one of:
-- `opencode` — for GitHub Copilot (no API key needed)
-- `claude` — for Claude Code (requires Anthropic API key)
+Or build from source (requires Go ≥ 1.24):
+
+```bash
+git clone https://github.com/orsharon7/rinse.git
+cd rinse
+make install
+```
 
 ---
 
-## Quick start
-
-### Interactive mode (recommended)
+## 🚀 Quick start
 
 ```bash
-cd your-repo
+# Interactive TUI wizard — recommended first run
 rinse
+
+# Check the Copilot review status of a PR
+rinse status 42 --repo owner/repo
+
+# Start the fix loop non-interactively (no TTY required)
+rinse start 42 --repo owner/repo --cwd ~/dev/my-repo
 ```
 
-RINSE auto-detects your repository, lists open PRs, and pre-selects the branch you're on. Press **Enter** to launch.
+The first-run wizard walks you through setup. After that, `rinse` remembers your preferences.
 
-### View your stats
+---
+
+## 🔄 How it works
+
+1. **Detects** the current PR state (no review? pending? unresolved comments?)
+2. **Requests** a Copilot review if none is pending
+3. **Waits** for Copilot to finish (animated progress, configurable timeout)
+4. **Reads** every unresolved comment and hands them to your AI fix agent
+5. **Pushes** the fixes and requests the next review
+6. **Loops** until approved — then shows a merge menu
+
+---
+
+## 🛠 Options
+
+```
+rinse                                   # launch interactive TUI
+rinse status [<pr>] [--repo <owner/repo>] [--json]
+rinse start  <pr>  [options]            [--json]
+rinse help
+```
+
+### `rinse status`
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `<pr>` (positional) | auto-detect | PR number to check |
+| `--repo <owner/repo>` | auto-detect | GitHub repo |
+| `--json` | — | Output status as JSON |
+
+### `rinse start`
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `<pr>` (positional, required) | — | PR number to fix |
+| `--repo <owner/repo>` | auto-detect | GitHub repo |
+| `--cwd <path>` | current dir | Local repo path |
+| `--model <model>` | `github-copilot/claude-sonnet-4.6` | AI model for fix agent |
+| `--runner opencode\|claude` | `opencode` | Runner to use |
+| `--reflect` | — | Enable reflection agent (improves rules after each cycle) |
+| `--reflect-main-branch <br>` | `main` | Target branch for reflection commits |
+| `--auto-merge` | — | Auto-merge when Copilot approves |
+| `--json` | — | Emit a JSON result after the runner exits |
+
+### Available Copilot models
+
+| Model | Flag value |
+|-------|-----------|
+| Claude Sonnet 4.6 | `github-copilot/claude-sonnet-4.6` |
+| Claude Sonnet 4.5 | `github-copilot/claude-sonnet-4.5` |
+| Claude Sonnet 4   | `github-copilot/claude-sonnet-4` |
+
+---
+
+## 🪞 Reflection agent
+
+The `--reflect` flag runs a reflection pass in parallel with each fix cycle.
+
+It reads Copilot's comments, extracts generalizable coding rules, and permanently updates `AGENTS.md` + `CLAUDE.md` in your repo — **pushed directly to `main` via a git worktree, never polluting the PR branch**.
+
+Every future cycle loads those rules automatically, so the AI makes fewer mistakes and Copilot leaves fewer comments. The loop gets faster over time.
 
 ```bash
-rinse stats
-```
-
-```
-  RINSE Stats (last 30 days)
-  PRs reviewed:     23
-  Comments fixed:   187
-  Avg iterations:   2.1
-  Est. time saved:  ~9.4 hours
-
-  Top patterns:
-    1. Missing error handling  (41x)
-    2. Unused imports          (28x)
+rinse start 42 --repo owner/repo --cwd ~/dev/my-repo --reflect
 ```
 
 ---
 
-## How it works
+## 📋 Requirements
 
-```
-rinse
-  │
-  ▼
-Pick a PR ──────────────────────────────────────────────────┐
-  │                                                          │
-  ▼                                                          │
-Request Copilot review                                       │
-  │                                                          │
-  ▼                                                          │
-Wait for review results                                      │
-  │                                                          │
-  ▼                                                          │
-AI agent reads comments → applies fixes → pushes changes     │
-  │                                                          │
-  ▼                                                          │
-Request re-review ──── comments remain ─────────────────────┘
-  │
-  ▼  approved
-Done ✓  (optionally: auto-merge)
-```
-
-**Reflection** (optional): After each cycle, a second AI agent extracts generalizable coding rules from the review comments and updates `AGENTS.md` / `CLAUDE.md` in your repo. Future cycles start with those rules already loaded — so each PR gets fewer comments than the last.
+| Dependency | Notes |
+|------------|-------|
+| `opencode` CLI | Authentication via GitHub Copilot OAuth |
+| `gh` CLI ≥ v2.88 | `gh --version` to check |
+| `jq` | JSON processing |
+| `git` | Required for `--reflect` worktree |
 
 ---
 
-## TUI keyboard shortcuts
+## 🤝 Contributing
 
-| Key | Action |
-|-----|--------|
-| `↑` `↓` or `j` `k` | Navigate PR list |
-| `Enter` | Launch review cycle on selected PR |
-| `g` / `G` | Jump to top / bottom of list |
-| `#` | Enter a PR number manually |
-| `s` | Open settings |
-| `r` | Refresh PR list from GitHub |
-| `?` | Toggle keyboard shortcuts help |
-| `q` or `Ctrl+C` | Quit |
+1. Fork the repo and create a branch: `git checkout -b feat/my-change`
+2. Make your changes — keep code POSIX-compatible where possible
+3. Test against a real PR: `rinse start <number> --repo owner/repo`
+4. Open a PR — Copilot reviews it automatically
+5. Use `--reflect` to update coding rules for future sessions
 
----
+**Dev tips:**
 
-## Settings
-
-Press `s` in the PR picker to configure:
-
-| Setting | Options | Default |
-|---------|---------|---------|
-| **runner** | `opencode` (GitHub Copilot, no key) · `claude` (Claude Code) | `opencode` |
-| **model** | Any model string your runner supports | runner default |
-| **reflect** | on · off | off |
-| **reflect branch** | branch where coding rules are pushed | `main` |
-| **auto-merge** | on · off | off |
-
-Settings are saved per-repo under `~/.rinse/`.
+- TUI source is in `internal/tui/` (Go + Charm Bubble Tea)
+- Run `make` to build, `make install` to install locally
+- Logs: `~/.pr-review/logs/<owner_repo>-pr-<n>.log` (and related reflect logs in `~/.pr-review/logs/`)
 
 ---
 
-## Commands
+## 📄 License
 
-```
-rinse              Launch the interactive PR picker
-rinse stats        Show session history and time-saved metrics
-rinse --version    Print the installed version
-rinse --help       Show this help
-```
-
----
-
-## Environment variables
-
-| Variable | Description |
-|----------|-------------|
-| `RINSE_SCRIPT_DIR` | Override the directory where runner scripts are found |
-| `PR_REVIEW_SCRIPT_DIR` | Fallback script directory (legacy alias for `RINSE_SCRIPT_DIR`) |
-| `RINSE_WEBHOOK_URL` | When set, POST a JSON payload to this URL after each completed cycle |
-
----
-
-## Session data
-
-RINSE stores one JSON file per run in `~/.rinse/sessions/`. Each file records:
-
-- Repository and PR number
-- Runner and model used
-- Number of comments fixed and iterations taken
-- Whether the PR was approved
-- Common fix patterns (powers `rinse stats`)
-
-No data leaves your machine. `rinse stats` reads these files locally.
-
----
-
-## Requirements
-
-| Tool | Used by | Check |
-|------|---------|-------|
-| `gh` v2.88+ | all runners | `gh --version` |
-| `opencode` | opencode runner | `opencode --version` |
-| `claude` | claude runner | `claude --version` |
-| `jq` | shell scripts | `jq --version` |
-| `git` | reflection agent | `git --version` |
-
----
-
-## RINSE Pro (coming soon)
-
-The free CLI gives you session stats locally. **RINSE Pro** brings:
-
-- **Team dashboard** — per-dev stats, repo trends, team benchmarks
-- **Slack integration** — weekly digest to your team channel
-- **Trend alerts** — get notified when a new error pattern spikes
-
-Join the waitlist: [rinse.sh](https://rinse.sh)
-
----
-
-## License
-
-MIT
+MIT — see [LICENSE](LICENSE)
