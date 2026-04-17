@@ -89,7 +89,8 @@ log "   Log file:    ${LOGFILE}"
 log "🔍 Checking current PR state..."
 startup_status=$(bash "$PR_REVIEW" "$PR_NUMBER" status $REPO_FLAG 2>/dev/null) || true
 startup_state=$(echo "$startup_status" | jq -r '.status // "unknown"')
-STATE_DIR="/tmp/pr-review-state"
+REPO_SLUG="${REPO//\//_}"
+STATE_DIR="/tmp/pr-review-state/${REPO_SLUG}"
 STATE_FILE="${STATE_DIR}/pr-${PR_NUMBER}-last-review"
 
 case "$startup_state" in

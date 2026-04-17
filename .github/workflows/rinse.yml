@@ -41,7 +41,7 @@ jobs:
     # Concurrency is scoped to the job so that skipped runs (bot-triggered) do
     # not participate in cancellation and cannot interrupt an active loop run.
     concurrency:
-      group: rinse-pr-${{ github.event.pull_request.number }}-${{ github.actor }}
+      group: rinse-pr-${{ github.event.pull_request.number }}
       cancel-in-progress: true
     timeout-minutes: 30
 
