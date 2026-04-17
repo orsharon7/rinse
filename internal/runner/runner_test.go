@@ -1,28 +1,28 @@
-package runner_test
+package runner
 
 import (
 	"errors"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/orsharon7/rinse/internal/engine"
 	"github.com/orsharon7/rinse/internal/engine/lock"
-	"github.com/orsharon7/rinse/internal/runner"
 )
 
 // stubAgent is a configurable test double for engine.Agent.
 type stubAgent struct {
-	name    string
-	results []engine.Result
-	errs    []error
-	calls   int
+	name        string
+	results     []engine.Result
+	errs        []error
+	calls       int
+	capturedOpts []engine.RunOpts
 }
 
 func (s *stubAgent) Name() string { return s.name }
 
-func (s *stubAgent) Run(_ engine.RunOpts) (engine.Result, error) {
+func (s *stubAgent) Run(opts engine.RunOpts) (engine.Result, error) {
+	s.capturedOpts = append(s.capturedOpts, opts)
 	i := s.calls
 	s.calls++
 	if i < len(s.errs) && s.errs[i] != nil {
@@ -36,9 +36,16 @@ func (s *stubAgent) Run(_ engine.RunOpts) (engine.Result, error) {
 
 func tempStateDir(t *testing.T) {
 	t.Helper()
-	// runner.SetStateDir is exported via state_test_hook.go for test isolation.
-	runner.SetStateDir(t.TempDir())
-	t.Cleanup(func() { runner.SetStateDir(filepath.Join(os.Getenv("HOME"), ".pr-review", "state")) })
+
+	// Capture the current value before overriding so we always restore it,
+	// regardless of whether a home directory can be determined.
+	restoreDir := GetStateDir()
+
+	// SetStateDir is defined in state_test_hook_test.go for test isolation.
+	SetStateDir(t.TempDir())
+	t.Cleanup(func() {
+		SetStateDir(restoreDir)
+	})
 }
 
 func tempLockDir(t *testing.T) {
@@ -46,8 +53,8 @@ func tempLockDir(t *testing.T) {
 	lock.Dir = t.TempDir()
 }
 
-func baseOpts(agent engine.Agent) runner.Opts {
-	return runner.Opts{
+func baseOpts(agent engine.Agent) Opts {
+	return Opts{
 		Repo:          "owner/repo",
 		PR:            "1",
 		CWD:           t_tempDir(),
@@ -70,7 +77,7 @@ func TestRun_ApprovedFirstIteration(t *testing.T) {
 		name:    "stub",
 		results: []engine.Result{{Approved: true, Comments: 2}},
 	}
-	res, err := runner.Run(baseOpts(agent))
+	res, err := Run(baseOpts(agent))
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -91,8 +98,8 @@ func TestRun_MaxIterationsReached(t *testing.T) {
 	opts := baseOpts(agent)
 	opts.MaxIterations = 3
 
-	res, err := runner.Run(opts)
-	if !errors.Is(err, runner.ErrMaxIterations) {
+	res, err := Run(opts)
+	if !errors.Is(err, ErrMaxIterations) {
 		t.Fatalf("expected ErrMaxIterations, got %v", err)
 	}
 	if res.Approved {
@@ -112,7 +119,7 @@ func TestRun_AgentError_PropagatesWithContext(t *testing.T) {
 		name: "stub",
 		errs: []error{sentinel},
 	}
-	_, err := runner.Run(baseOpts(agent))
+	_, err := Run(baseOpts(agent))
 	if err == nil {
 		t.Fatal("expected error from agent, got nil")
 	}
@@ -133,8 +140,8 @@ func TestRun_AlreadyRunning(t *testing.T) {
 	defer l.Release() //nolint:errcheck
 
 	agent := &stubAgent{name: "stub", results: []engine.Result{{Approved: true}}}
-	_, err = runner.Run(baseOpts(agent))
-	if !errors.Is(err, runner.ErrAlreadyRunning) {
+	_, err = Run(baseOpts(agent))
+	if !errors.Is(err, ErrAlreadyRunning) {
 		t.Fatalf("expected ErrAlreadyRunning, got %v", err)
 	}
 }
@@ -142,19 +149,115 @@ func TestRun_AlreadyRunning(t *testing.T) {
 func TestRun_MissingRequiredOpts(t *testing.T) {
 	tests := []struct {
 		name string
-		opts runner.Opts
+		opts Opts
 	}{
-		{"no repo", runner.Opts{PR: "1", CWD: "/tmp", Agent: &stubAgent{}}},
-		{"no pr", runner.Opts{Repo: "owner/repo", CWD: "/tmp", Agent: &stubAgent{}}},
-		{"no cwd", runner.Opts{Repo: "owner/repo", PR: "1", Agent: &stubAgent{}}},
-		{"no agent", runner.Opts{Repo: "owner/repo", PR: "1", CWD: "/tmp"}},
+		{"no repo", Opts{PR: "1", CWD: "/tmp", Agent: &stubAgent{}}},
+		{"no pr", Opts{Repo: "owner/repo", CWD: "/tmp", Agent: &stubAgent{}}},
+		{"no cwd", Opts{Repo: "owner/repo", PR: "1", Agent: &stubAgent{}}},
+		{"no agent", Opts{Repo: "owner/repo", PR: "1", CWD: "/tmp"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := runner.Run(tc.opts)
+			_, err := Run(tc.opts)
 			if err == nil {
 				t.Fatal("expected validation error, got nil")
 			}
 		})
+	}
+}
+
+// TestRun_WaitingDoesNotCountAsIteration verifies that a Waiting result from
+// the agent is not counted toward MaxIterations, and that the loop eventually
+// exits via approval after waiting iterations.
+func TestRun_WaitingDoesNotCountAsIteration(t *testing.T) {
+	tempStateDir(t)
+	tempLockDir(t)
+
+	// First two calls return Waiting, third call approves.
+	agent := &stubAgent{
+		name: "stub",
+		results: []engine.Result{
+			{Waiting: true},
+			{Waiting: true},
+			{Approved: true},
+		},
+	}
+	opts := baseOpts(agent)
+	opts.MaxIterations = 1 // only 1 real iteration allowed
+
+	res, err := Run(opts)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !res.Approved {
+		t.Fatal("expected Approved=true")
+	}
+	// Waiting results must not increment Iterations.
+	if res.Iterations != 1 {
+		t.Fatalf("expected 1 iteration (Waiting calls excluded), got %d", res.Iterations)
+	}
+}
+
+// TestRun_ReviewIDPassedOnSubsequentCall verifies that after a non-waiting
+// iteration sets Result.ReviewID, the runner passes it as LastKnownReviewID
+// on the next agent invocation.
+func TestRun_ReviewIDPassedOnSubsequentCall(t *testing.T) {
+	tempStateDir(t)
+	tempLockDir(t)
+
+	const wantReviewID = "review-abc-123"
+
+	// First call: returns a ReviewID but no approval, second call: approves.
+	agent := &stubAgent{
+		name: "stub",
+		results: []engine.Result{
+			{Comments: 1, ReviewID: wantReviewID},
+			{Approved: true},
+		},
+	}
+	opts := baseOpts(agent)
+	opts.MaxIterations = 5
+
+	res, err := Run(opts)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !res.Approved {
+		t.Fatal("expected Approved=true")
+	}
+	if agent.calls != 2 {
+		t.Fatalf("expected 2 agent calls, got %d", agent.calls)
+	}
+	// The second call must have received the ReviewID from the first iteration.
+	if got := agent.capturedOpts[1].LastKnownReviewID; got != wantReviewID {
+		t.Fatalf("expected LastKnownReviewID=%q on second call, got %q", wantReviewID, got)
+	}
+}
+
+// TestRun_MaxWaitPollsReached verifies that when the agent returns
+// Result{Waiting:true} more than MaxWaitPolls times, Run returns
+// ErrMaxWaitPolls and does not advance Iterations.
+func TestRun_MaxWaitPollsReached(t *testing.T) {
+	tempStateDir(t)
+	tempLockDir(t)
+
+	// Agent always returns Waiting.
+	agent := &stubAgent{
+		name: "stub",
+		results: []engine.Result{
+			{Waiting: true},
+			{Waiting: true},
+			{Waiting: true},
+		},
+	}
+	opts := baseOpts(agent)
+	opts.MaxWaitPolls = 2 // exceeded after 3 Waiting results
+
+	res, err := Run(opts)
+	if !errors.Is(err, ErrMaxWaitPolls) {
+		t.Fatalf("expected ErrMaxWaitPolls, got %v", err)
+	}
+	if res.Iterations != 0 {
+		t.Fatalf("expected Iterations=0 (Waiting must not advance), got %d", res.Iterations)
 	}
 }

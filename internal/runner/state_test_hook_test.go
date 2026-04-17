@@ -1,4 +1,4 @@
-// state_test_hook.go — only compiled for tests.
+// state_test_hook_test.go — compiled for tests only (Go _test.go convention).
 // Exposes internal state directory for test isolation.
 package runner
 
@@ -6,4 +6,9 @@ package runner
 // Call from tests to redirect state I/O to a temp directory.
 func SetStateDir(dir string) {
 	stateDir = dir
+}
+
+// GetStateDir returns the current stateDir value for test isolation/restore.
+func GetStateDir() string {
+	return stateDir
 }

@@ -22,9 +22,16 @@ const (
 //
 // A missing or terminated process causes OpenProcess to fail with
 // ERROR_INVALID_PARAMETER or the handle yields a non-STILL_ACTIVE exit code.
+// ERROR_ACCESS_DENIED means the process exists but is owned by another
+// user/session; treat it as alive to avoid breaking mutual exclusion.
 func isProcessAlive(pid int) bool {
 	handle, err := syscall.OpenProcess(processQueryLimitedInformation, false, uint32(pid))
 	if err != nil {
+		// ERROR_ACCESS_DENIED (5): process exists but we lack permission.
+		// Treat as alive to avoid falsely deleting a live lock.
+		if err == syscall.ERROR_ACCESS_DENIED {
+			return true
+		}
 		return false
 	}
 	defer syscall.CloseHandle(handle) //nolint:errcheck
