@@ -212,6 +212,12 @@ _cli_show() {
     esac
   done
 
+  # Validate --limit as a positive integer; fall back to default on invalid input
+  if ! [[ "$limit" =~ ^[0-9]+$ ]] || (( limit < 1 )); then
+    >&2 echo "Warning: --limit must be a positive integer; using default (20)."
+    limit=20
+  fi
+
   if [[ ! -f "$RINSE_STATS_FILE" ]]; then
     echo "No stats yet. Run RINSE at least once with stats enabled."
     return
@@ -219,9 +225,9 @@ _cli_show() {
 
   local filter
   if [[ -n "$repo_filter" ]]; then
-    filter="[.[] | select(.repo == \$repo_filter)] | .[-${limit}:][]"
+    filter="[.[] | select(.repo == \$repo_filter)] | .[-\$limit:][]"
   else
-    filter=".[-(${limit}):][]"
+    filter=".[-\$limit:][]"
   fi
 
   echo "RINSE run stats (last ${limit}):"
@@ -230,7 +236,7 @@ _cli_show() {
     "timestamp" "repo" "pr" "dur(s)" "iters" "comments" "outcome" "model"
   echo "$(printf '%.0s─' {1..110})"
 
-  jq -rs --arg repo_filter "$repo_filter" "$filter | [
+  jq -rs --arg repo_filter "$repo_filter" --argjson limit "$limit" "$filter | [
     .timestamp,
     .repo,
     (.pr_number | tostring),
