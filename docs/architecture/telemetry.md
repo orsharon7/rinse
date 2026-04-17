@@ -175,7 +175,7 @@ Offline behaviour: `rinse sync` exits 0 with a warning if Supabase is unreachabl
 
 ```bash
 brew install supabase/tap/supabase
-cd /Users/luli/dev/rinse
+cd /path/to/rinse
 supabase init
 supabase start
 # Studio:    http://localhost:54323
