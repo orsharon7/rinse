@@ -165,11 +165,13 @@ type monitorModel struct {
 	postCycleDefaultBr string
 
 	// sub-components
-	viewport  viewport.Model
-	spinner   spinner.Model
-	atBottom  bool
-	showHelp  bool
-	statusMsg string
+	viewport    viewport.Model
+	spinner     spinner.Model
+	atBottom    bool
+	showHelp    bool
+	showHistory bool
+	showTooltip bool
+	statusMsg   string
 
 	// runner process
 	cmd      *exec.Cmd
@@ -320,6 +322,8 @@ func (m monitorModel) renderHelp() string {
 		{"↓ / j", "scroll down"},
 		{"g", "jump to top"},
 		{"G", "jump to bottom"},
+		{"h", "toggle history panel"},
+		{"t", "toggle badge tooltip"},
 		{"S", "save full session log"},
 		{"s", "save reflect log"},
 		{"?", "toggle this help"},
@@ -390,6 +394,10 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "g":
 				m.atBottom = false
 				m.viewport.GotoTop()
+			case "h":
+				m.showHistory = !m.showHistory
+			case "t":
+				m.showTooltip = !m.showTooltip
 			case "s":
 				if len(m.reflectLines) > 0 {
 					fname := fmt.Sprintf("rinse-reflect-%s.txt",
@@ -921,7 +929,7 @@ func (m monitorModel) View() string {
 	} else if m.phase == phaseWaiting && m.waitMax > 0 {
 		phaseStr = m.renderWaitProgress()
 	} else {
-		phaseStr = m.spinner.View() + " " + m.phase.Style().Render(m.phase.String())
+		phaseStr = m.spinner.View() + " " + renderStatusBadge(m.phase)
 	}
 
 	scrollHint := ""
@@ -933,6 +941,8 @@ func (m monitorModel) View() string {
 	keys := "  " + strings.Join([]string{
 		theme.RenderKeyHint("q", "quit"),
 		theme.RenderKeyHint("↑↓/jk", "scroll"),
+		theme.RenderKeyHint("h", "history"),
+		theme.RenderKeyHint("t", "tooltip"),
 		theme.RenderKeyHint("s", "save reflect"),
 		theme.RenderKeyHint("S", "save all"),
 		theme.RenderKeyHint("?", "help"),
@@ -944,7 +954,26 @@ func (m monitorModel) View() string {
 	}
 	statusBar := theme.StyleStatusBar.Width(statusBarWidth).Render(phaseStr + scrollHint + keys)
 
-	return header + "\n" + breadcrumb + "\n" + body + "\n" + statusBar
+	// ── Tooltip overlay ───────────────────────────────────────────────────────
+	var tooltipLine string
+	if m.showTooltip {
+		tip := renderStatusBadge(m.phase) + "  " +
+			theme.StyleMuted.Render(m.phase.String()+" — press t to dismiss")
+		tooltipLine = "  " + tip + "\n"
+	}
+
+	// ── History panel overlay ─────────────────────────────────────────────────
+	var historyBlock string
+	if m.showHistory {
+		histPanel := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(theme.Mauve).
+			Padding(0, 2).
+			Render(m.renderHistoryPanel())
+		historyBlock = histPanel + "\n"
+	}
+
+	return header + "\n" + breadcrumb + "\n" + tooltipLine + historyBlock + body + "\n" + statusBar
 }
 
 // renderIterTimeline renders a compact horizontal timeline of iteration results.
@@ -969,6 +998,62 @@ func (m monitorModel) renderIterTimeline() string {
 		}
 	}
 	return theme.StyleMuted.Render("history ") + strings.Join(parts, theme.StyleMuted.Render("›"))
+}
+
+// renderStatusBadge returns a coloured chip with icon for the given phase.
+func renderStatusBadge(p phase) string {
+	switch p {
+	case phaseStarting:
+		return theme.StyleBadgeQueued.Render(theme.IconPending + " queued")
+	case phaseWaiting:
+		return theme.StyleBadgeStalled.Render(theme.IconRunning + " waiting")
+	case phaseFixing:
+		return theme.StyleBadgeRunning.Render(theme.IconRadioOn + " fixing")
+	case phaseReflecting:
+		return theme.StyleBadgeRunning.Render(theme.IconRadioOn + " reflecting")
+	case phaseDone:
+		return theme.StyleBadgeCompleted.Render(theme.IconCheck + " done")
+	case phaseError:
+		return theme.StyleBadgeFailed.Render(theme.IconCross + " error")
+	}
+	return theme.StyleBadgeCancelled.Render(theme.IconCircle + " unknown")
+}
+
+// renderHistoryPanel renders a collapsible panel listing iterHistory entries.
+func (m monitorModel) renderHistoryPanel() string {
+	title := theme.StyleReflectTitle.Render(theme.IconDot + " iteration history")
+	if len(m.iterHistory) == 0 {
+		return title + "\n" + theme.StyleMuted.Render("  no iterations yet")
+	}
+
+	var lines []string
+	for _, e := range m.iterHistory {
+		var icon, result string
+		switch e.result {
+		case iterFixed:
+			icon = theme.StyleTimelineDot.Render(theme.IconDot)
+			result = theme.StylePhaseFixing.Render("fixed")
+		case iterClean:
+			icon = theme.StyleTimelineDone.Render(theme.IconCircle)
+			result = theme.StylePhaseDone.Render("clean")
+		case iterApproved:
+			icon = theme.StyleTimelineDone.Render(theme.IconCheck)
+			result = theme.StylePhaseDone.Render("approved")
+		case iterError:
+			icon = theme.StyleTimelineErr.Render(theme.IconCross)
+			result = theme.StylePhaseErr.Render("error")
+		case iterRunning:
+			icon = theme.StyleTimelineCurrent.Render(theme.IconRunning)
+			result = theme.StylePhaseWaiting.Render("running")
+		}
+		commentStr := ""
+		if e.comments > 0 {
+			commentStr = "  " + theme.StyleMuted.Render(fmt.Sprintf("%d comment(s)", e.comments))
+		}
+		lines = append(lines, fmt.Sprintf("  %s  iter %-3d  %s%s", icon, e.num, result, commentStr))
+	}
+
+	return title + "\n" + strings.Join(lines, "\n")
 }
 
 // renderPostCycleMenu renders the post-cycle action menu with rounded border.
