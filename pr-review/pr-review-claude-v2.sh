@@ -40,6 +40,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=pr-review-ui.sh
 source "${SCRIPT_DIR}/pr-review-ui.sh"
 
+# ─── Session / distributed lock ───────────────────────────────────────────────
+
+# shellcheck source=pr-review-session.sh
+source "${SCRIPT_DIR}/pr-review-session.sh"
+
 # ─── Args ─────────────────────────────────────────────────────────────────────
 
 if [[ $# -lt 1 || "$1" == "--help" || "$1" == "-h" ]]; then
@@ -94,7 +99,8 @@ fi
 # ─── Scoped state & logs (per-repo isolation for parallel runs) ───────────────
 
 REPO_SLUG="${REPO//\//_}"  # owner/repo → owner_repo
-STATE_DIR="/tmp/pr-review-state/${REPO_SLUG}"
+# State lives under ~/.pr-review/state/ (persistent — survives reboots, enables crash recovery)
+STATE_DIR="${HOME}/.pr-review/state/${REPO_SLUG}"
 LOGFILE="${HOME}/.pr-review/logs/${REPO_SLUG}-pr-${PR_NUMBER}.log"
 mkdir -p "$STATE_DIR" "$(dirname "$LOGFILE")"
 STATE_FILE="${STATE_DIR}/pr-${PR_NUMBER}-last-review"
@@ -124,6 +130,8 @@ if [[ "$USE_WORKTREE" == true ]]; then
       git -C "$REPO_ROOT" worktree remove --force "$WORKTREE_DIR" 2>/dev/null || true
       rm -rf "$WORKTREE_DIR" 2>/dev/null || true
     fi
+    session_clear
+    gh_lock_release
   }
   trap cleanup_pr_worktree EXIT
 
@@ -341,6 +349,37 @@ log "   Model:       ${MODEL}"
 log "   Wait max:    ${WAIT_MAX}s   (unlimited iterations)"
 log "   Log file:    ${LOGFILE}"
 
+# ── Session init & crash recovery ────────────────────────────────────────────
+
+session_init "$REPO" "$PR_NUMBER"
+
+if session_recover; then
+  log "⚠️  Previous session crashed (iter ${RECOVER_ITER}, last review: ${RECOVER_REVIEW_ID:-none})"
+  log "   Recovering — will resume from last known state"
+  if [[ -n "$RECOVER_REVIEW_ID" ]]; then
+    echo "$RECOVER_REVIEW_ID" > "$STATE_FILE"
+    log "   Restored last-known review ID: ${RECOVER_REVIEW_ID}"
+  fi
+fi
+
+if [[ "$USE_WORKTREE" == false ]]; then
+  _cleanup_session_lock() {
+    session_clear
+    gh_lock_release
+  }
+  trap _cleanup_session_lock EXIT
+fi
+
+if [[ "$DRY_RUN" != true ]]; then
+  if ! gh_lock_acquire; then
+    log "🔒 Another RINSE runner already holds the lock for PR #${PR_NUMBER} — exiting to avoid duplicate run"
+    exit 2
+  fi
+  log "🔑 Acquired distributed lock for PR #${PR_NUMBER}"
+fi
+
+session_update 0 "$(cat "$STATE_FILE" 2>/dev/null || echo "")"
+
 # Check PR state (single fetch)
 _pr_json=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" 2>/dev/null || echo '{}')
 pr_state=$(echo "$_pr_json" | jq -r '.state // "unknown"')
@@ -405,6 +444,7 @@ iter=0
 while true; do
   iter=$(( iter + 1 ))
   ui_iter_header "$iter"
+  session_update "$iter" "$(cat "$STATE_FILE" 2>/dev/null || echo "")"
 
   # ── Step 1: Ensure a review is in progress / get latest ───────────────
 
