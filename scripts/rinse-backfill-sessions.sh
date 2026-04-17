@@ -87,6 +87,25 @@ for logfile in "${LOGS_DIR}"/*.log; do
   pr_num=$(basename "$logfile" .log | grep -oE 'pr-[0-9]+' | grep -oE '[0-9]+' | head -1 || echo "")
   [[ -z "$pr_num" ]] && continue
 
+  # ── Handle multi-run log files ────────────────────────────────────────────
+  # pr-review-opencode.sh appends to the same log file across runs (via tee -a),
+  # so a single .log file can contain multiple sessions separated by the start
+  # marker.  Backfilling the whole file as one session would produce incorrect
+  # duration/iteration/comment counts.  Instead, detect multiple markers, emit
+  # a warning, and process only the most-recent segment.
+  marker_count=$(grep -cE 'Starting .*PR review loop' "$logfile" 2>/dev/null || echo "0")
+  if [[ "$marker_count" -gt 1 ]]; then
+    >&2 echo "⚠️  ${log_basename}: ${marker_count} session starts found — backfilling only the most recent segment."
+    # Find the line number of the last occurrence of the start marker.
+    last_marker_line=$(grep -nE 'Starting .*PR review loop' "$logfile" 2>/dev/null | tail -1 | cut -d: -f1)
+    # Build a temp file containing only that last segment.
+    segment_file=$(mktemp /tmp/rinse_segment_XXXXXX.log)
+    tail -n +"$last_marker_line" "$logfile" > "$segment_file"
+    logfile="$segment_file"
+    _cleanup_segment() { rm -f "$segment_file"; }
+    trap '_cleanup_segment' EXIT
+  fi
+
   # ── Parse log timestamps ──────────────────────────────────────────────────
   # Log lines typically start with a timestamp pattern like:
   #   [2026-04-17 14:00:01] 🚀 Starting opencode PR review loop

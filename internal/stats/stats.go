@@ -234,17 +234,6 @@ func Save(s Session) error {
 	return nil
 }
 
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return fmt.Errorf("stats: cannot write session temp file: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("stats: cannot rename session file: %w", err)
-	}
-	return nil
-}
-
 // Load reads all session files from SessionsDir and returns them ordered
 // oldest-first. Files that cannot be parsed are silently skipped.
 func Load() ([]Session, error) {
