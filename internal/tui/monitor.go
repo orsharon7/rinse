@@ -1269,6 +1269,15 @@ func (m monitorModel) View() string {
 	return header + "\n" + breadcrumb + "\n" + tooltipLine + historyBlock + body + "\n" + statusBar
 }
 
+// lastStateChangedAtForDisplay returns the last state change timestamp on the
+// same clock basis used for ETA/elapsed calculations.
+func (m monitorModel) lastStateChangedAtForDisplay() time.Time {
+	if m.clockOffset == 0 {
+		return m.lastStateChangedAt
+	}
+	return m.lastStateChangedAt.Add(m.clockOffset)
+}
+
 // renderTimingTooltip renders the last-state-change tooltip overlay.
 // Shows timestamp in UTC and local timezone, matching the UX spec (RIN-42 §3).
 func (m monitorModel) renderTimingTooltip() string {
