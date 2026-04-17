@@ -334,11 +334,25 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     show)     _cli_show "$@" ;;
     clear)    _cli_clear ;;
     opt-in)
-      _rinse_config_set "stats_enabled" "true"
+      if ! command -v jq >/dev/null 2>&1; then
+        >&2 echo "jq is required for stats opt-in"
+        exit 1
+      fi
+      if ! _rinse_config_set "stats_enabled" "true"; then
+        >&2 echo "Failed to update stats preference in ${RINSE_CONFIG_FILE}"
+        exit 1
+      fi
       echo "RINSE stats enabled. Records will be saved to ${RINSE_STATS_FILE}"
       ;;
     opt-out)
-      _rinse_config_set "stats_enabled" "false"
+      if ! command -v jq >/dev/null 2>&1; then
+        >&2 echo "jq is required for stats opt-out"
+        exit 1
+      fi
+      if ! _rinse_config_set "stats_enabled" "false"; then
+        >&2 echo "Failed to update stats preference in ${RINSE_CONFIG_FILE}"
+        exit 1
+      fi
       echo "RINSE stats disabled. Existing records kept at ${RINSE_STATS_FILE}"
       ;;
     status)   _cli_status ;;

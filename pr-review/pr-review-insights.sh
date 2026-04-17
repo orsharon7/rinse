@@ -68,7 +68,9 @@ _INS_ITER_LOG="[]"
 _ins_classify_comment() {
   local body="${1:-}"
   local lower
-  lower=$(printf '%s' "$body" | tr '[:upper:]' '[:lower:]')
+  # Pad with spaces so [^[:alnum:]_]word[^[:alnum:]_] matches at string boundaries
+  # (portable alternative to \b, which is not supported in POSIX ERE / BSD grep)
+  lower=" $(printf '%s' "$body" | tr '[:upper:]' '[:lower:]') "
 
   # Security (highest priority)
   if echo "$lower" | grep -qE 'inject|sanitiz|xss|csrf|sql injection|auth|secret|credential|password|token|eval\(|unsafe'; then
@@ -76,7 +78,7 @@ _ins_classify_comment() {
   fi
 
   # Error handling
-  if echo "$lower" | grep -qE '\berror\b|\bexception\b|\bcatch\b|\bthrow\b|\bpanic\b|\bfatal\b|nil check|null check|unhandled'; then
+  if echo "$lower" | grep -qE '[^[:alnum:]_]error[^[:alnum:]_]|[^[:alnum:]_]exception[^[:alnum:]_]|[^[:alnum:]_]catch[^[:alnum:]_]|[^[:alnum:]_]throw[^[:alnum:]_]|[^[:alnum:]_]panic[^[:alnum:]_]|[^[:alnum:]_]fatal[^[:alnum:]_]|nil check|null check|unhandled'; then
     echo "error_handling"; return
   fi
 
@@ -86,32 +88,32 @@ _ins_classify_comment() {
   fi
 
   # Type safety
-  if echo "$lower" | grep -qE '\btype\b|\btyping\b|\bany\b|\bcast\b|\bassertion\b|\binterface\b|\bschema\b|type-safe|type safe'; then
+  if echo "$lower" | grep -qE '[^[:alnum:]_]type[^[:alnum:]_]|[^[:alnum:]_]typing[^[:alnum:]_]|[^[:alnum:]_]any[^[:alnum:]_]|[^[:alnum:]_]cast[^[:alnum:]_]|[^[:alnum:]_]assertion[^[:alnum:]_]|[^[:alnum:]_]interface[^[:alnum:]_]|[^[:alnum:]_]schema[^[:alnum:]_]|type-safe|type safe'; then
     echo "type_safety"; return
   fi
 
   # Testing
-  if echo "$lower" | grep -qE '\btest\b|\bcoverage\b|\bassert\b|\bspec\b|\bmock\b|\bfixture\b|\bstub\b|\bunit test\b'; then
+  if echo "$lower" | grep -qE '[^[:alnum:]_]test[^[:alnum:]_]|[^[:alnum:]_]coverage[^[:alnum:]_]|[^[:alnum:]_]assert[^[:alnum:]_]|[^[:alnum:]_]spec[^[:alnum:]_]|[^[:alnum:]_]mock[^[:alnum:]_]|[^[:alnum:]_]fixture[^[:alnum:]_]|[^[:alnum:]_]stub[^[:alnum:]_]|unit test'; then
     echo "testing"; return
   fi
 
   # Documentation
-  if echo "$lower" | grep -qE '\bdoc\b|\bcomment\b|\bdocstring\b|\bjsdoc\b|\breadme\b|\bexample\b|\bdocument\b'; then
+  if echo "$lower" | grep -qE '[^[:alnum:]_]doc[^[:alnum:]_]|[^[:alnum:]_]comment[^[:alnum:]_]|[^[:alnum:]_]docstring[^[:alnum:]_]|[^[:alnum:]_]jsdoc[^[:alnum:]_]|[^[:alnum:]_]readme[^[:alnum:]_]|[^[:alnum:]_]example[^[:alnum:]_]|[^[:alnum:]_]document[^[:alnum:]_]'; then
     echo "documentation"; return
   fi
 
   # Naming
-  if echo "$lower" | grep -qE 'naming|variable name|function name|\bidentifier\b|convention|camelcase|snake_case|mislead'; then
+  if echo "$lower" | grep -qE 'naming|variable name|function name|[^[:alnum:]_]identifier[^[:alnum:]_]|convention|camelcase|snake_case|mislead'; then
     echo "naming"; return
   fi
 
   # Style
-  if echo "$lower" | grep -qE '\bstyle\b|\bformat\b|\bindent\b|\blint\b|\bspacing\b|\bwhitespace\b|trailing'; then
+  if echo "$lower" | grep -qE '[^[:alnum:]_]style[^[:alnum:]_]|[^[:alnum:]_]format[^[:alnum:]_]|[^[:alnum:]_]indent[^[:alnum:]_]|[^[:alnum:]_]lint[^[:alnum:]_]|[^[:alnum:]_]spacing[^[:alnum:]_]|[^[:alnum:]_]whitespace[^[:alnum:]_]|trailing'; then
     echo "style"; return
   fi
 
   # Logic / correctness
-  if echo "$lower" | grep -qE '\bbug\b|\blogic\b|incorrect|wrong|off.by.one|\bcondition\b|\bbranch\b|incorrect behavior|doesn.t work'; then
+  if echo "$lower" | grep -qE '[^[:alnum:]_]bug[^[:alnum:]_]|[^[:alnum:]_]logic[^[:alnum:]_]|incorrect|wrong|off.by.one|[^[:alnum:]_]condition[^[:alnum:]_]|[^[:alnum:]_]branch[^[:alnum:]_]|incorrect behavior|doesn.t work'; then
     echo "logic"; return
   fi
 
