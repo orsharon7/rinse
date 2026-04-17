@@ -949,7 +949,12 @@ func (m wizModel) renderStepD() string {
 	}
 
 	footer := theme.StyleMuted.Render("  You can edit or delete this cycle any time.")
-	hints := "\n" + theme.StyleMuted.Render("  enter start  a adjust  q quit")
+	var hints string
+	if m.creatingCycle {
+		hints = "\n" + theme.StyleMuted.Render("  ctrl+c quit")
+	} else {
+		hints = "\n" + theme.StyleMuted.Render("  enter start  a adjust  q quit")
+	}
 
 	return box.Render(progress + "\n\n" + headline + "\n\n" + card + actions + errLine + "\n" + footer + hints)
 }
@@ -1024,10 +1029,11 @@ func renderWizChoice(selected bool, label string) string {
 
 // ── Save helpers ──────────────────────────────────────────────────────────────
 
-// saveStepCmd returns a tea.Cmd that writes onboarding state synchronously
-// inside the bubbletea runtime (best-effort; errors are logged to stderr).
-// Using a tea.Cmd instead of a raw goroutine ensures writes are serialized
-// by the runtime and avoids step-regression from out-of-order goroutines.
+// saveStepCmd returns a tea.Cmd that writes onboarding state to disk
+// (best-effort; errors are logged to stderr).
+// Note: tea.Cmd functions run concurrently when dispatched via tea.Batch,
+// so callers that need strict ordering should save synchronously in the
+// Update handler or use tea.Sequence instead of tea.Batch.
 func saveStepCmd(s onboarding.State) tea.Cmd {
 	return func() tea.Msg {
 		if err := onboarding.SaveState(s); err != nil {
