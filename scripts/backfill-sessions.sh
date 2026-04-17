@@ -22,7 +22,7 @@ done
 mkdir -p "$SESSIONS_DIR"
 
 shopt -s nullglob
-log_files=($LOG_GLOB)
+log_files=( "${HOME}/.pr-review/logs/"*-pr-*.log )
 
 if [[ ${#log_files[@]} -eq 0 ]]; then
   echo "No log files found matching $LOG_GLOB"
