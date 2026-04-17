@@ -122,16 +122,25 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", `attachment; filename="rinse-pro-waitlist.csv"`)
 
 	cw := csv.NewWriter(w)
-	_ = cw.Write([]string{"id", "email", "github_username", "created_at"})
+	if err := cw.Write([]string{"id", "email", "github_username", "created_at"}); err != nil {
+		log.Printf("waitlist: csv write header: %v", err)
+		return
+	}
 	for _, e := range entries {
-		_ = cw.Write([]string{
+		if err := cw.Write([]string{
 			intStr(e.ID),
 			e.Email,
 			e.GitHubUsername,
 			e.CreatedAt.UTC().Format(time.RFC3339),
-		})
+		}); err != nil {
+			log.Printf("waitlist: csv write row: %v", err)
+			return
+		}
 	}
 	cw.Flush()
+	if err := cw.Error(); err != nil {
+		log.Printf("waitlist: csv flush: %v", err)
+	}
 }
 
 // checkAdminAuth validates the Bearer token in the Authorization header

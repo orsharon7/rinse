@@ -6,9 +6,10 @@
 //
 // Acquisition is atomic: we create a lock directory with os.Mkdir (which is
 // O_EXCL on every OS) and write a metadata file containing the owning PID.
-// A lock is considered stale when the recorded PID is no longer alive
-// (kill -0 equivalent via os.FindProcess + process.Signal(0)).  Stale locks
-// are cleared and re-acquired in a single retry.
+// A lock is considered stale when the recorded PID is no longer alive.
+// Liveness is checked via platform-specific isProcessAlive helpers:
+// syscall.Kill(pid, 0) on Unix and OpenProcess/CloseHandle on Windows.
+// Stale locks are cleared and re-acquired in a single retry.
 //
 // Callers must always defer lock.Release() after a successful Acquire.
 package lock

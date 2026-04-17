@@ -69,13 +69,35 @@ func (c *SupabaseClient) Insert(ctx context.Context, e Entry) error {
 }
 
 // List returns all waitlist entries ordered by created_at ascending.
+// It paginates through results using limit/offset to avoid Supabase's
+// default max-rows cap (commonly 1000), so the full table is always returned.
 func (c *SupabaseClient) List(ctx context.Context) ([]Entry, error) {
-	url := fmt.Sprintf("%s/rest/v1/%s?order=created_at.asc", c.baseURL, supabaseTable)
+	const pageSize = 1000
+	var all []Entry
+	for offset := 0; ; offset += pageSize {
+		page, err := c.listPage(ctx, pageSize, offset)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, page...)
+		if len(page) < pageSize {
+			break
+		}
+	}
+	return all, nil
+}
+
+// listPage fetches a single page of waitlist entries.
+func (c *SupabaseClient) listPage(ctx context.Context, limit, offset int) ([]Entry, error) {
+	url := fmt.Sprintf("%s/rest/v1/%s?order=created_at.asc&limit=%d&offset=%d",
+		c.baseURL, supabaseTable, limit, offset)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("supabase: build request: %w", err)
 	}
 	c.setHeaders(req)
+	// Request exact count so PostgREST doesn't truncate silently.
+	req.Header.Set("Prefer", "count=none")
 
 	resp, err := c.http.Do(req)
 	if err != nil {
