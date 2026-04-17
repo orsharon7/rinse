@@ -320,3 +320,86 @@ func TestRun_MaxWaitPollsReached(t *testing.T) {
 		t.Fatalf("expected Iterations=0 (Waiting must not advance), got %d", res.Iterations)
 	}
 }
+
+// TestRun_AgentError_WritesSessionFile verifies that when the agent returns a
+// hard error, a session file is written with Outcome=error.
+func TestRun_AgentError_WritesSessionFile(t *testing.T) {
+	tempStateDir(t)
+	tempLockDir(t)
+	tempSessionsDir(t)
+
+	sentinel := errors.New("hard agent failure")
+	agent := &stubAgent{
+		name: "stub",
+		errs: []error{sentinel},
+	}
+	res, err := Run(baseOpts(agent))
+	if err == nil {
+		t.Fatal("expected error from agent, got nil")
+	}
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("expected sentinel error in chain, got: %v", err)
+	}
+	if res.Session.Outcome != stats.OutcomeError {
+		t.Fatalf("expected session Outcome=%q, got %q", stats.OutcomeError, res.Session.Outcome)
+	}
+
+	// Assert a session file was written with the correct outcome.
+	sessionsDir := os.Getenv("RINSE_SESSIONS_DIR")
+	entries, err2 := os.ReadDir(sessionsDir)
+	if err2 != nil {
+		t.Fatalf("reading sessions dir: %v", err2)
+	}
+	var jsonFiles []os.DirEntry
+	for _, e := range entries {
+		if !e.IsDir() && len(e.Name()) > 5 && e.Name()[len(e.Name())-5:] == ".json" {
+			jsonFiles = append(jsonFiles, e)
+		}
+	}
+	if len(jsonFiles) != 1 {
+		t.Fatalf("expected exactly 1 session file for agent error exit, got %d", len(jsonFiles))
+	}
+}
+
+// TestRun_MaxWaitPollsAborted_WritesSessionFile verifies that when the max-wait
+// poll limit is exceeded, a session file is written with Outcome=aborted.
+func TestRun_MaxWaitPollsAborted_WritesSessionFile(t *testing.T) {
+	tempStateDir(t)
+	tempLockDir(t)
+	tempSessionsDir(t)
+
+	agent := &stubAgent{
+		name: "stub",
+		results: []engine.Result{
+			{Waiting: true},
+			{Waiting: true},
+			{Waiting: true},
+		},
+	}
+	opts := baseOpts(agent)
+	opts.MaxWaitPolls = 2 // exceeded after 3 Waiting results
+
+	res, err := Run(opts)
+	if !errors.Is(err, ErrMaxWaitPolls) {
+		t.Fatalf("expected ErrMaxWaitPolls, got %v", err)
+	}
+	if res.Session.Outcome != stats.OutcomeAborted {
+		t.Fatalf("expected session Outcome=%q, got %q", stats.OutcomeAborted, res.Session.Outcome)
+	}
+
+	// Assert a session file was written with the correct outcome.
+	sessionsDir := os.Getenv("RINSE_SESSIONS_DIR")
+	entries, err2 := os.ReadDir(sessionsDir)
+	if err2 != nil {
+		t.Fatalf("reading sessions dir: %v", err2)
+	}
+	var jsonFiles []os.DirEntry
+	for _, e := range entries {
+		if !e.IsDir() && len(e.Name()) > 5 && e.Name()[len(e.Name())-5:] == ".json" {
+			jsonFiles = append(jsonFiles, e)
+		}
+	}
+	if len(jsonFiles) != 1 {
+		t.Fatalf("expected exactly 1 session file for aborted exit, got %d", len(jsonFiles))
+	}
+}
