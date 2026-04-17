@@ -4,8 +4,10 @@ package summary
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os/exec"
 	"strings"
@@ -39,13 +41,16 @@ func Post(repo, pr, outcomeLabel string, iterations, totalComments int, duration
 	body := buildBody(outcomeLabel, iterations, totalComments, durationMin, estSaved)
 
 	// Use gh CLI to post the issue comment (avoids token management).
+	// A 30-second timeout prevents a hung gh process from blocking cycle exit.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	args := []string{
 		"api",
 		fmt.Sprintf("repos/%s/issues/%s/comments", repo, pr),
 		"-X", "POST",
 		"-f", "body=" + body,
 	}
-	cmd := exec.Command("gh", args...) //nolint:gosec // args are controlled
+	cmd := exec.CommandContext(ctx, "gh", args...) //nolint:gosec // args are controlled
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -76,14 +81,16 @@ func PostWithToken(token, repo, pr, outcomeLabel string, iterations, totalCommen
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("summary: http post: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("summary: GitHub API returned %d", resp.StatusCode)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("summary: GitHub API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
 	return nil
 }

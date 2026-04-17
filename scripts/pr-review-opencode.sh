@@ -451,6 +451,8 @@ echo ""
 # ─── Main loop ────────────────────────────────────────────────────────────────
 
 iter=0
+SESSION_STARTED_EPOCH=$(date +%s)
+SESSION_COMMENTS_BY_ITER=()
 
 while true; do
   iter=$(( iter + 1 ))
@@ -687,6 +689,7 @@ PROMPT_EOF
   fi
 
   echo "$rid" > "$STATE_FILE"
+  SESSION_COMMENTS_BY_ITER+=("$comment_count")
   log "💾 Saved last-known review ID: ${rid}"
 
   if [[ "$REFLECT_OPTIMIZE" == true ]] && (( iter % 3 == 0 )); then

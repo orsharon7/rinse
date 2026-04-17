@@ -271,7 +271,7 @@ func Run(opts Opts) (Result, error) {
 			)
 			// Terminal success — clear the checkpoint.
 			_ = clearState(opts.Repo, opts.PR)
-			finalizeSession("merged", state.Iteration)
+			finalizeSession("approved", state.Iteration)
 			// Post cycle summary (non-fatal).
 			if err := summary.Post(opts.Repo, opts.PR, summary.OutcomeApproved, state.Iteration, totalComments, time.Since(startedAt)); err != nil {
 				log.Warn("runner: post cycle summary", "error", err)
