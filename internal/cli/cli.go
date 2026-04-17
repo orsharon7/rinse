@@ -362,7 +362,12 @@ func runStartCmd(args []string) {
 		model = r.defaultModel
 	}
 	if reflectMain == "" {
-		reflectMain = "main"
+		if doReflect {
+			reflectMain = detectDefaultBranch(repo)
+		}
+		if reflectMain == "" {
+			reflectMain = "main"
+		}
 	}
 
 	// Locate runner script.
@@ -493,6 +498,17 @@ func detectRepo() string {
 func detectCWD() string {
 	d, _ := os.Getwd()
 	return d
+}
+
+func detectDefaultBranch(repo string) string {
+	out, err := exec.Command("gh", "repo", "view", repo,
+		"--json", "defaultBranchRef",
+		"--jq", ".defaultBranchRef.name",
+	).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func emitJSON(v any) {

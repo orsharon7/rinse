@@ -1069,11 +1069,11 @@ func friendlyCycleErr(err error) string {
 	}
 	msg := err.Error()
 	switch {
-	case strings.Contains(msg, "could not reach rinse backend"):
-		return "Could not connect to the RINSE backend. Is it running?"
 	case strings.Contains(msg, "context deadline exceeded"),
 		strings.Contains(msg, "i/o timeout"):
 		return "The request timed out. The backend may be slow or unreachable."
+	case strings.Contains(msg, "could not reach rinse backend"):
+		return "Could not connect to the RINSE backend. Is it running?"
 	case strings.Contains(msg, "server returned"):
 		return "The server rejected the request. Try again or check your settings."
 	case strings.Contains(msg, "parse response"):
