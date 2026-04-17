@@ -11,6 +11,7 @@ import (
 
 	"github.com/orsharon7/rinse/internal/engine"
 	"github.com/orsharon7/rinse/internal/engine/lock"
+	"github.com/orsharon7/rinse/internal/stats"
 )
 
 // DefaultMaxIterations is used when Opts.MaxIterations is 0.
@@ -35,6 +36,9 @@ type Opts struct {
 
 	// PR is the pull request number as a string.
 	PR string
+
+	// PRTitle is the PR title used for session recording (optional).
+	PRTitle string
 
 	// CWD is the local working directory for the repository checkout.
 	CWD string
@@ -72,6 +76,9 @@ type Result struct {
 
 	// ResumedFromIteration is non-zero when the run resumed from a checkpoint.
 	ResumedFromIteration int
+
+	// Session is the recorded session metrics for this run.
+	Session stats.Session
 }
 
 // Run drives the PR review lifecycle:
@@ -84,6 +91,9 @@ type Result struct {
 //
 // Run honours the "never swallow errors" engineering standard: subprocess
 // errors are propagated with context rather than swallowed.
+//
+// A stats.Session is always persisted to ~/.rinse/sessions/ at the end of the
+// run, regardless of outcome.
 func Run(opts Opts) (Result, error) {
 	if err := validateOpts(&opts); err != nil {
 		return Result{}, err
@@ -92,6 +102,18 @@ func Run(opts Opts) (Result, error) {
 	log := opts.Logger
 	if log == nil {
 		log = slog.Default()
+	}
+
+	// ── 0. Start session recording ────────────────────────────────────────────
+	session := stats.NewSession(opts.Repo, opts.PR, opts.Agent.Name(), opts.Model)
+	session.PRTitle = opts.PRTitle
+
+	persistSession := func(outcome stats.Outcome) {
+		session.Iterations = session.Iterations // already tracked below
+		session.Finish(outcome, 240)
+		if err := stats.Save(session); err != nil {
+			log.Error("runner: save session", "error", err)
+		}
 	}
 
 	// ── 1. Acquire lock ──────────────────────────────────────────────────────
@@ -145,9 +167,11 @@ func Run(opts Opts) (Result, error) {
 			// Hard agent failure — persist state so we can resume, then surface.
 			state.LastAgentAction = "error"
 			_ = saveState(state)
+			persistSession(stats.OutcomeError)
 			return Result{
 				Iterations:           state.Iteration,
 				ResumedFromIteration: resumedFrom,
+				Session:              session,
 			}, fmt.Errorf("runner: agent %s iteration %d: %w", opts.Agent.Name(), state.Iteration+1, err)
 		}
 
@@ -160,9 +184,11 @@ func Run(opts Opts) (Result, error) {
 					"pr", opts.PR,
 					"wait_polls", waitPolls,
 				)
+				persistSession(stats.OutcomeAborted)
 				return Result{
 					Iterations:           state.Iteration,
 					ResumedFromIteration: resumedFrom,
+					Session:              session,
 				}, ErrMaxWaitPolls
 			}
 			log.Info("runner: waiting for actionable review",
@@ -177,6 +203,9 @@ func Run(opts Opts) (Result, error) {
 		waitPolls = 0 // reset on actionable result
 
 		state.Iteration++
+		// Track per-iteration comment counts for the session.
+		session.CopilotCommentsByIteration = append(session.CopilotCommentsByIteration, agentResult.Comments)
+		session.Iterations = state.Iteration
 
 		// Persist the review ID so the next iteration can detect no_change.
 		if agentResult.ReviewID != "" {
@@ -192,10 +221,12 @@ func Run(opts Opts) (Result, error) {
 			)
 			// Terminal success — clear the checkpoint.
 			_ = clearState(opts.Repo, opts.PR)
+			persistSession(stats.OutcomeApproved)
 			return Result{
 				Approved:             true,
 				Iterations:           state.Iteration,
 				ResumedFromIteration: resumedFrom,
+				Session:              session,
 			}, nil
 		}
 
@@ -230,10 +261,12 @@ func Run(opts Opts) (Result, error) {
 		"iterations", state.Iteration,
 	)
 	// Keep state on disk so a human or future run can inspect it.
+	persistSession(stats.OutcomeMaxIter)
 	return Result{
 		Approved:             false,
 		Iterations:           state.Iteration,
 		ResumedFromIteration: resumedFrom,
+		Session:              session,
 	}, ErrMaxIterations
 }
 

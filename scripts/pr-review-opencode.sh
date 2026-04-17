@@ -37,6 +37,30 @@ set -euo pipefail
 # STATE_DIR and LOGFILE are scoped per-repo after REPO is known (see below)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# ─── Session metrics (written on EXIT) ────────────────────────────────────────
+
+# Generate a UUID v4 without external tools.
+_gen_uuid() {
+  local raw
+  raw=$(od -An -tx1 -N16 /dev/urandom 2>/dev/null | tr -d ' \n') || raw=""
+  if [[ ${#raw} -eq 32 ]]; then
+    # Patch version (4) and variant (8-b) bits.
+    raw="${raw:0:12}4${raw:13:3}$(printf '%x' "$(( (16#${raw:16:1} & 0x3) | 0x8 ))")${raw:17:3}${raw:20:12}"
+    printf '%s-%s-%s-%s-%s\n' "${raw:0:8}" "${raw:8:4}" "${raw:12:4}" "${raw:16:4}" "${raw:20:12}"
+  else
+    # Fallback: timestamp + RANDOM (not cryptographic, sufficient for file naming)
+    printf '%08x-%04x-4%03x-%04x-%012x\n' \
+      "$(date +%s)" "$RANDOM" "$(( RANDOM & 0xfff ))" \
+      "$(( (RANDOM & 0x3fff) | 0x8000 ))" "$(( RANDOM * RANDOM * RANDOM ))"
+  fi
+}
+
+SESSION_ID="$(_gen_uuid)"
+SESSION_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+SESSION_STARTED_EPOCH="$(date +%s)"
+SESSION_OUTCOME="aborted"             # updated to final outcome before EXIT writes JSON
+declare -a SESSION_COMMENTS_BY_ITER=() # populated each main-loop iteration
+
 # ─── UI ───────────────────────────────────────────────────────────────────────
 
 # shellcheck source=pr-review-ui.sh
@@ -121,6 +145,81 @@ LOGFILE="${HOME}/.pr-review/logs/${REPO_SLUG}-pr-${PR_NUMBER}.log"
 mkdir -p "$STATE_DIR" "$(dirname "$LOGFILE")"
 STATE_FILE="${STATE_DIR}/pr-${PR_NUMBER}-last-review"
 
+# ─── Session JSON writer ──────────────────────────────────────────────────────
+
+write_session_json() {
+  local sessions_dir="${HOME}/.rinse/sessions"
+  mkdir -p "$sessions_dir"
+
+  local ended_at
+  ended_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  local ended_epoch
+  ended_epoch="$(date +%s)"
+  local duration_seconds=$(( ended_epoch - SESSION_STARTED_EPOCH ))
+
+  # Build copilot_comments_by_iteration JSON array.
+  local comments_arr="["
+  local total_comments=0
+  local first=true
+  for c in "${SESSION_COMMENTS_BY_ITER[@]+"${SESSION_COMMENTS_BY_ITER[@]}"}"; do
+    [[ "$first" == true ]] && first=false || comments_arr+=","
+    comments_arr+="$c"
+    total_comments=$(( total_comments + c ))
+  done
+  comments_arr+="]"
+
+  local estimated_saved=$(( total_comments * 240 ))
+  local iterations="${#SESSION_COMMENTS_BY_ITER[@]}"
+
+  # Fetch PR title (best-effort; non-fatal).
+  local pr_title=""
+  pr_title=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.title' 2>/dev/null || echo "")
+
+  local fname
+  fname="${SESSION_STARTED_AT:0:10}-${SESSION_STARTED_AT:11:8}"
+  fname="${fname//:/-}"  # replace colons with dashes (macOS-safe)
+  fname="${sessions_dir}/${fname}-${REPO_SLUG}-pr-${PR_NUMBER}.json"
+
+  jq -n \
+    --arg session_id      "$SESSION_ID" \
+    --arg repo            "$REPO" \
+    --arg pr              "$PR_NUMBER" \
+    --arg pr_title        "$pr_title" \
+    --arg started_at      "$SESSION_STARTED_AT" \
+    --arg ended_at        "$ended_at" \
+    --arg runner          "opencode" \
+    --arg model           "$MODEL" \
+    --arg outcome         "$SESSION_OUTCOME" \
+    --argjson iterations  "$iterations" \
+    --argjson comments    "$comments_arr" \
+    --argjson total       "$total_comments" \
+    --argjson saved       "$estimated_saved" \
+    --argjson duration    "$duration_seconds" \
+    '{
+      session_id:                    $session_id,
+      repo:                          $repo,
+      pr:                            $pr,
+      pr_title:                      $pr_title,
+      started_at:                    $started_at,
+      ended_at:                      $ended_at,
+      duration_seconds:              $duration,
+      runner:                        $runner,
+      model:                         $model,
+      outcome:                       $outcome,
+      iterations:                    $iterations,
+      copilot_comments_by_iteration: $comments,
+      total_comments:                $total,
+      estimated_time_saved_seconds:  $saved
+    }' > "$fname" \
+    && log "📊 Session saved: ${fname}" \
+    || log "⚠️  Could not write session JSON (non-fatal)"
+}
+
+# Register EXIT trap AFTER REPO/LOGFILE are initialised so write_session_json
+# has access to all variables. Any previously registered trap (worktree
+# cleanup) will be superseded; worktree cleanup is handled inline below.
+trap 'write_session_json' EXIT
+
 # ─── Worktree isolation (optional — used by orchestrator for parallel runs) ───
 
 WORKTREE_DIR=""
@@ -144,7 +243,9 @@ if [[ "$USE_WORKTREE" == true ]]; then
       git -C "$REPO_ROOT" worktree remove --force "$WORKTREE_DIR" 2>/dev/null || true
       rm -rf "$WORKTREE_DIR" 2>/dev/null || true
     fi
+    write_session_json
   }
+  # Override the earlier EXIT trap with one that also runs worktree cleanup.
   trap cleanup_pr_worktree EXIT
 
   git -C "$REPO_ROOT" worktree prune 2>/dev/null || true
@@ -420,6 +521,7 @@ while true; do
 
   if ! wait_for_review; then
     log "❌ Timed out waiting for Copilot — aborting"
+    SESSION_OUTCOME="aborted"
     exit 1
   fi
 
@@ -442,7 +544,13 @@ while true; do
   merged_at=$(echo "$_pr_json" | jq -r '.merged_at // ""')
   base_branch=$(echo "$_pr_json" | jq -r '.base.ref // "main"')
   if [[ "$pr_state" == "closed" ]]; then
-    [[ -n "$merged_at" ]] && log "🎉 PR merged!" || log "📕 PR closed."
+    if [[ -n "$merged_at" ]]; then
+      log "🎉 PR merged!"
+      SESSION_OUTCOME="merged"
+    else
+      log "📕 PR closed."
+      SESSION_OUTCOME="aborted"
+    fi
     exit 0
   fi
 
@@ -454,6 +562,7 @@ while true; do
       log "🔀 Auto-merging and deleting branch..."
       local_branch=$(git -C "$CWD" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
       gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch
+      SESSION_OUTCOME="merged"
       _local_deleted=false
       if [[ -n "$local_branch" && "$local_branch" != "$base_branch" ]]; then
         if git -C "$CWD" checkout "$base_branch" 2>/dev/null; then
@@ -475,6 +584,7 @@ while true; do
       fi
       [[ "$REFLECT_OPTIMIZE" == true ]] && run_reflect_optimize
     else
+      SESSION_OUTCOME="approved"
       ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
     fi
     exit 0
@@ -491,6 +601,7 @@ while true; do
       log "🔀 Auto-merging and deleting branch..."
       local_branch=$(git -C "$CWD" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
       gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch
+      SESSION_OUTCOME="merged"
       _local_deleted=false
       if [[ -n "$local_branch" && "$local_branch" != "$base_branch" ]]; then
         if git -C "$CWD" checkout "$base_branch" 2>/dev/null; then
@@ -512,11 +623,14 @@ while true; do
       fi
       [[ "$REFLECT_OPTIMIZE" == true ]] && run_reflect_optimize
     else
+      SESSION_OUTCOME="approved"
       ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
     fi
     exit 0
   fi
 
+  # ── Record comments for this iteration in session metrics ─────────────────
+  SESSION_COMMENTS_BY_ITER+=("$comment_count")
   ui_outcome "💬" "${comment_count} comment(s) in review ${rid}" "$GUM_WARN"
   log "💬 ${comment_count} comment(s) in review ${rid} — invoking opencode (${MODEL})..."
 
@@ -597,6 +711,7 @@ PROMPT_EOF
 
   if [[ $oc_exit -ne 0 ]]; then
     log "❌ opencode exited with code ${oc_exit} — aborting"
+    SESSION_OUTCOME="error"
     if [[ -n "$reflect_pid" ]]; then
       kill "$reflect_pid" 2>/dev/null || true
       ui_reflect_log "killed (opencode failed)" false

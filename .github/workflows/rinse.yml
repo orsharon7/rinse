@@ -1,7 +1,7 @@
 name: RINSE — Copilot PR Review Loop
 
 # Runs RINSE on every new or updated PR, driving Copilot review cycles until
-# the PR is approved or the max iteration limit is reached.
+# the PR is approved (no hard iteration cap; bounded by timeout-minutes on the job).
 #
 # Required secrets:
 #   ANTHROPIC_API_KEY  — Claude API key (for `claude` CLI)
@@ -31,8 +31,13 @@ jobs:
     runs-on: ubuntu-latest
 
     # Skip PRs from forks: they cannot access repository secrets.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # Also skip runs triggered by the workflow's own fix-commit pushes to avoid
+    # cancelling an in-progress loop the moment it pushes a commit.
+    if: >
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'github-actions[bot]'
     environment: rinse
+    timeout-minutes: 30
 
     steps:
       - name: Checkout PR branch

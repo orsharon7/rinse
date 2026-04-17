@@ -6,6 +6,7 @@
 package stats
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -16,26 +17,90 @@ import (
 	"time"
 )
 
+// Outcome describes the terminal result of a RINSE cycle.
+type Outcome string
+
+const (
+	OutcomeApproved Outcome = "approved"
+	OutcomeMerged   Outcome = "merged"
+	OutcomeMaxIter  Outcome = "max_iterations"
+	OutcomeError    Outcome = "error"
+	OutcomeAborted  Outcome = "aborted"
+)
+
+// newUUID generates a random UUID v4 string.
+func newUUID() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	// Set version 4 (bits 12-15 of byte 6 to 0100)
+	b[6] = (b[6] & 0x0f) | 0x40
+	// Set variant bits (bits 6-7 of byte 8 to 10)
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
 // Session records the outcome of a single rinse PR-review run.
 type Session struct {
+	// Identity
+	SessionID string `json:"session_id"`
+
 	// Metadata
 	StartedAt time.Time `json:"started_at"`
 	EndedAt   time.Time `json:"ended_at"`
 	Repo      string    `json:"repo"`
 	PR        string    `json:"pr"`
+	PRTitle   string    `json:"pr_title,omitempty"`
 	Runner    string    `json:"runner"`
 	Model     string    `json:"model"`
 
 	// Outcomes
-	TotalComments int      `json:"total_comments"`
-	Iterations    int      `json:"iterations"`
-	Approved      bool     `json:"approved"`
-	Patterns      []string `json:"patterns,omitempty"`
+	Outcome                    Outcome  `json:"outcome"`
+	Iterations                 int      `json:"iterations"`
+	CopilotCommentsByIteration []int    `json:"copilot_comments_by_iteration,omitempty"`
+	TotalComments              int      `json:"total_comments"`
+	EstimatedTimeSavedSeconds  int      `json:"estimated_time_saved_seconds"`
+	Approved                   bool     `json:"approved"`
+	Patterns                   []string `json:"patterns,omitempty"`
+}
+
+// NewSession creates a new Session with a generated UUID and the current time
+// as StartedAt.
+func NewSession(repo, pr, runner, model string) Session {
+	return Session{
+		SessionID: newUUID(),
+		StartedAt: time.Now().UTC(),
+		Repo:      repo,
+		PR:        pr,
+		Runner:    runner,
+		Model:     model,
+	}
 }
 
 // DurationSeconds returns the session duration in seconds.
 func (s Session) DurationSeconds() float64 {
 	return s.EndedAt.Sub(s.StartedAt).Seconds()
+}
+
+// Finish stamps EndedAt, derives TotalComments from CopilotCommentsByIteration
+// if not already set, and computes EstimatedTimeSavedSeconds.
+// estimatedSecondsPerComment defaults to 240 (4 min) when <= 0.
+func (s *Session) Finish(outcome Outcome, estimatedSecondsPerComment int) {
+	s.EndedAt = time.Now().UTC()
+	s.Outcome = outcome
+	s.Approved = outcome == OutcomeApproved || outcome == OutcomeMerged
+
+	// Derive TotalComments from per-iteration slice if not set explicitly.
+	if s.TotalComments == 0 && len(s.CopilotCommentsByIteration) > 0 {
+		for _, c := range s.CopilotCommentsByIteration {
+			s.TotalComments += c
+		}
+	}
+
+	if estimatedSecondsPerComment <= 0 {
+		estimatedSecondsPerComment = 240
+	}
+	s.EstimatedTimeSavedSeconds = s.TotalComments * estimatedSecondsPerComment
 }
 
 // SessionsDir returns the directory where session JSON files are stored.
