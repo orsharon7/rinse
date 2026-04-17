@@ -42,8 +42,8 @@ type Opts struct {
 	// Defaults to DefaultMaxIterations when 0.
 	MaxIterations int
 
-	// PollInterval is how long to wait between Copilot review status checks.
-	// Defaults to 30s when zero.
+	// PollInterval is how long to wait between review loop iterations
+	// and Agent invocations. Defaults to 30s when zero.
 	PollInterval time.Duration
 
 	// Agent is the engine.Agent implementation to drive.
