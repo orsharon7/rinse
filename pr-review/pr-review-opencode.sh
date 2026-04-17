@@ -161,7 +161,9 @@ if [[ "$USE_WORKTREE" == true ]]; then
       rm -rf "$WORKTREE_DIR" 2>/dev/null || true
     fi
     session_clear
-    gh_lock_release
+    if [[ "${DRY_RUN:-false}" != true ]]; then
+      gh_lock_release
+    fi
     local should_print_insights=false
     if [[ "${DRY_RUN:-false}" != true && -z "${_INS_OUTCOME:-}" && "${_INS_START_EPOCH:-0}" -gt 0 ]]; then
       should_print_insights=true
@@ -400,7 +402,9 @@ if [[ "$USE_WORKTREE" == false ]]; then
     local should_print_insights=true
     set +e
     session_clear
-    gh_lock_release
+    if [[ "${DRY_RUN:-false}" != true ]]; then
+      gh_lock_release
+    fi
     if [[ -z "${_INS_OUTCOME:-}" ]]; then
       local outcome="error"
       [[ $rc -eq 0 ]] && outcome="clean"
