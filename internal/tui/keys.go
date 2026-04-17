@@ -31,6 +31,8 @@ type KeyMap struct {
 	Right  key.Binding
 	Tab    key.Binding
 	Toggle key.Binding
+	// Monitor timing tooltip.
+	TimingInfo key.Binding
 }
 
 // Keys is the global singleton KeyMap used by all views.
@@ -106,6 +108,10 @@ var Keys = KeyMap{
 	Toggle: key.NewBinding(
 		key.WithKeys(" "),
 		key.WithHelp("space", "toggle"),
+	),
+	TimingInfo: key.NewBinding(
+		key.WithKeys("t"),
+		key.WithHelp("t", "timing tooltip"),
 	),
 }
 

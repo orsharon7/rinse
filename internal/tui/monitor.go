@@ -59,7 +59,6 @@ const (
 	etaFutureDay                  // ETA tomorrow or later
 	etaOverdue                    // past estimated end
 	etaCompleted                  // cycle done
-	etaCancelled                  // cycle cancelled
 	etaError                      // cycle error
 )
 
@@ -429,6 +428,7 @@ func (m monitorModel) renderHelp() string {
 		{"↓ / j", "scroll down"},
 		{"g", "jump to top"},
 		{"G", "jump to bottom"},
+		{"t", "timing tooltip"},
 		{"S", "save full session log"},
 		{"s", "save reflect log"},
 		{"?", "toggle this help"},
@@ -950,6 +950,14 @@ func (m monitorModel) View() string {
 		return lipgloss.Place(totalW, h, lipgloss.Center, lipgloss.Center, m.renderHelp())
 	}
 
+	if m.showTimingTooltip {
+		h := m.height
+		if h <= 0 {
+			h = 24
+		}
+		return lipgloss.Place(totalW, h, lipgloss.Center, lipgloss.Center, m.renderTimingTooltip())
+	}
+
 	if m.showPostCycleMenu {
 		h := m.height
 		if h <= 0 {
@@ -966,7 +974,7 @@ func (m monitorModel) View() string {
 	logH := m.logHeight()
 
 	// ── Header line 1: Compact brand with PR context ─────────────────────────
-	elapsed := time.Since(m.started).Round(time.Second)
+	elapsed := m.elapsedForDisplay()
 
 	prCtx := "#" + m.pr
 	if m.repo != "" {
@@ -988,9 +996,37 @@ func (m monitorModel) View() string {
 		iterStr = fmt.Sprintf("%d", m.iter)
 	}
 
+	// Elapsed badge: hidden during phaseStarting.
+	var elapsedBadge string
+	if m.phase != phaseStarting {
+		elapsedStr := formatElapsed(elapsed)
+		elapsedBadge = theme.StyleBadgeTime.Render(fmt.Sprintf(" %s ", elapsedStr))
+	}
+
 	badges := []string{
 		theme.StyleBadgeIter.Render(fmt.Sprintf(" iter %s ", iterStr)),
-		theme.StyleBadgeTime.Render(fmt.Sprintf(" %s ", elapsed.String())),
+	}
+	if elapsedBadge != "" {
+		badges = append(badges, elapsedBadge)
+	}
+
+	// ETA badge: resolve unconditionally so unknown and terminal states can render.
+	etaSt, etaTime := resolveETA(m.phase, m.estimatedEndAt, m.nowAdjusted())
+	switch etaSt {
+	case etaUnknown:
+		badges = append(badges, theme.StyleBadgeETA.Render(" ETA — "))
+	case etaComputable:
+		badges = append(badges, theme.StyleBadgeETA.Render(" ETA "+etaTime.Local().Format("15:04")+" "))
+	case etaFutureDay:
+		badges = append(badges, theme.StyleBadgeETA.Render(" ETA "+etaTime.Local().Format("Mon 15:04")+" "))
+	case etaOverdue:
+		overdueDur := m.nowAdjusted().Sub(etaTime).Round(time.Second)
+		badges = append(badges, theme.StyleBadgeOverdue.Render(" +"+formatElapsed(overdueDur)+" "))
+	case etaCompleted:
+		badges = append(badges, theme.StyleBadgeETA.Render(" Completed "))
+	case etaError:
+		badges = append(badges, theme.StyleBadgeETA.Render(" ETA — "))
+	// etaHidden: nothing added
 	}
 	if m.totalComments > 0 {
 		badges = append(badges,
@@ -1065,6 +1101,7 @@ func (m monitorModel) View() string {
 	keys := "  " + strings.Join([]string{
 		theme.RenderKeyHint("q", "quit"),
 		theme.RenderKeyHint("↑↓/jk", "scroll"),
+		theme.RenderKeyHint("t", "timing"),
 		theme.RenderKeyHint("s", "save reflect"),
 		theme.RenderKeyHint("S", "save all"),
 		theme.RenderKeyHint("?", "help"),
@@ -1077,6 +1114,34 @@ func (m monitorModel) View() string {
 	statusBar := theme.StyleStatusBar.Width(statusBarWidth).Render(phaseStr + scrollHint + keys)
 
 	return header + "\n" + breadcrumb + "\n" + body + "\n" + statusBar
+}
+
+// renderTimingTooltip renders the last-state-change tooltip overlay.
+// Shows timestamp in UTC and local timezone, matching the UX spec (RIN-42 §3).
+func (m monitorModel) renderTimingTooltip() string {
+	t := m.lastStateChangedAt
+	utcStr := t.UTC().Format("Mon, 02 Jan 2006 15:04:05 UTC")
+	localStr := t.Local().Format("15:04:05 MST")
+
+	elapsedStr := formatElapsed(m.elapsedForDisplay())
+	elapsedLabel := theme.StyleMuted.Render("Elapsed:") + " " +
+		lipgloss.NewStyle().Foreground(theme.Text).Render(elapsedStr)
+
+	label := theme.StyleMuted.Render("Last state change")
+	utcLine := lipgloss.NewStyle().Foreground(theme.Text).Render(utcStr)
+	localLine := theme.StyleMuted.Render("(local: " + localStr + ")")
+
+	dismissHint := theme.StyleMuted.Render("  any key to dismiss")
+
+	content := label + "\n" + utcLine + "\n" + localLine + "\n\n" + elapsedLabel + "\n\n" + dismissHint
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(theme.Surface).
+		Padding(1, 3).
+		Render(content)
+
+	return box
 }
 
 // renderIterTimeline renders a compact horizontal timeline of iteration results.
