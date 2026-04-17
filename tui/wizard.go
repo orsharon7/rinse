@@ -128,16 +128,16 @@ func initialModel() model {
 				rc.Model = repoCfg.Model
 				appliedRepoDefaults = true
 			}
-			if repoCfg.Reflect {
-				rc.Reflect = true
+			if repoCfg.Reflect != nil {
+				rc.Reflect = *repoCfg.Reflect
 				appliedRepoDefaults = true
 			}
 			if repoCfg.ReflectBranch != "" {
 				rc.Branch = repoCfg.ReflectBranch
 				appliedRepoDefaults = true
 			}
-			if repoCfg.AutoMerge {
-				rc.AutoMerge = true
+			if repoCfg.AutoMerge != nil {
+				rc.AutoMerge = *repoCfg.AutoMerge
 				appliedRepoDefaults = true
 			}
 			if appliedRepoDefaults {
