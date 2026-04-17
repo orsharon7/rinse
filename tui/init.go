@@ -12,11 +12,11 @@ import (
 // It stores shared team settings so everyone reviewing PRs in the same repo
 // uses consistent defaults without having to configure them individually.
 type RepoRinseConfig struct {
-	Engine       string `json:"engine"`        // "opencode" or "claude"
-	Model        string `json:"model"`         // model override (empty = engine default)
-	Reflect      bool   `json:"reflect"`       // enable reflection agent
+	Engine        string `json:"engine"`                  // "opencode" or "claude"
+	Model         string `json:"model"`                   // model override (empty = engine default)
+	Reflect       bool   `json:"reflect"`                 // enable reflection agent
 	ReflectBranch string `json:"reflect_branch,omitempty"` // branch to push rules to (empty = default)
-	AutoMerge    bool   `json:"auto_merge"`    // auto-merge after approval
+	AutoMerge     bool   `json:"auto_merge"`              // auto-merge after approval
 }
 
 const rinseConfigFile = ".rinse.json"
@@ -36,6 +36,9 @@ func RunInit() {
 			fmt.Println("Aborted.")
 			os.Exit(0)
 		}
+	} else if !os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "error: failed to stat %s: %v\n", rinseConfigFile, err)
+		os.Exit(1)
 	}
 
 	fmt.Println("Initializing Rinse config for this repo...")
@@ -46,19 +49,33 @@ func RunInit() {
 	for i, r := range runners {
 		fmt.Printf("  [%d] %s — %s\n", i+1, r.name, r.desc)
 	}
-	fmt.Printf("Engine (1-%d) [1]: ", len(runners))
-	engineLine, _ := reader.ReadString('\n')
-	engineLine = strings.TrimSpace(engineLine)
 
 	runnerIdx := 0
-	if engineLine != "" {
+	for {
+		fmt.Printf("Engine (1-%d) [1]: ", len(runners))
+		engineLine, _ := reader.ReadString('\n')
+		engineLine = strings.TrimSpace(engineLine)
+
+		if engineLine == "" {
+			break
+		}
+
+		validSelection := false
 		for i, r := range runners {
 			if engineLine == fmt.Sprintf("%d", i+1) || strings.EqualFold(engineLine, r.name) {
 				runnerIdx = i
+				validSelection = true
 				break
 			}
 		}
+
+		if validSelection {
+			break
+		}
+
+		fmt.Printf("Invalid engine selection %q. Please enter a number from 1-%d or a valid engine name.\n", engineLine, len(runners))
 	}
+
 	selectedRunner := runners[runnerIdx]
 	fmt.Printf("→ Using: %s\n\n", selectedRunner.name)
 
@@ -101,7 +118,26 @@ func RunInit() {
 		os.Exit(1)
 	}
 
-	if err := os.WriteFile(rinseConfigFile, append(data, '\n'), 0o644); err != nil {
+	// Write atomically via temp file + rename to avoid partial writes.
+	tmpFile, err := os.CreateTemp(".", ".rinse.json.tmp*")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: failed to create temp file: %v\n", err)
+		os.Exit(1)
+	}
+	tmpName := tmpFile.Name()
+	if _, err := tmpFile.Write(append(data, '\n')); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpName)
+		fmt.Fprintf(os.Stderr, "error: failed to write temp config: %v\n", err)
+		os.Exit(1)
+	}
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmpName)
+		fmt.Fprintf(os.Stderr, "error: failed to close temp config: %v\n", err)
+		os.Exit(1)
+	}
+	if err := os.Rename(tmpName, rinseConfigFile); err != nil {
+		os.Remove(tmpName)
 		fmt.Fprintf(os.Stderr, "error: failed to write %s: %v\n", rinseConfigFile, err)
 		os.Exit(1)
 	}
