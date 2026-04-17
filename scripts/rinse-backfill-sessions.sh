@@ -11,10 +11,11 @@
 #   --dry-run                  Print what would be written without writing
 #
 # How it works:
-#   1. Scans log files in ~/.pr-review/logs/ matching *-pr-*.log
+#   1. Scans .log files in ~/.pr-review/logs/
 #   2. Extracts PR number, start/end timestamps, iteration count, and comment
-#      counts per iteration from log lines emitted by pr-review-opencode.sh
-#   3. Writes one JSON session file per log into ~/.rinse/sessions/
+#      counts per iteration from PR-review log lines emitted by
+#      pr-review-opencode.sh
+#   3. Writes one JSON session file per matching log into ~/.rinse/sessions/
 #      (skips if a session file for that repo+PR+start already exists)
 #
 set -euo pipefail
