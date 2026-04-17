@@ -148,11 +148,15 @@ STATE_FILE="${STATE_DIR}/pr-${PR_NUMBER}-last-review"
 # ─── Session JSON writer ──────────────────────────────────────────────────────
 
 write_session_json() {
+  # Best-effort / non-fatal: never let a failure here change the main exit
+  # status or abort cleanup under set -e.
+  set +e
+
   umask 077
 
   local sessions_dir="${HOME}/.rinse/sessions"
-  mkdir -p "$sessions_dir"
-  chmod 700 "$sessions_dir"
+  mkdir -p "$sessions_dir" || { set -e; log "⚠️  Could not create sessions dir (non-fatal)"; return; }
+  chmod 700 "$sessions_dir" || true
 
   local ended_at
   ended_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -189,7 +193,7 @@ write_session_json() {
   [[ "$SESSION_OUTCOME" == "approved" || "$SESSION_OUTCOME" == "merged" ]] && approved="true"
 
   local tmp_fname
-  tmp_fname="$(mktemp "$(dirname "$fname")/.tmp_session_XXXXXX.json")"
+  tmp_fname="$(mktemp "$(dirname "$fname")/.tmp_session_XXXXXX.json")" || { log "⚠️  Could not create temp file for session JSON (non-fatal)"; return; }
   if jq -n \
     --arg session_id      "$SESSION_ID" \
     --arg repo            "$REPO" \
@@ -231,6 +235,7 @@ write_session_json() {
     rm -f "$tmp_fname"
     log "⚠️  Could not write session JSON (non-fatal)"
   fi
+  set -e
 }
 
 # Register EXIT trap AFTER REPO/LOGFILE are initialised so write_session_json

@@ -110,16 +110,21 @@ for logfile in "${LOGS_DIR}"/*.log; do
   ended_at=$(_ts_to_utc "$last_ts")
 
   # Compute file-slug for session filename using the Go stats convention:
-  # YYYYMMDD-HHMMSS-<repo>-PR<N>.json
+  # YYYYMMDD-HHMMSS-<repo>-PR<N>-<session_id>.json
   repo_slug="${REPO//\//-}"
   date_part="${started_at:0:10}"
   date_part="${date_part//-/}"
   time_part="${started_at:11:8}"
   time_part="${time_part//:/}"
   started_slug="${date_part}-${time_part}"
-  session_fname="${SESSIONS_DIR}/${started_slug}-${repo_slug}-PR${pr_num}.json"
+  session_prefix="${SESSIONS_DIR}/${started_slug}-${repo_slug}-PR${pr_num}"
+  session_id="$(basename "$logfile")"
+  session_id="${session_id%.log}"
+  session_id="${session_id//[^[:alnum:]._-]/-}"
+  legacy_session_fname="${session_prefix}.json"
+  session_fname="${session_prefix}-${session_id}.json"
 
-  if [[ -f "$session_fname" ]]; then
+  if [[ -f "$legacy_session_fname" ]] || compgen -G "${session_prefix}-*.json" > /dev/null; then
     (( skipped++ )) || true
     continue
   fi

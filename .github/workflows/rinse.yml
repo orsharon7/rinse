@@ -16,12 +16,6 @@ on:
   pull_request:
     types: [opened, reopened, synchronize]
 
-# Only one RINSE run per PR at a time. If a new push arrives while a run is
-# in-flight, cancel the old run and start fresh on the new commit.
-concurrency:
-  group: rinse-pr-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
 permissions:
   contents: write        # push fix commits to the PR branch
   pull-requests: write   # request Copilot reviews, post replies
@@ -30,6 +24,13 @@ jobs:
   rinse:
     name: RINSE review loop
     runs-on: ubuntu-latest
+
+    # Only one RINSE run per PR at a time. Concurrency is scoped to the job so
+    # that a skipped run (e.g. bot-triggered pushes filtered by the `if` below)
+    # does not cancel an in-progress run before the job condition is evaluated.
+    concurrency:
+      group: rinse-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
 
     # Skip PRs from forks: they cannot access repository secrets.
     # Also skip runs triggered by the workflow's own fix-commit pushes to avoid
