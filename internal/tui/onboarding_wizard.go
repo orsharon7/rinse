@@ -124,7 +124,7 @@ type wizModel struct {
 }
 
 // suggestion chips for Step B (from copy deck)
-var cycleChips = []string{"Weekly laundry", "Delicates", "Bedding", "Quick wash"}
+var cycleChips = []string{"Frontend refactor", "API cleanup", "Bug bash", "Release prep"}
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
@@ -139,7 +139,7 @@ func newWizModel() wizModel {
 	ti.TextStyle = lipgloss.NewStyle().Foreground(theme.Text)
 	ti.Prompt = "  " + theme.IconArrow + " "
 	ti.CharLimit = 50
-	ti.Placeholder = "e.g. Weekly laundry"
+	ti.Placeholder = "e.g. Frontend refactor"
 
 	// Check color support: $NO_COLOR trumps everything.
 	colorOK := os.Getenv("NO_COLOR") == ""
@@ -733,8 +733,8 @@ func (m wizModel) renderSplash() string {
 	b.WriteString(theme.RenderWordmark(w, version))
 	b.WriteString("\n\n")
 
-	tagline := theme.StyleMuted.Render("       Clean cycles,") +
-		theme.StyleTeal.Render(" no fuss.")
+	tagline := theme.StyleMuted.Render("       Cleaner PRs,") +
+		theme.StyleTeal.Render(" automatically.")
 	b.WriteString(tagline)
 	b.WriteString("\n\n")
 
@@ -798,12 +798,12 @@ func (m wizModel) renderStepA() string {
 		Width(58)
 
 	progress := renderProgress(1)
-	headline := theme.StyleStep.Render("RINSE keeps your cycles on track")
+	headline := theme.StyleStep.Render("RINSE automates your PR review loop")
 
 	bullets := []string{
-		theme.StyleTeal.Render("  " + theme.IconDot + " ") + theme.StyleMuted.Render("Plan and run wash, dry, and rinse cycles without\n    the mental overhead."),
-		theme.StyleTeal.Render("  " + theme.IconDot + " ") + theme.StyleMuted.Render("Set it once. RINSE remembers your preferences\n    and handles the details."),
-		theme.StyleTeal.Render("  " + theme.IconDot + " ") + theme.StyleMuted.Render("See everything in one place — history, status,\n    what is next."),
+		theme.StyleTeal.Render("  " + theme.IconDot + " ") + theme.StyleMuted.Render("Pick a PR. RINSE drives GitHub Copilot through\n    review comments until the PR is approved."),
+		theme.StyleTeal.Render("  " + theme.IconDot + " ") + theme.StyleMuted.Render("Set it once. RINSE remembers your runner, model,\n    and reflection preferences per repo."),
+		theme.StyleTeal.Render("  " + theme.IconDot + " ") + theme.StyleMuted.Render("See everything in one place — PRs reviewed,\n    comments fixed, and time saved."),
 	}
 
 	cta := "\n" + theme.StyleTeal.Render("  → Sounds good, let me try it") +
@@ -821,14 +821,14 @@ func (m wizModel) renderStepA() string {
 
 func (m wizModel) renderStepB(w, h int) string {
 	progress := renderProgress(2)
-	headline := theme.StyleStep.Render("What would you like to call your first cycle?")
+	headline := theme.StyleStep.Render("Name your first review session")
 	sub := theme.StyleMuted.Render("You can always rename it later.")
 
 	var b strings.Builder
 	b.WriteString(progress + "\n\n")
 	b.WriteString(headline + "\n")
 	b.WriteString(sub + "\n\n")
-	b.WriteString(theme.StyleMuted.Render("  Cycle name") + "\n")
+	b.WriteString(theme.StyleMuted.Render("  Session name") + "\n")
 	b.WriteString(m.cycleInput.View() + "\n")
 
 	if m.cycleInputErr != "" {
