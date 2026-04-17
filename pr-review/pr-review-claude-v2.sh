@@ -150,9 +150,10 @@ if [[ "$USE_WORKTREE" == true ]]; then
     fi
     # Best-effort insights finalization (mirrors non-worktree _cleanup_on_exit)
     if [[ -z "${_INS_OUTCOME:-}" && "${_INS_START_EPOCH:-0}" -gt 0 ]]; then
-      local outcome="error"
-      [[ $rc -eq 0 ]] && outcome="clean"
-      insights_finalize "$outcome"
+      # Do not infer a semantic "clean" outcome from rc alone here: an unset
+      # _INS_OUTCOME means some exit path bypassed explicit instrumentation.
+      # Record that as an instrumentation gap instead of guessing success.
+      insights_finalize "unknown"
     fi
     if [[ "$should_print_insights" == true ]]; then
       if [[ "${JSON_INSIGHTS:-false}" == true ]]; then

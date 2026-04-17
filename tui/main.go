@@ -25,6 +25,11 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "init":
+			// Handle -h/--help for subcommands (e.g. rinse init --help).
+			if len(os.Args) > 2 && (os.Args[2] == "--help" || os.Args[2] == "-h") {
+				fmt.Println("usage: rinse init")
+				os.Exit(0)
+			}
 			RunInit()
 			os.Exit(0)
 		default:
