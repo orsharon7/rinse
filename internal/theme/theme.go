@@ -197,6 +197,14 @@ var (
 	StyleBadgeComment = StyleBadge.Background(Yellow)
 	StyleBadgeRules   = StyleBadge.Background(Teal)
 	StyleBadgeTime    = StyleBadge.Background(Lavender)
+	StyleBadgeETA     = StyleBadge.Background(Sky)
+	StyleBadgeOverdue = StyleBadge.Background(Red)
+
+	// Timing-specific text styles (maps to UX design tokens).
+	StyleOverdue       = lipgloss.NewStyle().Foreground(Red).Bold(true)   // --color-status-error
+	StyleETAWarning    = lipgloss.NewStyle().Foreground(Yellow).Bold(true) // --color-status-warning
+	StyleElapsedFrozen = lipgloss.NewStyle().Foreground(Subtext)          // --text-secondary (paused/frozen)
+	StyleElapsedDimmed = lipgloss.NewStyle().Foreground(Overlay)          // --text-dimmed (cancelled)
 
 	StyleReflectPanel = lipgloss.NewStyle().
 				BorderStyle(lipgloss.NormalBorder()).
