@@ -3,7 +3,6 @@ package onboarding
 
 import (
 	"encoding/json"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -116,7 +115,12 @@ func SaveState(s State) error {
 	// step so stale Bubble Tea commands cannot overwrite newer progress.
 	if existing, err := LoadState(); err == nil && existing != nil {
 		if stepOrdinal(existing.CompletedStep) > stepOrdinal(s.CompletedStep) {
+			// The on-disk state is ahead: preserve its step AND all fields that
+			// belong to those later steps so a stale write cannot clobber them.
 			s.CompletedStep = existing.CompletedStep
+			s.Defaults = existing.Defaults
+			s.CycleNameDraft = existing.CycleNameDraft
+			s.Skipped = existing.Skipped
 		}
 	}
 
@@ -141,7 +145,7 @@ func SaveState(s State) error {
 		f.Close()
 		return err
 	}
-	if _, err := io.WriteString(f, string(data)); err != nil {
+	if _, err := f.Write(data); err != nil {
 		f.Close()
 		return err
 	}
