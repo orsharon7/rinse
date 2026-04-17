@@ -696,7 +696,7 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.waitLabel = after[:dotIdx]
 				}
 			}
-			m.phase = inferPhase(plain, m.phase)
+			m = m.applyPhaseChange(inferPhase(plain, m.phase))
 			break
 		}
 
