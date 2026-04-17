@@ -187,7 +187,11 @@ func PromptOptIn() (bool, error) {
 		return false, nil
 	}
 
-	fmt.Println(`
+	sessionsDir, err := SessionsDir()
+	if err != nil {
+		sessionsDir = "~/.rinse/sessions"
+	}
+	fmt.Printf(`
   RINSE Stats — Privacy Notice
   ─────────────────────────────────────────────────────
   Rinse can record per-run telemetry locally to power
@@ -195,11 +199,11 @@ func PromptOptIn() (bool, error) {
   time saved, top patterns).
 
   Data is stored ONLY on this machine at:
-    ~/.rinse/sessions/
+    %s
 
   Nothing is sent to any server.
   You can opt out at any time with: rinse opt-out
-  ─────────────────────────────────────────────────────`)
+  ─────────────────────────────────────────────────────`+"\n", sessionsDir)
 	fmt.Print("  Enable local stats? [y/N]: ")
 
 	var resp string
@@ -257,7 +261,39 @@ func Save(s Session) error {
 	if err != nil {
 		return fmt.Errorf("stats: cannot marshal session: %w", err)
 	}
-	return os.WriteFile(path, data, 0o644)
+
+	tmpFile, err := os.CreateTemp(dir, "session.tmp-*")
+	if err != nil {
+		return fmt.Errorf("stats: cannot create temp file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	success := false
+	defer func() {
+		if !success {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		return fmt.Errorf("stats: cannot write session: %w", err)
+	}
+	if err := tmpFile.Chmod(0o644); err != nil {
+		_ = tmpFile.Close()
+		return fmt.Errorf("stats: cannot chmod session: %w", err)
+	}
+	if err := tmpFile.Sync(); err != nil {
+		_ = tmpFile.Close()
+		return fmt.Errorf("stats: cannot sync session: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("stats: cannot close session: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("stats: cannot rename session: %w", err)
+	}
+	success = true
+	return nil
 }
 
 // Load reads all session files from SessionsDir and returns them ordered
