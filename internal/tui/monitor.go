@@ -1177,9 +1177,19 @@ func (m monitorModel) View() string {
 		badges = append(badges, elapsedBadge)
 	}
 
-	// ETA badge is omitted: m.estimatedEndAt is never assigned (no runner-supplied
-	// ETA source exists yet), so all ETA branches would be dead. Re-enable once
-	// the runner emits timing data and the monitor parses it into m.estimatedEndAt.
+	// ETA badge: derived from resolveETA using the clock-offset-adjusted time.
+	etaSt, etaT := resolveETA(m.phase, m.estimatedEndAt, m.nowAdjusted())
+	switch etaSt {
+	case etaComputable:
+		badges = append(badges,
+			theme.StyleBadgeETA.Render(fmt.Sprintf(" ETA %s ", etaT.Local().Format("15:04"))))
+	case etaFutureDay:
+		badges = append(badges,
+			theme.StyleBadgeETA.Render(fmt.Sprintf(" ETA %s ", etaT.Local().Format("Jan 2 15:04"))))
+	case etaOverdue:
+		badges = append(badges,
+			theme.StyleBadgeOverdue.Render(fmt.Sprintf(" overdue since %s ", etaT.Local().Format("15:04"))))
+	}
 	if m.totalComments > 0 {
 		badges = append(badges,
 			theme.StyleBadgeComment.Render(fmt.Sprintf(" %d comments ", m.totalComments)))
