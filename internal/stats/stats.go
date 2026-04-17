@@ -295,7 +295,9 @@ func Summarize(sessions []Session) Summary {
 // filterStartedTodayUTC returns only sessions whose StartedAt timestamp falls on
 // the current UTC day.
 func filterStartedTodayUTC(sessions []Session) []Session {
-	today := time.Now().UTC().Truncate(24 * time.Hour)
+	now := time.Now().UTC()
+	y, m, d := now.Date()
+	today := time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 	var out []Session
 	for _, s := range sessions {
 		if !s.StartedAt.UTC().Before(today) {
@@ -402,14 +404,26 @@ func PrintReport(sessions []Session) {
 	fmt.Println()
 
 	if r.FastestSec > 0 {
-		fastStr := fmt.Sprintf("%d min", int(r.FastestSec)/60)
+		fastMins := int(math.Round(r.FastestSec / 60))
+		var fastStr string
+		if fastMins < 1 {
+			fastStr = "<1 min"
+		} else {
+			fastStr = fmt.Sprintf("%d min", fastMins)
+		}
 		if r.FastestPR != "" {
-			fastStr += fmt.Sprintf("  (PR #%s)", r.FastestPR)
+			fastStr += fmt.Sprintf(" (PR #%s)", r.FastestPR)
 		}
 		row("Fastest cycle", fastStr)
 	}
 	if r.LongestSec > 0 {
-		longStr := fmt.Sprintf("%d min", int(r.LongestSec)/60)
+		longMins := int(math.Round(r.LongestSec / 60))
+		var longStr string
+		if longMins < 1 {
+			longStr = "<1 min"
+		} else {
+			longStr = fmt.Sprintf("%d min", longMins)
+		}
 		if r.LongestPR != "" {
 			longStr += fmt.Sprintf(" (PR #%s)", r.LongestPR)
 		}

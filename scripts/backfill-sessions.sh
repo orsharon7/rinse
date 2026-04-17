@@ -75,14 +75,27 @@ for log_file in "${log_files[@]}"; do
   fi
 
   # Parse timestamps → ISO 8601: [2026-04-17 12:17:52] some text
-  start_ts="$(echo "$start_line" | grep -oE '20[0-9]{2}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}')"
-  end_ts="$(echo "$end_line" | grep -oE '20[0-9]{2}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}')"
+  start_ts="$(echo "$start_line" | grep -oE '20[0-9]{2}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}' || true)"
+  end_ts="$(echo "$end_line" | grep -oE '20[0-9]{2}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}' || true)"
+  if [[ -z "$start_ts" || -z "$end_ts" ]]; then
+    echo "  [SKIP] PR #${pr_num}: malformed timestamp in log"
+    ((failed++)) || true
+    continue
+  fi
+
   # Convert local timestamps to UTC RFC3339.
   # Try GNU date (-d) first, then BSD date (-jf) for macOS compatibility.
   started_at="$(date -u -d "${start_ts}" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null \
-    || date -ujf '%Y-%m-%d %H:%M:%S' "${start_ts}" '+%Y-%m-%dT%H:%M:%SZ')"
+    || date -ujf '%Y-%m-%d %H:%M:%S' "${start_ts}" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null \
+    || true)"
   ended_at="$(date -u -d "${end_ts}" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null \
-    || date -ujf '%Y-%m-%d %H:%M:%S' "${end_ts}" '+%Y-%m-%dT%H:%M:%SZ')"
+    || date -ujf '%Y-%m-%d %H:%M:%S' "${end_ts}" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null \
+    || true)"
+  if [[ -z "$started_at" || -z "$ended_at" ]]; then
+    echo "  [SKIP] PR #${pr_num}: unable to parse log timestamps"
+    ((failed++)) || true
+    continue
+  fi
 
   # Date prefix for filename: YYYYMMDD-HHMMSS
   date_prefix="$(echo "$start_ts" | tr -d ':-' | tr ' ' '-')"
@@ -135,17 +148,29 @@ for log_file in "${log_files[@]}"; do
   out_file="${SESSIONS_DIR}/${date_prefix}-${repo_slug}-PR${pr_num}.json"
 
   # Build JSON
-  json="{
-  \"started_at\": \"${started_at}\",
-  \"ended_at\": \"${ended_at}\",
-  \"repo\": \"${repo}\",
-  \"pr\": \"${pr_num}\",
-  \"runner\": \"${runner}\",
-  \"model\": \"${model}\",
-  \"total_comments\": ${total_comments},
-  \"iterations\": ${iterations},
-  \"approved\": ${approved}
-}"
+  json="$(
+    jq -n \
+      --arg started_at "$started_at" \
+      --arg ended_at "$ended_at" \
+      --arg repo "$repo" \
+      --arg pr "$pr_num" \
+      --arg runner "$runner" \
+      --arg model "$model" \
+      --argjson total_comments "$total_comments" \
+      --argjson iterations "$iterations" \
+      --argjson approved "$approved" \
+      '{
+        started_at: $started_at,
+        ended_at: $ended_at,
+        repo: $repo,
+        pr: $pr,
+        runner: $runner,
+        model: $model,
+        total_comments: $total_comments,
+        iterations: $iterations,
+        approved: $approved
+      }'
+  )"
 
   if [[ "$DRY_RUN" == "true" ]]; then
     echo "  [DRY-RUN] PR #${pr_num}: would write $(basename "$out_file")"
