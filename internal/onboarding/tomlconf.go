@@ -12,7 +12,7 @@ import (
 func TomlConfigPath() string {
 	dir, err := os.UserConfigDir()
 	if err != nil {
-		dir = os.Getenv("HOME")
+		dir = filepath.Join(os.Getenv("HOME"), ".config")
 	}
 	return filepath.Join(dir, "rinse", "config.toml")
 }
@@ -63,7 +63,7 @@ func WriteTomlConfig(cycleName string, d Defaults) error {
 	// Structure matches the spec in RIN-25#document-defaults-config.
 	content := fmt.Sprintf(
 		"# ~/.config/rinse/config.toml\n"+
-			"# Written by onboarding wizard. Edit manually or via `rinse config set <key> <value>`.\n\n"+
+			"# Written by onboarding wizard. Edit this file manually to change settings.\n\n"+
 			"[defaults]\n"+
 			"remind_on_complete = %v    # Notify when a cycle finishes. (Onboarding Step C toggle 1)\n"+
 			"auto_advance       = %v   # Automatically move to next step. (Onboarding Step C toggle 2)\n"+

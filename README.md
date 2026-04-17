@@ -43,8 +43,11 @@ make install
 # Interactive TUI wizard — recommended first run
 rinse
 
-# Or go straight to a PR
-rinse --pr 42 --repo owner/repo --cwd ~/dev/my-repo
+# Check the Copilot review status of a PR
+rinse status 42 --repo owner/repo
+
+# Start the fix loop non-interactively (no TTY required)
+rinse start 42 --repo owner/repo --cwd ~/dev/my-repo
 ```
 
 The first-run wizard walks you through setup. After that, `rinse` remembers your preferences.
@@ -65,21 +68,33 @@ The first-run wizard walks you through setup. After that, `rinse` remembers your
 ## 🛠 Options
 
 ```
-rinse [--pr <number>] [--repo <owner/repo>] [--cwd <path>] [options]
+rinse                                   # launch interactive TUI
+rinse status [<pr>] [--repo <owner/repo>] [--json]
+rinse start  <pr>  [options]            [--json]
+rinse help
 ```
+
+### `rinse status`
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--pr <number>` | auto-detect | PR number to review |
+| `<pr>` (positional) | auto-detect | PR number to check |
+| `--repo <owner/repo>` | auto-detect | GitHub repo |
+| `--json` | — | Output status as JSON |
+
+### `rinse start`
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `<pr>` (positional, required) | — | PR number to fix |
 | `--repo <owner/repo>` | auto-detect | GitHub repo |
 | `--cwd <path>` | current dir | Local repo path |
 | `--model <model>` | `github-copilot/claude-sonnet-4.6` | AI model for fix agent |
-| `--wait-max <seconds>` | `300` | Max wait per Copilot review cycle |
+| `--runner opencode\|claude` | `opencode` | Runner to use |
 | `--reflect` | — | Enable reflection agent (improves rules after each cycle) |
-| `--no-interactive` | — | Disable TUI (useful in CI) |
-| `--dry-run` | — | Print startup state and exit without making API calls |
-| `--json` | — | Output status as JSON (one-shot, no TUI) |
-| `--version` / `-v` | — | Print version and exit |
+| `--reflect-main-branch <br>` | `main` | Target branch for reflection commits |
+| `--auto-merge` | — | Auto-merge when Copilot approves |
+| `--json` | — | Emit a JSON result after the runner exits |
 
 ### Available Copilot models
 
@@ -100,7 +115,7 @@ It reads Copilot's comments, extracts generalizable coding rules, and permanentl
 Every future cycle loads those rules automatically, so the AI makes fewer mistakes and Copilot leaves fewer comments. The loop gets faster over time.
 
 ```bash
-rinse --pr 42 --repo owner/repo --cwd ~/dev/my-repo --reflect
+rinse start 42 --repo owner/repo --cwd ~/dev/my-repo --reflect
 ```
 
 ---
@@ -120,7 +135,7 @@ rinse --pr 42 --repo owner/repo --cwd ~/dev/my-repo --reflect
 
 1. Fork the repo and create a branch: `git checkout -b feat/my-change`
 2. Make your changes — keep code POSIX-compatible where possible
-3. Test against a real PR: `rinse --pr <number> --dry-run`
+3. Test against a real PR: `rinse start <number> --repo owner/repo`
 4. Open a PR — Copilot reviews it automatically
 5. Use `--reflect` to update coding rules for future sessions
 
@@ -128,8 +143,7 @@ rinse --pr 42 --repo owner/repo --cwd ~/dev/my-repo --reflect
 
 - TUI source is in `internal/tui/` (Go + Charm Bubble Tea)
 - Run `make` to build, `make install` to install locally
-- Use `--dry-run` to inspect startup state without API calls
-- Logs: `~/.pr-review-opencode.log`
+- Logs: `~/.pr-review/logs/<owner_repo>-pr-<n>.log` (and related reflect logs in `~/.pr-review/logs/`)
 
 ---
 

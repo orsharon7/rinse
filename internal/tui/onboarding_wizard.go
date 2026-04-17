@@ -606,6 +606,11 @@ func (m wizModel) handleStepCKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 
 func (m wizModel) handleStepDKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 	if m.creatingCycle {
+		// Allow quit even while the cycle creation request is in-flight.
+		if key.Matches(msg, Keys.Quit) {
+			m.outcome = WizardAborted
+			return m, tea.Quit
+		}
 		return m, nil
 	}
 

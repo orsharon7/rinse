@@ -171,11 +171,14 @@ func queryPRStatus(repo, prNum string) (string, error) {
 			} `json:"author"`
 			State string `json:"state"`
 		} `json:"reviews"`
+		RequestedReviewers []struct {
+			Login string `json:"login"`
+		} `json:"requestedReviewers"`
 	}
 
 	out, err := exec.Command("gh", "pr", "view", prNum,
 		"--repo", repo,
-		"--json", "state,merged,reviewDecision,reviews",
+		"--json", "state,merged,reviewDecision,reviews,requestedReviewers",
 	).Output()
 	if err != nil {
 		return "error", fmt.Errorf("gh pr view: %w", err)
@@ -191,6 +194,13 @@ func queryPRStatus(repo, prNum string) (string, error) {
 	}
 	if strings.EqualFold(p.State, "closed") {
 		return "closed", nil
+	}
+
+	// A requested Copilot reviewer with no submitted review is "pending".
+	for _, rr := range p.RequestedReviewers {
+		if strings.Contains(strings.ToLower(rr.Login), "copilot") {
+			return "pending", nil
+		}
 	}
 
 	switch strings.ToUpper(p.ReviewDecision) {
@@ -411,6 +421,8 @@ func resolveScript(scriptName string) (string, error) {
 		candidates := []string{
 			filepath.Join(binDir, "scripts"),
 			filepath.Join(binDir, "..", "scripts"),
+			filepath.Join(binDir, "pr-review"),
+			filepath.Join(binDir, "..", "pr-review"),
 			binDir,
 		}
 		for _, c := range candidates {
