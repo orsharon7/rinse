@@ -35,7 +35,9 @@ make install
 > - Copy the `scripts/` directory to a location next to the installed binary, **or**
 > - Set `RINSE_SCRIPT_DIR` (or the legacy alias `PR_REVIEW_SCRIPT_DIR`) to the path of your local `scripts/` directory.
 
-Or build and install manually (requires Go ≥ 1.24):
+The `--model` flag accepts any valid opencode model string. Example GitHub Copilot model strings: `github-copilot/claude-sonnet-4`, `github-copilot/claude-sonnet-4.5`, `github-copilot/claude-sonnet-4.6` (default). This list is not exhaustive — pass any model string supported by your opencode installation.
+
+**Example:**
 
 ```bash
 mkdir -p ~/.local/bin
