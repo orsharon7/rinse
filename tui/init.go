@@ -119,6 +119,9 @@ func RunInit() {
 		fmt.Print("Reflection branch (leave blank for default 'main'): ")
 		branchLine, _ := reader.ReadString('\n')
 		reflectBranch = strings.TrimSpace(branchLine)
+		if reflectBranch == "" {
+			reflectBranch = "main"
+		}
 	}
 
 	// Prompt for auto-merge.

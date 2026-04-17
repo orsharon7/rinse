@@ -226,7 +226,27 @@ _gh_lock_remove_label() {
 # _gh_lock_find_comment
 # Prints the comment object JSON if the lock comment exists, empty string otherwise.
 _gh_lock_find_comment() {
-  gh api --paginate "repos/${_SESSION_REPO}/issues/${_SESSION_PR}/comments" \
+  local comment_json=""
+  local headers=""
+  local last_page="1"
+
+  # Prefer a direct read when we already know the comment ID we created.
+  if [[ -n "${_LOCK_COMMENT_ID}" ]]; then
+    comment_json="$(gh api "repos/${_SESSION_REPO}/issues/comments/${_LOCK_COMMENT_ID}" 2>/dev/null || true)"
+    if [[ -n "${comment_json}" ]] && printf '%s\n' "${comment_json}" | jq -e --arg marker "${_RINSE_LOCK_MARKER}" '.body | contains($marker)' >/dev/null 2>&1; then
+      printf '%s\n' "${comment_json}"
+      return 0
+    fi
+  fi
+
+  # Fallback: inspect only the most recent page instead of paginating through all comments.
+  headers="$(gh api -i "repos/${_SESSION_REPO}/issues/${_SESSION_PR}/comments?per_page=1" 2>/dev/null || true)"
+  if [[ "${headers}" == *'rel="last"'* ]]; then
+    last_page="$(printf '%s\n' "${headers}" | sed -n 's/.*[?&]page=\([0-9][0-9]*\)>; rel="last".*/\1/p' | head -n1)"
+    last_page="${last_page:-1}"
+  fi
+
+  gh api "repos/${_SESSION_REPO}/issues/${_SESSION_PR}/comments?per_page=100&page=${last_page}" \
     --jq "[.[] | select(.body | contains(\"${_RINSE_LOCK_MARKER}\"))] | last // empty" \
     2>/dev/null || echo ""
 }

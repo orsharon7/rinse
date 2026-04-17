@@ -63,15 +63,29 @@ _rinse_config_get() {
 
 _rinse_config_set() {
   local key="$1" value="$2"
+
+  if ! command -v jq >/dev/null 2>&1; then
+    return 1
+  fi
+
   mkdir -p "$RINSE_DIR"
   local tmp
   tmp=$(mktemp "${RINSE_DIR}/.config.XXXXXX")
   if [[ -f "$RINSE_CONFIG_FILE" ]]; then
-    jq --arg k "$key" --arg v "$value" '.[$k] = $v' "$RINSE_CONFIG_FILE" > "$tmp"
+    if jq --arg k "$key" --arg v "$value" '.[$k] = $v' "$RINSE_CONFIG_FILE" > "$tmp"; then
+      mv "$tmp" "$RINSE_CONFIG_FILE"
+    else
+      rm -f "$tmp"
+      return 1
+    fi
   else
-    jq -n --arg k "$key" --arg v "$value" '{($k): $v}' > "$tmp"
+    if jq -n --arg k "$key" --arg v "$value" '{($k): $v}' > "$tmp"; then
+      mv "$tmp" "$RINSE_CONFIG_FILE"
+    else
+      rm -f "$tmp"
+      return 1
+    fi
   fi
-  mv "$tmp" "$RINSE_CONFIG_FILE"
 }
 
 # ─── Opt-in prompt ────────────────────────────────────────────────────────────
