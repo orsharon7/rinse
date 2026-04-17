@@ -20,48 +20,18 @@ func writeSession(t *testing.T, dir string, name string, data []byte) {
 }
 
 // overrideSessionsDir temporarily overrides the sessions directory used by Load
-// by monkey-patching the platform-specific home env vars so that
-// SessionsDir() (which calls os.UserHomeDir()) resolves to our temp dir.
-// It sets HOME (Unix) and USERPROFILE (Windows), and unsets HOMEDRIVE and
-// HOMEPATH so Windows home-dir resolution uses USERPROFILE in these tests.
+// via a package-level test hook in internal/stats, avoiding process-wide
+// mutation of HOME/USERPROFILE and related variables.
 // It returns the sessions directory path.
 func overrideSessionsDir(t *testing.T) string {
 	t.Helper()
-	tmpHome := t.TempDir()
-	sessDir := filepath.Join(tmpHome, ".rinse", "sessions")
+	sessDir := filepath.Join(t.TempDir(), "sessions")
 	if err := os.MkdirAll(sessDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 
-	type envVar struct{ key, orig string }
-	vars := []envVar{
-		{"HOME", os.Getenv("HOME")},
-		{"USERPROFILE", os.Getenv("USERPROFILE")},
-		{"HOMEDRIVE", os.Getenv("HOMEDRIVE")},
-		{"HOMEPATH", os.Getenv("HOMEPATH")},
-	}
-	if err := os.Setenv("HOME", tmpHome); err != nil {
-		t.Fatalf("Setenv HOME: %v", err)
-	}
-	if err := os.Setenv("USERPROFILE", tmpHome); err != nil {
-		t.Fatalf("Setenv USERPROFILE: %v", err)
-	}
-	// HOMEDRIVE + HOMEPATH together form the home dir on Windows.
-	// On non-Windows these are typically unset, so clearing them is safe.
-	_ = os.Unsetenv("HOMEDRIVE")
-	_ = os.Unsetenv("HOMEPATH")
-
-	t.Cleanup(func() {
-		for _, v := range vars {
-			if v.orig == "" {
-				_ = os.Unsetenv(v.key)
-			} else {
-				if err := os.Setenv(v.key, v.orig); err != nil {
-					t.Errorf("Setenv %s (restore): %v", v.key, err)
-				}
-			}
-		}
-	})
+	restore := stats.SetSessionsDir(sessDir)
+	t.Cleanup(restore)
 	return sessDir
 }
 
@@ -223,21 +193,9 @@ func TestSummarize_OutcomeCounts(t *testing.T) {
 func overrideHome(t *testing.T) string {
 	t.Helper()
 	tmpHome := t.TempDir()
-	origHome := os.Getenv("HOME")
-	origXDG := os.Getenv("XDG_CONFIG_HOME")
-	if err := os.Setenv("HOME", tmpHome); err != nil {
-		t.Fatalf("Setenv HOME: %v", err)
-	}
+	t.Setenv("HOME", tmpHome)
 	// Clear XDG_CONFIG_HOME so we don't accidentally write to the real config dir.
-	_ = os.Unsetenv("XDG_CONFIG_HOME")
-	t.Cleanup(func() {
-		if err := os.Setenv("HOME", origHome); err != nil {
-			t.Errorf("Setenv HOME (restore): %v", err)
-		}
-		if origXDG != "" {
-			_ = os.Setenv("XDG_CONFIG_HOME", origXDG)
-		}
-	})
+	t.Setenv("XDG_CONFIG_HOME", "")
 	return tmpHome
 }
 

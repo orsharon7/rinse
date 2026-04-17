@@ -100,6 +100,9 @@ func (s Session) DurationSeconds() float64 {
 
 // SessionsDir returns the directory where legacy session JSON files are stored.
 func SessionsDir() (string, error) {
+	if sessionsDirOverride != "" {
+		return sessionsDirOverride, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
