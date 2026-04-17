@@ -83,7 +83,22 @@ source "${SCRIPT_DIR_STATS}/pr-review-stats.sh"
 stats_init "$REPO" "$PR_NUMBER" ""   # model unknown for legacy claude script
 
 _RINSE_OUTCOME="aborted"
-_stats_exit_trap() { stats_record "$_RINSE_OUTCOME"; }
+_stats_exit_trap() {
+  if [[ "$_RINSE_OUTCOME" == "aborted" ]]; then
+    local final_status_json final_status
+    final_status_json=$(bash "$PR_REVIEW" "$PR_NUMBER" status $REPO_FLAG 2>/dev/null || true)
+    final_status=$(echo "$final_status_json" | jq -r '.status // "unknown"' 2>/dev/null || echo "unknown")
+
+    case "$final_status" in
+      approved) _RINSE_OUTCOME="approved" ;;
+      clean)    _RINSE_OUTCOME="clean" ;;
+      merged)   _RINSE_OUTCOME="merged" ;;
+      closed)   _RINSE_OUTCOME="closed" ;;
+    esac
+  fi
+
+  stats_record "$_RINSE_OUTCOME"
+}
 trap _stats_exit_trap EXIT
 
 log "🚀 Claude PR review loop starting"
@@ -134,7 +149,7 @@ case "$startup_state" in
     ;;
   approved)
     log "   State: Already APPROVED — nothing to do"
-    exit 0
+    _RINSE_OUTCOME="approved"; exit 0
     ;;
   no_reviews)
     log "   State: No Copilot reviews yet — cycle will request the first one"

@@ -150,8 +150,8 @@ session_recover() {
   fi
 
   # PID is dead but status is "running" → this was a crash
-  RECOVER_REVIEW_ID=$(jq -r '.last_review_id // ""' "$_SESSION_FILE")
-  RECOVER_ITER=$(jq -r '.iter // 0' "$_SESSION_FILE")
+  RECOVER_REVIEW_ID=$(jq -r '.last_review_id // ""' "$_SESSION_FILE" 2>/dev/null || echo "")
+  RECOVER_ITER=$(jq -r '.iter // 0' "$_SESSION_FILE" 2>/dev/null || echo 0)
 
   return 0
 }
@@ -215,8 +215,15 @@ _gh_lock_find_comment() {
 # Outputs the embedded JSON blob from the lock comment body.
 _gh_lock_parse_metadata() {
   local body="$1"
-  # Extract the JSON block: the line immediately after the marker line, before -->
-  echo "$body" | grep -A1 "${_RINSE_LOCK_MARKER}" | tail -1 | grep -v '^-->'
+  # Best-effort extraction: print the line immediately after the marker line
+  # if present and not the closing "-->" line; otherwise print nothing.
+  printf '%s\n' "$body" | awk -v marker="${_RINSE_LOCK_MARKER}" '
+    found {
+      if ($0 != "-->") print
+      exit
+    }
+    index($0, marker) { found=1 }
+  '
 }
 
 _gh_lock_is_stale() {

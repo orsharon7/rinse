@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -20,6 +21,23 @@ type RepoRinseConfig struct {
 }
 
 const rinseConfigFile = ".rinse.json"
+
+// LoadRepoRinseConfig reads .rinse.json from the given directory (typically
+// the repo root) and returns the config and true on success.  If the file
+// does not exist or cannot be parsed, it returns an empty config and false so
+// callers can fall back to user-level defaults.
+func LoadRepoRinseConfig(dir string) (RepoRinseConfig, bool) {
+	path := filepath.Join(dir, rinseConfigFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return RepoRinseConfig{}, false
+	}
+	var cfg RepoRinseConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return RepoRinseConfig{}, false
+	}
+	return cfg, true
+}
 
 // RunInit implements the `rinse init` subcommand.
 // It scaffolds a .rinse.json config in the current directory with sensible

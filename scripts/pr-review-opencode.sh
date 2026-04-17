@@ -136,11 +136,23 @@ STATE_FILE="${STATE_DIR}/pr-${PR_NUMBER}-last-review"
 stats_init "$REPO" "$PR_NUMBER" "$MODEL"
 
 # Record stats on any exit (trap captures the final exit code).
-# _RINSE_OUTCOME is set to the semantic outcome just before each exit; the trap
-# uses it so we report the right label rather than just success/failure.
-_RINSE_OUTCOME="aborted"
+# _RINSE_OUTCOME is set to the semantic outcome just before each exit; when an
+# exit path forgets to set it, derive a fallback from the shell exit status so
+# telemetry does not get mislabeled as "aborted" by default.
+_RINSE_OUTCOME=""
 _stats_exit_trap() {
-  stats_record "$_RINSE_OUTCOME"
+  local exit_code="$?"
+  local outcome="${_RINSE_OUTCOME:-}"
+
+  if [[ -z "$outcome" ]]; then
+    case "$exit_code" in
+      0)   outcome="success" ;;
+      124) outcome="timeout" ;;
+      *)   outcome="aborted" ;;
+    esac
+  fi
+
+  stats_record "$outcome"
 }
 
 # ─── Worktree isolation (optional — used by orchestrator for parallel runs) ───

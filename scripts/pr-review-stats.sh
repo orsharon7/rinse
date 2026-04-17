@@ -217,7 +217,7 @@ _cli_show() {
 
   local filter
   if [[ -n "$repo_filter" ]]; then
-    filter="[.[] | select(.repo == \"$repo_filter\")] | .[-${limit}:][]"
+    filter="[.[] | select(.repo == \$repo_filter)] | .[-${limit}:][]"
   else
     filter=".[-(${limit}):][]"
   fi
@@ -228,7 +228,7 @@ _cli_show() {
     "timestamp" "repo" "pr" "dur(s)" "iters" "comments" "outcome" "model"
   echo "$(printf '%.0s─' {1..110})"
 
-  jq -rs "$filter | [
+  jq -rs --arg repo_filter "$repo_filter" "$filter | [
     .timestamp,
     .repo,
     (.pr_number | tostring),
