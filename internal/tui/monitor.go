@@ -16,6 +16,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/orsharon7/rinse/internal/stats"
 	"github.com/orsharon7/rinse/internal/theme"
 )
 
@@ -26,6 +27,68 @@ var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[mK]`)
 var commentCountRe = regexp.MustCompile(`(\d+)\s+comment\(s\)`)
 
 func stripANSI(s string) string { return ansiRe.ReplaceAllString(s, "") }
+
+// ── Timing helpers ────────────────────────────────────────────────────────────
+
+// formatElapsed formats d per spec:
+//
+//	0 – 59m59s  → mm:ss        (e.g. "04:37")
+//	1h – 99h59m → h:mm:ss      (e.g. "1:04:37")   hours NOT zero-padded
+//	100h+       → hh:mm:ss     (e.g. "100:04:37")
+func formatElapsed(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	totalSec := int(d.Seconds())
+	h := totalSec / 3600
+	m := (totalSec % 3600) / 60
+	s := totalSec % 60
+	if h == 0 {
+		return fmt.Sprintf("%02d:%02d", m, s)
+	}
+	return fmt.Sprintf("%d:%02d:%02d", h, m, s)
+}
+
+// etaState describes which ETA display branch applies.
+type etaState int
+
+const (
+	etaHidden     etaState = iota // phase not yet started (pending)
+	etaUnknown                    // running but no estimatedEndAt
+	etaComputable                 // ETA today
+	etaFutureDay                  // ETA tomorrow or later
+	etaOverdue                    // past estimated end
+	etaCompleted                  // cycle done
+	etaCancelled                  // cycle cancelled
+	etaError                      // cycle error
+)
+
+// resolveETA computes the ETA display state given current phase and optional
+// server-supplied estimatedEndAt. now is the clock-offset-adjusted current time.
+func resolveETA(p phase, estimatedEndAt *time.Time, now time.Time) (etaState, time.Time) {
+	switch p {
+	case phaseStarting:
+		return etaHidden, time.Time{}
+	case phaseDone:
+		return etaCompleted, time.Time{}
+	case phaseError:
+		return etaError, time.Time{}
+	}
+	// Active phases (waiting/fixing/reflecting).
+	if estimatedEndAt == nil {
+		return etaUnknown, time.Time{}
+	}
+	eta := *estimatedEndAt
+	if eta.Before(now) {
+		return etaOverdue, eta
+	}
+	etaLocal := eta.Local()
+	nowLocal := now.Local()
+	if etaLocal.Year() == nowLocal.Year() && etaLocal.YearDay() == nowLocal.YearDay() {
+		return etaComputable, eta
+	}
+	return etaFutureDay, eta
+}
 
 // ── Phase ─────────────────────────────────────────────────────────────────────
 
@@ -175,6 +238,18 @@ type monitorModel struct {
 	cmd      *exec.Cmd
 	exitCode int
 	done     bool
+
+	// timing: server-driven time derivation per UX spec (RIN-42).
+	// clockOffset is computed once per connection as serverNow - Date.now().
+	// For the local runner, it remains zero (runner IS the server).
+	clockOffset        time.Duration
+	lastStateChangedAt time.Time     // wall-clock of most recent phase transition
+	frozenElapsed      *time.Duration // set when entering done/error; nil while active
+	estimatedEndAt     *time.Time     // server-supplied ETA (nil until runner emits it)
+	overdueAnnounced   bool           // prevents repeated toast on overdue crossing
+
+	// timing tooltip (toggled by 't' key)
+	showTimingTooltip bool
 }
 
 func newMonitorModel(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge bool, cmd *exec.Cmd) monitorModel {
@@ -203,6 +278,7 @@ func newMonitorModel(pr, repo, runnerName, modelName, prTitle, cwd string, autoM
 		cmd:                cmd,
 		renderedLog:        &strings.Builder{},
 		postCycleDefaultBr: defaultBr,
+		lastStateChangedAt: time.Now(),
 	}
 }
 
@@ -223,6 +299,39 @@ func detectLocalDefaultBranch(cwd string) string {
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
+
+// elapsedForDisplay returns the duration to show in the elapsed badge.
+// Returns frozenElapsed when the cycle has ended; ticks live otherwise.
+// Returns 0 during phaseStarting (not yet shown per state-mapping spec).
+func (m monitorModel) elapsedForDisplay() time.Duration {
+	if m.frozenElapsed != nil {
+		return *m.frozenElapsed
+	}
+	if m.phase == phaseStarting {
+		return 0
+	}
+	return (time.Since(m.started) + m.clockOffset).Round(time.Second)
+}
+
+// nowAdjusted returns the clock-offset-adjusted current time.
+func (m monitorModel) nowAdjusted() time.Time {
+	return time.Now().Add(m.clockOffset)
+}
+
+// applyPhaseChange records a phase transition: updates lastStateChangedAt and
+// freezes elapsed when entering a terminal phase. Returns the updated model.
+func (m monitorModel) applyPhaseChange(newPhase phase) monitorModel {
+	if newPhase == m.phase {
+		return m
+	}
+	m.lastStateChangedAt = time.Now()
+	if newPhase == phaseDone || newPhase == phaseError {
+		d := (time.Since(m.started) + m.clockOffset).Round(time.Second)
+		m.frozenElapsed = &d
+	}
+	m.phase = newPhase
+	return m
+}
 
 func (m monitorModel) Init() tea.Cmd {
 	return tea.Batch(m.spinner.Tick, tick())
@@ -368,6 +477,18 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// When the timing tooltip is open: any key closes it (except ctrl+c which quits).
+		if m.showTimingTooltip {
+			if key.Matches(msg, Keys.ForceQuit) {
+				if m.cmd != nil && m.cmd.Process != nil {
+					_ = m.cmd.Process.Kill()
+				}
+				return m, tea.Quit
+			}
+			m.showTimingTooltip = false
+			return m, nil
+		}
+
 		// Outside the help overlay: q or ctrl+c quits.
 		if key.Matches(msg, Keys.Quit) {
 			if m.cmd != nil && m.cmd.Process != nil {
@@ -382,6 +503,8 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if key.Matches(msg, Keys.Help) {
 			m.showHelp = true
+		} else if key.Matches(msg, Keys.TimingInfo) {
+			m.showTimingTooltip = !m.showTimingTooltip
 		} else {
 			switch msg.String() {
 			case "G":
@@ -442,6 +565,15 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		cmds = append(cmds, tick())
+		// Check for overdue crossing once per tick while cycle is active.
+		if !m.overdueAnnounced && m.estimatedEndAt != nil && m.phase != phaseDone && m.phase != phaseError {
+			if m.nowAdjusted().After(*m.estimatedEndAt) {
+				m.overdueAnnounced = true
+				m.toastMsg = theme.StyleBadgeOverdue.Render(" OVERDUE ")
+				cmds = append(cmds, tea.Tick(5*time.Second,
+					func(t time.Time) tea.Msg { return clearToastMsg{} }))
+			}
+		}
 
 	case spinner.TickMsg:
 		var spcmd tea.Cmd
@@ -564,7 +696,7 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.renderedLog.WriteString(colorLine(raw) + "\n")
 		}
 
-		m.phase = nextPhase
+		m = m.applyPhaseChange(nextPhase)
 
 		if strings.Contains(plain, "Iteration") {
 			var n int
@@ -584,14 +716,14 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.done = true
 		m.exitCode = msg.exitCode
 		if msg.exitCode == 0 {
-			m.phase = phaseDone
+			m = m.applyPhaseChange(phaseDone)
 			if m.readyToMerge && !m.autoMerge {
 				m.showPostCycleMenu = true
 				m.postCycleCursor = 0
 				m.postCycleOptions = buildPostCycleOptions(m.postCycleDefaultBr)
 			}
 		} else {
-			m.phase = phaseError
+			m = m.applyPhaseChange(phaseError)
 		}
 		m.viewport.SetContent(m.renderedLog.String())
 		if m.atBottom {
@@ -1179,8 +1311,29 @@ func RunMonitor(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge 
 	cm := newChannelMonitor(pr, repo, runnerName, modelName, prTitle, cwd, autoMerge, lineCh, doneCh)
 
 	p := tea.NewProgram(cm, tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
+	finalModel, err := p.Run()
+	if err != nil {
 		return err
+	}
+
+	// Persist session metrics for `rinse stats`.
+	if fm, ok := finalModel.(channelMonitor); ok {
+		m := fm.monitorModel
+		approved := m.done && m.exitCode == 0 &&
+			len(m.iterHistory) > 0 &&
+			m.iterHistory[len(m.iterHistory)-1].result == iterApproved
+		session := stats.Session{
+			StartedAt:     m.started,
+			EndedAt:       time.Now(),
+			Repo:          repo,
+			PR:            pr,
+			Runner:        runnerName,
+			Model:         modelName,
+			TotalComments: m.totalComments,
+			Iterations:    m.iter,
+			Approved:      approved,
+		}
+		_ = stats.Save(session)
 	}
 
 	if cmd.Process != nil {

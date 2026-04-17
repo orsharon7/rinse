@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/orsharon7/rinse/internal/stats"
 	"github.com/orsharon7/rinse/internal/tui"
 )
 
@@ -11,9 +12,24 @@ import (
 var version = "dev"
 
 func main() {
-	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
-		fmt.Printf("rinse %s\n", version)
-		os.Exit(0)
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "--version", "-v":
+			fmt.Printf("rinse %s\n", version)
+			os.Exit(0)
+		case "stats":
+			sessions, err := stats.Load()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "error reading sessions:", err)
+				os.Exit(1)
+			}
+			if len(sessions) == 0 {
+				fmt.Println("\n  No sessions recorded yet. Run rinse on a PR to start tracking stats.\n")
+				os.Exit(0)
+			}
+			stats.Print(sessions)
+			os.Exit(0)
+		}
 	}
 
 	if err := tui.Run(version); err != nil {
