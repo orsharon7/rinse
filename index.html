@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rinse — Fix AI slop in one command.</title>
+  <meta name="description" content="Rinse scans your codebase for boilerplate AI comments and strips them out — 2 seconds, local, no config." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav class="nav" id="nav">
+    <div class="nav-inner container">
+      <a class="nav-logo" href="/">rinse</a>
+      <a class="nav-gh" href="https://github.com/orsharon7/rinse" target="_blank" rel="noopener">GitHub ↗</a>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="container">
+      <h1 class="hero-h1 fade-in">Fix AI slop in one command.</h1>
+      <p class="hero-sub fade-in delay-1">Rinse scans your codebase for boilerplate AI comments and strips them out — 2 seconds, local, no config.</p>
+
+      <div class="install-pill fade-in delay-2">
+        <span class="install-cmd"><span class="prompt">$</span> brew install rinse</span>
+        <button class="copy-btn" id="copyBtn" aria-label="Copy install command">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          <span id="copyLabel">Copy</span>
+        </button>
+      </div>
+
+      <div class="terminal fade-in delay-3" aria-label="Terminal demo">
+        <div class="terminal-line"><span class="prompt">$</span> <span class="typed" id="typedCmd"></span><span class="cursor" id="cursor">▋</span></div>
+        <div class="terminal-output" id="termOutput" aria-live="polite"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HOW IT WORKS -->
+  <section class="how section">
+    <div class="container">
+      <span class="section-label">HOW IT WORKS</span>
+      <h2 class="section-h2">Three steps to clean code.</h2>
+      <div class="steps-grid">
+        <div class="step fade-in">
+          <span class="step-num">01</span>
+          <h3 class="step-title">Install</h3>
+          <p class="step-desc">One brew command. No dependencies, no config files, no setup wizard.</p>
+          <code class="step-code">brew install rinse</code>
+        </div>
+        <div class="step fade-in delay-1">
+          <span class="step-num">02</span>
+          <h3 class="step-title">Run</h3>
+          <p class="step-desc">Point Rinse at any directory. It scans every file and flags AI-generated boilerplate.</p>
+          <code class="step-code">rinse .</code>
+        </div>
+        <div class="step fade-in delay-2">
+          <span class="step-num">03</span>
+          <h3 class="step-title">Ship</h3>
+          <p class="step-desc">Commit the diff. Your codebase is clean. Reviewers read code, not AI filler.</p>
+          <code class="step-code">git commit -m "clean"</code>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STATS -->
+  <section class="stats section">
+    <div class="container">
+      <hr class="stats-rule" />
+      <div class="stats-grid">
+        <div class="stat fade-in">
+          <span class="stat-num">2.1s</span>
+          <span class="stat-label">avg run time</span>
+        </div>
+        <div class="stat fade-in delay-1">
+          <span class="stat-num">94%</span>
+          <span class="stat-label">AI comments removed</span>
+        </div>
+        <div class="stat fade-in delay-2">
+          <span class="stat-num">47</span>
+          <span class="stat-label">files per scan</span>
+        </div>
+      </div>
+      <hr class="stats-rule" />
+    </div>
+  </section>
+
+  <!-- PRO TEASER -->
+  <section class="pro section">
+    <div class="pro-band">
+      <div class="container">
+        <div class="pro-inner">
+          <div class="pro-copy fade-in">
+            <h2 class="pro-h2">Team dashboard — coming soon.</h2>
+            <p class="pro-desc">Track AI comment debt across your whole org. See which repos are worst, set thresholds, and enforce clean code in CI.</p>
+          </div>
+          <form class="waitlist-form fade-in delay-1" id="waitlistForm" action="https://formspree.io/f/rinse-waitlist" method="POST" novalidate>
+            <input
+              class="waitlist-input"
+              type="email"
+              name="email"
+              placeholder="you@company.com"
+              aria-label="Work email"
+              required
+            />
+            <button class="waitlist-btn" type="submit">Join waitlist</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="footer">
+    <div class="container">
+      <nav class="footer-links" aria-label="Footer navigation">
+        <a href="https://github.com/orsharon7/rinse" target="_blank" rel="noopener">GitHub</a>
+        <span aria-hidden="true">·</span>
+        <a href="https://github.com/orsharon7/rinse/blob/master/LICENSE" target="_blank" rel="noopener">MIT License</a>
+        <span aria-hidden="true">·</span>
+        <a href="https://github.com/orsharon7/rinse" target="_blank" rel="noopener">rinse.sh</a>
+      </nav>
+      <p class="footer-tagline">Rinse. Keep it clean.</p>
+    </div>
+  </footer>
+
+  <script src="main.js"></script>
+</body>
+</html>
