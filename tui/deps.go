@@ -23,7 +23,8 @@ type dep struct {
 	installHint []string // OS-specific quick-install hints shown inline
 }
 
-// requiredDeps lists every tool that RINSE needs to function at all.
+// requiredDeps lists the minimal set of tools required to launch the app and
+// run status checks. Runner scripts may require additional tools (e.g. bash, jq).
 var requiredDeps = []dep{
 	{
 		cmd:         "git",

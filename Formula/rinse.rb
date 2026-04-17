@@ -12,7 +12,7 @@ class Rinse < Formula
     cd "tui" do
       system "go", "build",
              "-ldflags", "-X main.version=#{version}",
-             "-o", bin/"rinse",
+             "-o", libexec/"rinse-bin",
              "."
     end
 
@@ -20,11 +20,21 @@ class Rinse < Formula
     libexec.install Dir["pr-review/*.sh"]
     (libexec/"pr-review").chmod_R 0755
 
-    # Create a pr-review wrapper that sets PR_REVIEW_SCRIPT_DIR
+    # Create a rinse wrapper that sets RINSE_SCRIPT_DIR so scripts are found
+    # when users invoke rinse directly (including the interactive TUI).
+    (bin/"rinse").write <<~EOS
+      #!/usr/bin/env bash
+      export RINSE_SCRIPT_DIR="#{libexec}/pr-review"
+      exec "#{libexec}/rinse-bin" "$@"
+    EOS
+    chmod 0755, bin/"rinse"
+
+    # Create a pr-review wrapper that also sets PR_REVIEW_SCRIPT_DIR
     (bin/"pr-review").write <<~EOS
       #!/usr/bin/env bash
+      export RINSE_SCRIPT_DIR="#{libexec}/pr-review"
       export PR_REVIEW_SCRIPT_DIR="#{libexec}/pr-review"
-      exec "#{bin}/rinse" "$@"
+      exec "#{libexec}/rinse-bin" "$@"
     EOS
     chmod 0755, bin/"pr-review"
   end

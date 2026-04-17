@@ -84,17 +84,19 @@ func runStatusCmd(args []string) {
 	for i := 0; i < len(rest); i++ {
 		switch rest[i] {
 		case "--repo":
-			i++
-			if i < len(rest) {
-				repo = rest[i]
+			if i+1 >= len(rest) || strings.HasPrefix(rest[i+1], "-") {
+				fatalf(asJSON, "--repo requires a value")
 			}
+			i++
+			repo = rest[i]
 		case "--json":
 			asJSON = true
 		case "--pr":
-			i++
-			if i < len(rest) {
-				prNum = rest[i]
+			if i+1 >= len(rest) || strings.HasPrefix(rest[i+1], "-") {
+				fatalf(asJSON, "--pr requires a value")
 			}
+			i++
+			prNum = rest[i]
 		default:
 			fatalf(asJSON, "unknown flag: %s", rest[i])
 		}
@@ -126,7 +128,7 @@ func runStatusCmd(args []string) {
 	status, err := queryPRStatus(repo, prNum)
 	if err != nil {
 		if asJSON {
-			emitJSON(StatusResult{OK: false, PR: prNum, Repo: repo, Error: err.Error()})
+			emitJSON(StatusResult{OK: false, PR: prNum, Repo: repo, Status: "error", Error: err.Error()})
 		} else {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		}
@@ -263,34 +265,27 @@ func runStartCmd(args []string) {
 	rest := args[1:]
 
 	for i := 0; i < len(rest); i++ {
+		consumeFlagValue := func(flag string) string {
+			if i+1 >= len(rest) || strings.HasPrefix(rest[i+1], "-") {
+				fatalf(asJSON, "flag %s requires a value", flag)
+			}
+			i++
+			return rest[i]
+		}
+
 		switch rest[i] {
 		case "--repo":
-			i++
-			if i < len(rest) {
-				repo = rest[i]
-			}
+			repo = consumeFlagValue("--repo")
 		case "--cwd":
-			i++
-			if i < len(rest) {
-				cwd = rest[i]
-			}
+			cwd = consumeFlagValue("--cwd")
 		case "--model":
-			i++
-			if i < len(rest) {
-				model = rest[i]
-			}
+			model = consumeFlagValue("--model")
 		case "--runner":
-			i++
-			if i < len(rest) {
-				runnerName = rest[i]
-			}
+			runnerName = consumeFlagValue("--runner")
 		case "--reflect":
 			reflect = true
 		case "--reflect-main-branch":
-			i++
-			if i < len(rest) {
-				reflectMain = rest[i]
-			}
+			reflectMain = consumeFlagValue("--reflect-main-branch")
 		case "--auto-merge":
 			autoMerge = true
 		case "--json":

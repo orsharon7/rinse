@@ -62,7 +62,7 @@ func main() {
 	rName := shortRunnerName(fm.runnerIdx)
 	runnerCmd := append(fm.finalCmd, "--no-interactive")
 
-	// RunMonitor returns the runner's exit code (0=ok, 1=error).
+	// RunMonitor returns the runner's real exit code, which may be greater than 1.
 	exitCode, err := RunMonitor(fm.prNum, fm.repo, strings.TrimSpace(rName), fm.modelOverride, fm.prTitle, fm.path, fm.autoMerge, runnerCmd)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "monitor error:", err)

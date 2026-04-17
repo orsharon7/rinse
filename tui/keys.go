@@ -25,6 +25,9 @@ type KeyMap struct {
 	// Wizard-specific
 	Settings key.Binding
 	ManualPR key.Binding
+	// Monitor log-saving
+	SaveReflect key.Binding
+	SaveAll     key.Binding
 	// Settings view navigation
 	Left   key.Binding
 	Right  key.Binding
@@ -89,6 +92,14 @@ var Keys = KeyMap{
 	ManualPR: key.NewBinding(
 		key.WithKeys("#"),
 		key.WithHelp("#", "enter PR number"),
+	),
+	SaveReflect: key.NewBinding(
+		key.WithKeys("s"),
+		key.WithHelp("s", "save reflect log"),
+	),
+	SaveAll: key.NewBinding(
+		key.WithKeys("S"),
+		key.WithHelp("S", "save full session log"),
 	),
 	Left: key.NewBinding(
 		key.WithKeys("left", "h"),

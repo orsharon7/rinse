@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"regexp"
@@ -434,7 +435,7 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case key.Matches(msg, Keys.Top):
 				m.atBottom = false
 				m.viewport.GotoTop()
-			case msg.String() == "s":
+			case key.Matches(msg, Keys.SaveReflect):
 				if len(m.reflectLines) > 0 {
 					fname := fmt.Sprintf("pr-review-reflect-%s.txt",
 						time.Now().Format("20060102-150405"))
@@ -451,7 +452,7 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cmds = append(cmds, tea.Tick(2*time.Second,
 						func(t time.Time) tea.Msg { return clearStatusMsg{} }))
 				}
-			case msg.String() == "S":
+			case key.Matches(msg, Keys.SaveAll):
 				ts := time.Now().Format("20060102-150405")
 				// Save the rendered main log so the file matches what was shown
 				// in the viewport, including lines appended outside m.lines.
@@ -736,7 +737,7 @@ func (m monitorModel) executePostCycleAction(choice int) (tea.Model, tea.Cmd) {
 			// Detect local branch; only attempt checkout+delete when detection succeeds.
 			localBranch, revErr := runShell("git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD")
 			if revErr != nil {
-				return actionDoneMsg{output: "✅ Merged, remote branch deleted. (local branch cleanup skipped: " + strings.TrimSpace(localBranch) + ")"}
+				return actionDoneMsg{output: "⚠️ Merged, remote branch deleted. (local branch cleanup skipped: git rev-parse failed: " + revErr.Error() + ")"}
 			}
 			localBranch = strings.TrimSpace(localBranch)
 			if localBranch == "" || localBranch == defaultBr {
@@ -1231,7 +1232,18 @@ type webhookPayload struct {
 
 // fireWebhook POSTs a cycle-complete notification to webhookURL.
 // Errors are printed to stderr but never fatal — the webhook is best-effort.
+//
+// Webhook integration: set RINSE_WEBHOOK_URL to receive a POST request at the
+// end of each review cycle. The JSON payload includes event, pr, repo,
+// exit_code, status ("done"|"error"), phase, and timestamp fields.
+// Note: the URL is used as-is; HTTPS is strongly recommended to avoid sending
+// payload data in cleartext.
 func fireWebhook(webhookURL, pr, repo string, exitCode int, p phase) {
+	// Validate URL scheme — reject non-HTTP/HTTPS to prevent accidental plaintext leaks.
+	if parsed, err := url.Parse(webhookURL); err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		fmt.Fprintf(os.Stderr, "[rinse] webhook URL must use http or https scheme: %s\n", webhookURL)
+		return
+	}
 	status := "done"
 	if exitCode != 0 {
 		status = "error"
@@ -1281,7 +1293,7 @@ func fireWebhook(webhookURL, pr, repo string, exitCode int, p phase) {
 // Exit codes:
 //
 //	0 — cycle completed successfully
-//	1 — runner exited with an error
+//	non-zero — runner exit code
 func RunMonitor(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge bool, runnerArgs []string) (int, error) {
 	cmd := exec.Command(runnerArgs[0], runnerArgs[1:]...)
 	cmd.Stdin = os.Stdin
@@ -1360,9 +1372,9 @@ func RunMonitor(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge 
 		exitCode = 1
 	}
 
-	// Fire webhook if configured (best-effort, non-blocking).
+	// Fire webhook if configured (best-effort, non-blocking — runs in a goroutine).
 	if webhookURL := os.Getenv("RINSE_WEBHOOK_URL"); webhookURL != "" {
-		fireWebhook(webhookURL, pr, repo, exitCode, fm.phase)
+		go fireWebhook(webhookURL, pr, repo, exitCode, fm.phase)
 	}
 
 	return exitCode, nil
