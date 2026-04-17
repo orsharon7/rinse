@@ -38,7 +38,11 @@
 #   ./pr-review-stats.sh opt-out
 #   ./pr-review-stats.sh status
 #
-set -euo pipefail
+# set -euo pipefail is applied only when executed directly (not sourced),
+# so it does not mutate the caller's shell options.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  set -euo pipefail
+fi
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -211,7 +215,7 @@ _cli_show() {
     return
   fi
 
-  local filter=". | last_n($limit)"
+  local filter
   if [[ -n "$repo_filter" ]]; then
     filter="[.[] | select(.repo == \"$repo_filter\")] | .[-${limit}:][]"
   else
@@ -224,7 +228,7 @@ _cli_show() {
     "timestamp" "repo" "pr" "dur(s)" "iters" "comments" "outcome" "model"
   echo "$(printf '%.0s─' {1..110})"
 
-  jq -r "$filter | [
+  jq -rs "$filter | [
     .timestamp,
     .repo,
     (.pr_number | tostring),

@@ -540,14 +540,14 @@ while true; do
   ui_outcome "💬" "${comment_count} comment(s) in review ${rid}" "$GUM_WARN"
   log "💬 ${comment_count} comment(s) in review ${rid} — invoking Claude (${MODEL})..."
 
-  # Record insights for this iteration (classify comments by category)
-  insights_record_iteration "$comment_count" "$comments_json"
-
   # ── Step 4: Build prompt and invoke Claude ────────────────────────────
 
   ui_step 4 "Fix comments with Claude (${MODEL})"
 
   comments_json=$(echo "$comments" | jq '.')
+
+  # Record insights for this iteration (classify comments by category)
+  insights_record_iteration "$comment_count" "$comments_json"
 
   read -r -d '' PROMPT << PROMPT_EOF || true
 You are fixing GitHub Copilot code review comments on PR #${PR_NUMBER} in ${REPO}.
