@@ -142,7 +142,6 @@ _RINSE_OUTCOME="aborted"
 _stats_exit_trap() {
   stats_record "$_RINSE_OUTCOME"
 }
-trap _stats_exit_trap EXIT
 
 # ─── Worktree isolation (optional — used by orchestrator for parallel runs) ───
 
@@ -169,6 +168,7 @@ if [[ "$USE_WORKTREE" == true ]]; then
     fi
     session_clear
     gh_lock_release
+    _stats_exit_trap
   }
   trap cleanup_pr_worktree EXIT
 
@@ -445,6 +445,7 @@ if [[ "$USE_WORKTREE" == false ]]; then
   _cleanup_session_lock() {
     session_clear
     gh_lock_release
+    _stats_exit_trap
   }
   trap _cleanup_session_lock EXIT
 fi

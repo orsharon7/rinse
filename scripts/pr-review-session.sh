@@ -50,7 +50,9 @@ RINSE_LOCK_TIMEOUT="${RINSE_LOCK_TIMEOUT:-14400}"
 RINSE_RUNNING_LABEL="${RINSE_RUNNING_LABEL:-rinse:running}"
 
 # Magic marker in the lock comment body (must not appear in normal PR comments)
-_RINSE_LOCK_MARKER="<!-- rinse-lock-metadata -->"
+# The full comment body is: <!-- rinse-lock-metadata\n<json>\n-->
+# so the metadata JSON is hidden from the PR conversation.
+_RINSE_LOCK_MARKER="<!-- rinse-lock-metadata"
 
 # ─── Internal globals (set by session_init) ───────────────────────────────────
 
@@ -88,7 +90,13 @@ session_update() {
   jq -n \
     --arg hostname "$_SESSION_HOSTNAME" \
     --argjson pid "$_SESSION_PID" \
-    --arg started_at "$(cat "${_SESSION_FILE}" 2>/dev/null | jq -r '.started_at // ""')" \
+    --arg started_at "$(
+      if [[ -f "$_SESSION_FILE" ]]; then
+        jq -r '.started_at // ""' "$_SESSION_FILE" 2>/dev/null || echo ""
+      else
+        echo ""
+      fi
+    )" \
     --arg updated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --argjson iter "$iter" \
     --arg last_review_id "$last_rid" \
@@ -202,8 +210,8 @@ _gh_lock_find_comment() {
 # Outputs the embedded JSON blob from the lock comment body.
 _gh_lock_parse_metadata() {
   local body="$1"
-  # Extract the JSON block between the marker line and the closing HTML comment
-  echo "$body" | grep -A1 "${_RINSE_LOCK_MARKER}" | tail -1
+  # Extract the JSON block: the line immediately after the marker line, before -->
+  echo "$body" | grep -A1 "${_RINSE_LOCK_MARKER}" | tail -1 | grep -v '^-->'
 }
 
 _gh_lock_is_stale() {
@@ -294,7 +302,7 @@ gh_lock_acquire() {
     '{hostname: $hostname, pid: $pid, locked_at: $locked_at, lock_id: $lock_id}')
 
   local comment_body
-  comment_body="$(printf '%s\n%s' "$_RINSE_LOCK_MARKER" "$meta_json")"
+  comment_body="$(printf '%s\n%s\n%s' "$_RINSE_LOCK_MARKER" "$meta_json" "-->")"
 
   _gh_lock_add_label
 

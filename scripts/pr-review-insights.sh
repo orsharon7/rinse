@@ -24,6 +24,13 @@
 #
 # This file intentionally has no set -e so callers are not affected when sourced.
 
+# ─── Bash version guard ───────────────────────────────────────────────────────
+
+if [[ -z "${BASH_VERSINFO:-}" || "${BASH_VERSINFO[0]}" -lt 4 ]]; then
+  echo "pr-review-insights.sh requires Bash 4+ (associative arrays are used for category counters)." >&2
+  return 1 2>/dev/null || exit 1
+fi
+
 # ─── Internal state ───────────────────────────────────────────────────────────
 
 _INS_PR=""
