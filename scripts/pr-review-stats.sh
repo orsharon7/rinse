@@ -64,7 +64,7 @@ _rinse_config_set() {
   local key="$1" value="$2"
   mkdir -p "$RINSE_DIR"
   local tmp
-  tmp=$(mktemp)
+  tmp=$(mktemp "${RINSE_DIR}/.config.XXXXXX")
   if [[ -f "$RINSE_CONFIG_FILE" ]]; then
     jq --arg k "$key" --arg v "$value" '.[$k] = $v' "$RINSE_CONFIG_FILE" > "$tmp"
   else
@@ -195,7 +195,7 @@ stats_record() {
       iterations: $iterations,
       comments_resolved: $comments_resolved,
       outcome: $outcome
-    }' >> "$RINSE_STATS_FILE"
+    }' >> "$RINSE_STATS_FILE" || true
 }
 
 # ─── Standalone CLI ───────────────────────────────────────────────────────────
