@@ -1116,10 +1116,19 @@ func (m monitorModel) View() string {
 	return header + "\n" + breadcrumb + "\n" + body + "\n" + statusBar
 }
 
+// lastStateChangedAtForDisplay returns the last state change timestamp on the
+// same clock basis used for ETA/elapsed calculations.
+func (m monitorModel) lastStateChangedAtForDisplay() time.Time {
+	if m.clockOffset == 0 {
+		return m.lastStateChangedAt
+	}
+	return m.lastStateChangedAt.Add(m.clockOffset)
+}
+
 // renderTimingTooltip renders the last-state-change tooltip overlay.
 // Shows timestamp in UTC and local timezone, matching the UX spec (RIN-42 §3).
 func (m monitorModel) renderTimingTooltip() string {
-	t := m.lastStateChangedAt
+	t := m.lastStateChangedAtForDisplay()
 	utcStr := t.UTC().Format("Mon, 02 Jan 2006 15:04:05 UTC")
 	localStr := t.Local().Format("15:04:05 MST")
 
@@ -1396,7 +1405,9 @@ func RunMonitor(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge 
 			Iterations:    m.iter,
 			Outcome:       outcome,
 		}
-		_ = stats.Save(session)
+		if err := stats.Save(session); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to save stats session: %v\n", err)
+		}
 	}
 
 	if cmd.Process != nil {

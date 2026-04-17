@@ -221,7 +221,7 @@ func PromptOptIn() (bool, error) {
 func Save(s Session) error {
 	cfg, err := loadConfig()
 	if err != nil {
-		return nil // non-fatal; skip saving on config read error
+		return fmt.Errorf("stats: cannot load config: %w", err)
 	}
 	if cfg.StatsOptIn != nil && !*cfg.StatsOptIn {
 		// User explicitly opted out — never prompt again.
@@ -250,8 +250,9 @@ func Save(s Session) error {
 	}
 
 	repoSlug := strings.ReplaceAll(s.Repo, "/", "-")
-	fname := fmt.Sprintf("%s-%s-PR%s.json",
+	fname := fmt.Sprintf("%s-%09d-%s-PR%s.json",
 		s.StartedAt.Format("20060102-150405"),
+		s.StartedAt.Nanosecond(),
 		repoSlug,
 		s.PR,
 	)
