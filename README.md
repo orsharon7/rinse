@@ -1,6 +1,6 @@
 # tools
 
-CLI automation tools for GitHub Copilot PR review workflows.
+PR reviews without the mess. RINSE drives Copilot through your review loop so you don't have to.
 
 ## pr-review
 
