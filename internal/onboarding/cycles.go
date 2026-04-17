@@ -79,7 +79,8 @@ func CreateCycle(name string, d Defaults) (*Cycle, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		b, _ := io.ReadAll(resp.Body)
+		const maxErrBodyBytes = 1 << 16 // 64 KiB — cap to avoid large allocs from untrusted servers
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrBodyBytes))
 		return nil, fmt.Errorf("server returned %d: %s", resp.StatusCode, string(b))
 	}
 

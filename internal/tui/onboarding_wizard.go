@@ -384,6 +384,9 @@ func (m wizModel) doResume() (wizModel, tea.Cmd) {
 		return m, textinput.Blink
 	case onboarding.StepB:
 		m.view = wizStepC
+		// Restore the draft cycle name into the text input so that if the user
+		// presses Esc to go back to Step B the input is pre-populated.
+		m.cycleInput.SetValue(m.cycleName)
 	case onboarding.StepC:
 		m.view = wizStepD
 	case onboarding.StepD:
@@ -592,14 +595,15 @@ func (m wizModel) handleStepCKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 				Defaults:       d,
 			}
 			m.writingConfig = true
-			// Serialize the state save and config write in a single command so
-			// a concurrent Step C save cannot overwrite a later (Step D/E) save.
+			// Write the config first; only persist CompletedStep=StepC after
+			// success so a restart after a failed write re-attempts Step C
+			// instead of jumping to Step D.
 			return m, func() tea.Msg {
-				if err := onboarding.SaveState(s); err != nil {
-					fmt.Fprintf(os.Stderr, "rinse: state write: %v\n", err)
-				}
 				if err := onboarding.WriteTomlConfig(cycleName, d); err != nil {
 					return wizConfigErrMsg{err}
+				}
+				if err := onboarding.SaveState(s); err != nil {
+					fmt.Fprintf(os.Stderr, "rinse: state write: %v\n", err)
 				}
 				return wizConfigWrittenMsg{}
 			}

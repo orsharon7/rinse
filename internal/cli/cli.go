@@ -19,12 +19,12 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 )
 
 // ── Runner registry ───────────────────────────────────────────────────────────
@@ -386,9 +386,9 @@ func runStartCmd(args []string) {
 	}
 
 	if asJSON {
-		// Run with inherited stdio so the agent sees streaming output,
-		// then emit a structured JSON result on completion.
-		exitCode := execInherited(cmdArgs)
+		// Run with streaming output redirected to stderr so stdout remains
+		// exclusively for the final JSON envelope (machine-readable).
+		exitCode := execInherited(cmdArgs, os.Stderr)
 		ok := exitCode == 0
 		errMsg := ""
 		if !ok {
@@ -456,12 +456,13 @@ func resolveScript(scriptName string) (string, error) {
 
 // ── Process execution ─────────────────────────────────────────────────────────
 
-// execInherited runs args with inherited stdio and returns the exit code.
-// Used in --json mode so streaming output is visible throughout.
-func execInherited(args []string) int {
+// execInherited runs args with the given stdout writer and inherited stdin/stderr,
+// returning the exit code. In --json mode, pass os.Stderr as stdout to keep
+// stdout reserved exclusively for the final JSON envelope.
+func execInherited(args []string, stdout io.Writer) int {
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
+	cmd.Stdout = stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -472,19 +473,8 @@ func execInherited(args []string) int {
 	return 0
 }
 
-// execReplace replaces the current process with args via syscall.Exec (Unix).
+// execReplace replaces the current process with args (Unix only; see exec_unix.go).
 // Falls back to execInherited+exit on error.
-func execReplace(args []string) {
-	path, err := exec.LookPath(args[0])
-	if err != nil {
-		path = args[0]
-	}
-	// syscall.Exec replaces the process image; env is inherited.
-	if err := syscall.Exec(path, args, os.Environ()); err != nil {
-		// Fallback: run with inherited stdio.
-		os.Exit(execInherited(args))
-	}
-}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -563,7 +553,7 @@ SUBCOMMANDS
       --reflect-main-branch <br>    Target branch for reflection commits (default: main)
       --auto-merge                  Auto-merge when Copilot approves
       --json                        Emit a JSON result after the runner exits.
-                                    Streaming output still goes to stdout throughout.
+                                    Streaming output goes to stderr throughout.
 
   help | --help | -h
       Show this help.
