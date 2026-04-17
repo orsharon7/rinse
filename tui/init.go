@@ -159,6 +159,15 @@ func RunInit() {
 		fmt.Fprintf(os.Stderr, "error: failed to close temp config: %v\n", err)
 		os.Exit(1)
 	}
+	// On Windows, os.Rename does not replace an existing destination file.
+	// Remove the destination first (after user confirmed overwrite above) so
+	// the rename succeeds consistently across platforms.
+	if _, statErr := os.Stat(configPath); statErr == nil {
+		if removeErr := os.Remove(configPath); removeErr != nil {
+			fmt.Fprintf(os.Stderr, "error: failed to replace %s: %v\n", configPath, removeErr)
+			os.Exit(1)
+		}
+	}
 	if err := os.Rename(tmpName, configPath); err != nil {
 		fmt.Fprintf(os.Stderr, "error: failed to write %s: %v\n", configPath, err)
 		os.Exit(1)

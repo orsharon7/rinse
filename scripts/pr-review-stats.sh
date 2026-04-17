@@ -77,11 +77,24 @@ _rinse_config_set() {
   # Use --argjson so "true"/"false" values are stored as JSON booleans rather
   # than strings, keeping the config file properly typed.
   if [[ -f "$RINSE_CONFIG_FILE" ]]; then
-    jq --arg k "$key" --argjson v "$value" '.[$k] = $v' "$RINSE_CONFIG_FILE" > "$tmp"
+    if ! jq --arg k "$key" --argjson v "$value" '.[$k] = $v' "$RINSE_CONFIG_FILE" > "$tmp"; then
+      # If the existing config is invalid JSON, fall back to a fresh minimal
+      # object containing only the requested key.
+      if ! jq -n --arg k "$key" --argjson v "$value" '{($k): $v}' > "$tmp"; then
+        rm -f "$tmp"
+        return 1
+      fi
+    fi
   else
-    jq -n --arg k "$key" --argjson v "$value" '{($k): $v}' > "$tmp"
+    if ! jq -n --arg k "$key" --argjson v "$value" '{($k): $v}' > "$tmp"; then
+      rm -f "$tmp"
+      return 1
+    fi
   fi
-  mv "$tmp" "$RINSE_CONFIG_FILE"
+  if ! mv "$tmp" "$RINSE_CONFIG_FILE"; then
+    rm -f "$tmp"
+    return 1
+  fi
 }
 
 # ─── Opt-in prompt ────────────────────────────────────────────────────────────
