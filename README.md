@@ -60,7 +60,7 @@ The interactive TUI walks you through setup — pick a PR, configure the runner,
 
 1. **Detects** the current PR state (no review? pending? unresolved comments?)
 2. **Requests** a Copilot review if none is pending
-3. **Waits** for Copilot to finish (animated progress, configurable timeout)
+3. **Waits** for Copilot to finish (animated progress)
 4. **Reads** every unresolved comment and hands them to your AI fix agent
 5. **Pushes** the fixes and requests the next review
 6. **Loops** until approved — then shows a merge menu
@@ -86,7 +86,7 @@ rinse --help       # show help
 | `branch` | branch name | Target branch for reflection commits (default: `main`) |
 | `auto-merge` | on/off | Auto-merge PR once Copilot approves |
 
-Settings are saved in your user config directory under `rinse/config.json` (for example, `~/.config/rinse/config.json` on Linux).
+Interactive TUI preferences are saved in your user config directory under `rinse/config.json` (for example, `~/.config/rinse/config.json` on Linux). Other Rinse data such as session history or runtime state may still appear under `~/.rinse/`.
 
 ### Available Copilot models
 
