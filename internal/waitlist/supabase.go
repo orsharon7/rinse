@@ -96,8 +96,6 @@ func (c *SupabaseClient) listPage(ctx context.Context, limit, offset int) ([]Ent
 		return nil, fmt.Errorf("supabase: build request: %w", err)
 	}
 	c.setHeaders(req)
-	// Request exact count so PostgREST doesn't truncate silently.
-	req.Header.Set("Prefer", "count=none")
 
 	resp, err := c.http.Do(req)
 	if err != nil {

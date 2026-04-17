@@ -101,7 +101,7 @@ func (h *Handler) Join(w http.ResponseWriter, r *http.Request) {
 // Export handles GET /admin/export.
 //
 // It requires the Authorization header to be "Bearer <ADMIN_SECRET>".
-// It streams all waitlist entries as a CSV file.
+// It fetches all waitlist entries into memory and writes them as a CSV file.
 func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 	if !h.checkAdminAuth(r) {
 		jsonError(w, "unauthorized", http.StatusUnauthorized)
