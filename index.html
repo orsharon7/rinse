@@ -30,13 +30,13 @@
 
       <div class="install-pill fade-in delay-2">
         <span class="install-cmd"><span class="prompt">$</span> brew install rinse</span>
-        <button class="copy-btn" id="copyBtn">
+        <button class="copy-btn" id="copyBtn" type="button">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
           <span id="copyLabel" aria-live="polite">Copy</span>
         </button>
       </div>
 
-      <div class="terminal fade-in delay-3" role="region" aria-label="Terminal demo" aria-hidden="true">
+      <div class="terminal fade-in delay-3" role="region" aria-label="Terminal demo">
         <div class="terminal-line"><span class="prompt">$</span> <span class="typed" id="typedCmd"></span><span class="cursor" id="cursor" aria-hidden="true">▋</span></div>
         <div class="terminal-output" id="termOutput" aria-hidden="true"></div>
       </div>
