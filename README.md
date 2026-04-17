@@ -106,7 +106,7 @@ available; see [Appendix: Shell runners](#appendix-shell-runners) below.
 
 ## License
 
-RINSE is source-available under the [Business Source License 1.1](LICENSE). Free for personal and dev use.
+This project is licensed under the [MIT License](LICENSE).
 
 ---
 
