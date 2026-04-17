@@ -148,6 +148,13 @@ func releaseStateLock() {
 // already records a step that is ahead of s.CompletedStep, the higher step is
 // preserved so that a stale async write cannot regress onboarding progress.
 func SaveState(s State) error {
+	// Ensure the parent config directory exists before attempting to acquire the
+	// mkdir-based lock, which lives in the same directory. On a fresh install the
+	// directory does not exist yet, so os.Mkdir(lockDir) would fail with ENOENT.
+	if err := os.MkdirAll(filepath.Dir(StatePath()), 0o755); err != nil {
+		return err
+	}
+
 	// Serialize concurrent SaveState calls with a cross-process mkdir-based lock
 	// so that the monotonic read+compare+write is atomic across goroutines and
 	// processes, preventing a slow writer from overwriting a newer step.
