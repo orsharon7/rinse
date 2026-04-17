@@ -110,18 +110,22 @@ func SessionsDir() (string, error) {
 // Save writes the session as a JSON file in SessionsDir (legacy path, used by
 // shell scripts). New code should write to the SQLite DB instead.
 func Save(s Session) error {
-	optedIn, err := IsOptedIn()
+	cfg, err := loadConfig()
 	if err != nil {
 		return nil // non-fatal; skip saving on config read error
 	}
-	if !optedIn {
+	if cfg.StatsOptIn != nil && !*cfg.StatsOptIn {
+		// User explicitly opted out — never prompt again.
+		return nil
+	}
+	if cfg.StatsOptIn == nil {
 		// No preference set yet — prompt if interactive; silently skip in CI.
 		fi, statErr := os.Stdin.Stat()
 		if statErr != nil || (fi.Mode()&os.ModeCharDevice) == 0 {
 			return nil // CI/non-TTY: silently off
 		}
-		optedIn, err = PromptOptIn()
-		if err != nil || !optedIn {
+		optedIn, promptErr := PromptOptIn()
+		if promptErr != nil || !optedIn {
 			return nil
 		}
 	}
