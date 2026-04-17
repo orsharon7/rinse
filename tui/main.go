@@ -9,13 +9,32 @@ import (
 )
 
 func main() {
-	// Handle --version flag.
+	// Handle --version flag (no dependency check needed).
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
 		fmt.Printf("rinse %s\n", version)
 		os.Exit(0)
 	}
 
-	// Dispatch CLI subcommands (status, start, help) before launching the TUI.
+	// Handle help before dependency checks so users can read docs without tools.
+	if len(os.Args) > 1 && (os.Args[1] == "help" || os.Args[1] == "--help" || os.Args[1] == "-h") {
+		printCLIHelp()
+		return
+	}
+
+	// First-time / missing dependency guard: check for required tools early so
+	// users get a clear guided message instead of cryptic errors deep in the app.
+	if missing := checkDependencies(); len(missing) > 0 {
+		PrintDependencyError(missing)
+		return // unreachable — PrintDependencyError calls os.Exit(1)
+	}
+
+	// Check GitHub CLI authentication (requires gh to be installed, checked above).
+	if err := checkGHAuth(); err != nil {
+		PrintGHAuthError()
+		return // unreachable
+	}
+
+	// Dispatch CLI subcommands (status, start) before launching the TUI.
 	if tryDispatchCLI() {
 		return
 	}
