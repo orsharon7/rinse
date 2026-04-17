@@ -73,7 +73,7 @@ _ins_classify_comment() {
   lower=$(printf '%s' "$body" | tr '[:upper:]' '[:lower:]')
 
   # Security (highest priority)
-  if grep -qE 'inject|sanitiz|xss|csrf|sql injection|auth|secret|credential|password|token|eval\(|unsafe' <<<"$lower"; then
+  if grep -qE 'inject|sanitiz|xss|csrf|sql injection|(^|[^[:alnum:]_])(auth|authn|authz|authentication|authorization)([^[:alnum:]_]|$)|secret|credential|password|token|eval\(|unsafe' <<<"$lower"; then
     echo "security"; return
   fi
 

@@ -9,8 +9,8 @@ import (
 )
 
 // RepoRinseConfig is the per-repository .rinse.json config file structure.
-// It stores shared team settings so everyone reviewing PRs in the same repo
-// uses consistent defaults without having to configure them individually.
+// It stores shared repository settings that `rinse init` writes to disk for
+// teams that want to check in defaults for a repo.
 type RepoRinseConfig struct {
 	Engine       string `json:"engine"`        // "opencode" or "claude"
 	Model        string `json:"model"`         // model override (empty = engine default)
@@ -148,5 +148,5 @@ func RunInit() {
 
 	fmt.Printf("\n✓ Created %s\n", rinseConfigFile)
 	fmt.Println()
-	fmt.Println("Tip: commit .rinse.json so your team shares the same settings.")
+	fmt.Println("Tip: commit .rinse.json to give your team a starting reference for settings.")
 }
