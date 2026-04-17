@@ -185,7 +185,9 @@ write_session_json() {
   local approved="false"
   [[ "$SESSION_OUTCOME" == "approved" || "$SESSION_OUTCOME" == "merged" ]] && approved="true"
 
-  jq -n \
+  local tmp_fname
+  tmp_fname="$(dirname "$fname")/.tmp_session_$$.json"
+  if jq -n \
     --arg session_id      "$SESSION_ID" \
     --arg repo            "$REPO" \
     --arg pr              "$PR_NUMBER" \
@@ -217,9 +219,14 @@ write_session_json() {
       copilot_comments_by_iteration: $comments,
       total_comments:                $total,
       estimated_time_saved_seconds:  $saved
-    }' > "$fname" \
-    && log "📊 Session saved: ${fname}" \
-    || log "⚠️  Could not write session JSON (non-fatal)"
+    }' > "$tmp_fname"; then
+    mv "$tmp_fname" "$fname" \
+      && log "📊 Session saved: ${fname}" \
+      || { rm -f "$tmp_fname"; log "⚠️  Could not write session JSON (non-fatal)"; }
+  else
+    rm -f "$tmp_fname"
+    log "⚠️  Could not write session JSON (non-fatal)"
+  fi
 }
 
 # Register EXIT trap AFTER REPO/LOGFILE are initialised so write_session_json

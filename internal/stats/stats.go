@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	mrand "math/rand"
 	"os"
 	"path/filepath"
 	"sort"
@@ -28,13 +29,19 @@ const (
 	OutcomeAborted  Outcome = "aborted"
 )
 
-// newUUID generates a random UUID v4 string.
-// If cryptographic randomness is unavailable, it falls back to a
-// non-cryptographic session ID so stats recording remains best-effort.
+// newUUID generates a UUID v4 string.
+// If cryptographic randomness is unavailable, it falls back to
+// non-cryptographic bytes while still returning a syntactically valid UUID
+// so stats recording remains best-effort.
 func newUUID() string {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
-		return fmt.Sprintf("fallback-%d-%d", time.Now().UTC().UnixNano(), os.Getpid())
+		now := time.Now().UTC().UnixNano()
+		pid := int64(os.Getpid())
+		r := mrand.New(mrand.NewSource(now ^ (pid << 32))) //nolint:gosec
+		for i := range b {
+			b[i] = byte(r.Intn(256))
+		}
 	}
 	// Set version 4 (bits 12-15 of byte 6 to 0100)
 	b[6] = (b[6] & 0x0f) | 0x40
