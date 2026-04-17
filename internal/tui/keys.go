@@ -26,13 +26,19 @@ type KeyMap struct {
 	// Wizard-specific.
 	Settings key.Binding
 	ManualPR key.Binding
+	// Onboarding wizard navigation.
+	WizPickUp    key.Binding // "1" — pick up where I left off
+	WizStartOver key.Binding // "2" — start over
+	WizAdjust    key.Binding // "a" — adjust settings (Step D back)
+	WizStart     key.Binding // "s" — start cycle (Step D)
+	WizGoCycles  key.Binding // "g" — go to my cycles (Step E)
+	// Monitor timing info.
+	TimingInfo key.Binding
 	// Settings view navigation.
 	Left   key.Binding
 	Right  key.Binding
 	Tab    key.Binding
 	Toggle key.Binding
-	// Monitor timing tooltip.
-	TimingInfo key.Binding
 }
 
 // Keys is the global singleton KeyMap used by all views.
@@ -93,6 +99,30 @@ var Keys = KeyMap{
 		key.WithKeys("#"),
 		key.WithHelp("#", "enter PR number"),
 	),
+	WizPickUp: key.NewBinding(
+		key.WithKeys("1"),
+		key.WithHelp("1", "pick up where I left off"),
+	),
+	WizStartOver: key.NewBinding(
+		key.WithKeys("2"),
+		key.WithHelp("2", "start over"),
+	),
+	WizAdjust: key.NewBinding(
+		key.WithKeys("a"),
+		key.WithHelp("a", "adjust settings"),
+	),
+	WizStart: key.NewBinding(
+		key.WithKeys("s"),
+		key.WithHelp("s", "start cycle"),
+	),
+	WizGoCycles: key.NewBinding(
+		key.WithKeys("g"),
+		key.WithHelp("g", "go to my cycles"),
+	),
+	TimingInfo: key.NewBinding(
+		key.WithKeys("t"),
+		key.WithHelp("t", "timing tooltip"),
+	),
 	Left: key.NewBinding(
 		key.WithKeys("left", "h"),
 		key.WithHelp("←/h", "previous"),
@@ -108,10 +138,6 @@ var Keys = KeyMap{
 	Toggle: key.NewBinding(
 		key.WithKeys(" "),
 		key.WithHelp("space", "toggle"),
-	),
-	TimingInfo: key.NewBinding(
-		key.WithKeys("t"),
-		key.WithHelp("t", "timing tooltip"),
 	),
 }
 

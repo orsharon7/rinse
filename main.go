@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/orsharon7/rinse/internal/cli"
 	"github.com/orsharon7/rinse/internal/stats"
 	"github.com/orsharon7/rinse/internal/tui"
 )
@@ -107,6 +108,13 @@ MORE
 
 func main() {
 	if len(os.Args) > 1 {
+		// Dispatch one-shot CLI subcommands (status, start) for agent/CI use.
+		// cli.TryDispatch handles these and returns true; other args fall through
+		// to the existing switch below.
+		if cli.TryDispatch() {
+			return
+		}
+
 		switch os.Args[1] {
 		case "--help", "-h":
 			fmt.Print(helpText)
