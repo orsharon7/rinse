@@ -35,10 +35,6 @@ type PRState struct {
 	// Iteration is the number of completed fix iterations so far.
 	Iteration int `json:"iteration"`
 
-	// LastReviewID is the GitHub review ID that was current as of the last
-	// completed iteration (used to detect new reviews via --last-known).
-	LastReviewID string `json:"last_review_id,omitempty"`
-
 	// LastAgentAction records what the agent did in the last iteration
 	// ("fixed", "no_comments", "approved", "error").
 	LastAgentAction string `json:"last_agent_action,omitempty"`

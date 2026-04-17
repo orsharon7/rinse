@@ -77,7 +77,12 @@ func Acquire(repo, pr string) (*Lock, error) {
 
 // tryAcquire attempts acquisition once, clears a stale lock, then retries.
 func (l *Lock) tryAcquire() error {
-	if err := os.Mkdir(l.dir, 0o755); err == nil {
+	if err := os.Mkdir(l.dir, 0o755); err != nil {
+		if !errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("lock: mkdir: %w", err)
+		}
+		// Fall through: directory already exists — check whether the owner is alive.
+	} else {
 		return l.writeMeta()
 	}
 
