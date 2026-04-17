@@ -163,8 +163,22 @@ func RunInit() {
 		os.Exit(1)
 	}
 	if err := os.Rename(tmpName, configPath); err != nil {
-		fmt.Fprintf(os.Stderr, "error: failed to write %s: %v\n", configPath, err)
-		os.Exit(1)
+		// On Windows, os.Rename does not replace an existing file. If the
+		// destination exists (for example after the user confirmed overwrite),
+		// remove it and retry the rename.
+		if _, statErr := os.Stat(configPath); statErr == nil {
+			if removeErr := os.Remove(configPath); removeErr != nil {
+				fmt.Fprintf(os.Stderr, "error: failed to replace %s: %v\n", configPath, removeErr)
+				os.Exit(1)
+			}
+			if retryErr := os.Rename(tmpName, configPath); retryErr != nil {
+				fmt.Fprintf(os.Stderr, "error: failed to write %s: %v\n", configPath, retryErr)
+				os.Exit(1)
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "error: failed to write %s: %v\n", configPath, err)
+			os.Exit(1)
+		}
 	}
 
 	fmt.Printf("\n✓ Created %s\n", configPath)
