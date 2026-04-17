@@ -75,6 +75,13 @@ shopt -s nullglob
 for logfile in "${LOGS_DIR}"/*.log; do
   [[ -f "$logfile" ]] || continue
 
+  log_basename=$(basename "$logfile")
+
+  # Only backfill main cycle logs. Skip known auxiliary logs (for example
+  # *-reflect.log) and require the PR review loop start marker to be present.
+  [[ "$log_basename" == *-reflect.log ]] && continue
+  grep -qE 'Starting .*PR review loop' "$logfile" 2>/dev/null || continue
+
   # Extract PR number from filename: <repo_slug>-pr-<N>.log
   pr_num=$(basename "$logfile" .log | grep -oE 'pr-[0-9]+' | grep -oE '[0-9]+' | head -1 || echo "")
   [[ -z "$pr_num" ]] && continue
@@ -89,7 +96,9 @@ for logfile in "${LOGS_DIR}"/*.log; do
 
   # Fallback to file mtime when timestamps not in log.
   if [[ -z "$first_ts" ]]; then
-    first_ts=$(date -r "$logfile" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || date "+%Y-%m-%d %H:%M:%S")
+    first_ts=$(stat -f "%Sm" -t "%Y-%m-%d %H:%M:%S" "$logfile" 2>/dev/null \
+      || stat -c "%y" "$logfile" 2>/dev/null | cut -c1-19 \
+      || date "+%Y-%m-%d %H:%M:%S")
     last_ts="$first_ts"
   fi
 
