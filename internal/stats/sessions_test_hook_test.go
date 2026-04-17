@@ -1,5 +1,5 @@
-// sessions_test_hook.go — exposes an internal sessions directory override
-// for test isolation without mutating process-wide environment variables.
+// sessions_test_hook_test.go — test-only override for the sessions directory.
+// This file is compiled only during `go test` and does not appear in production builds.
 package stats
 
 // SetSessionsDir overrides the directory returned by SessionsDir.
