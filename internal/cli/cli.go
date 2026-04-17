@@ -125,12 +125,6 @@ func runStatusCmd(args []string) {
 				fatalf(asJSON, "--repo requires a value")
 			}
 			repo = rest[i]
-		case "--pr":
-			if i+1 >= len(rest) || strings.HasPrefix(rest[i+1], "-") {
-				fatalf(asJSON, "missing value for --pr")
-			}
-			i++
-			prNum = rest[i]
 		case "--json":
 			asJSON = true
 		default:
@@ -581,7 +575,8 @@ SUBCOMMANDS
       --model <model>               AI model string (overrides runner default)
       --runner opencode|claude      Runner to use (default: opencode)
       --reflect                     Enable reflection agent to update AGENTS.md
-      --reflect-main-branch <br>    Target branch for reflection commits (default: main)
+      --reflect-main-branch <br>    Target branch for reflection commits (default:
+                                    detected repo default branch; falls back to main)
       --auto-merge                  Auto-merge when Copilot approves
       --json                        Emit a JSON result after the runner exits.
                                     Streaming output still goes to stdout throughout.
