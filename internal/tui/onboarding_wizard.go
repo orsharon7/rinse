@@ -113,7 +113,6 @@ type wizModel struct {
 	cycleName     string
 	creatingCycle bool
 	cycleErr      string
-	createdID     string
 
 	// step E
 	colorOK      bool // true if ANSI color is safe to render
@@ -212,7 +211,6 @@ func (m wizModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case wizCycleCreatedMsg:
 		m.creatingCycle = false
-		m.createdID = msg.cycleID
 		m.cycleName = msg.cycleName
 		// Save step D synchronously before moving to E so a later Step E save
 		// cannot be overwritten by an earlier async write finishing late.

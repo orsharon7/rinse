@@ -82,11 +82,43 @@ func LoadState() (*State, error) {
 	return &s, nil
 }
 
+// stepOrdinal returns a numeric ordering for CompletedStep so that
+// SaveState can refuse to regress progress.
+func stepOrdinal(step Step) int {
+	switch step {
+	case StepA:
+		return 1
+	case StepB:
+		return 2
+	case StepC:
+		return 3
+	case StepD:
+		return 4
+	case StepE:
+		return 5
+	default:
+		return 0
+	}
+}
+
 // SaveState writes the state atomically (write-to-temp + rename).
 // A unique temp file is used per write so concurrent saves do not clobber
 // each other's temp file. Per spec: write failures are logged to stderr
 // but must not block UX.
+//
+// SaveState is monotonic with respect to CompletedStep: if the on-disk state
+// already records a step that is ahead of s.CompletedStep, the higher step is
+// preserved so that a stale async write cannot regress onboarding progress.
 func SaveState(s State) error {
+	// Monotonic guard: never regress CompletedStep. If the on-disk state is
+	// already ahead (e.g. a later async write finished first), keep the higher
+	// step so stale Bubble Tea commands cannot overwrite newer progress.
+	if existing, err := LoadState(); err == nil && existing != nil {
+		if stepOrdinal(existing.CompletedStep) > stepOrdinal(s.CompletedStep) {
+			s.CompletedStep = existing.CompletedStep
+		}
+	}
+
 	path := StatePath()
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
