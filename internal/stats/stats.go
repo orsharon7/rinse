@@ -29,10 +29,12 @@ const (
 )
 
 // newUUID generates a random UUID v4 string.
+// If cryptographic randomness is unavailable, it falls back to a
+// non-cryptographic session ID so stats recording remains best-effort.
 func newUUID() string {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
-		panic(fmt.Sprintf("stats: failed to generate UUID: %v", err))
+		return fmt.Sprintf("fallback-%d-%d", time.Now().UTC().UnixNano(), os.Getpid())
 	}
 	// Set version 4 (bits 12-15 of byte 6 to 0100)
 	b[6] = (b[6] & 0x0f) | 0x40

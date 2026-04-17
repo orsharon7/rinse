@@ -175,11 +175,12 @@ write_session_json() {
   local pr_title=""
   pr_title=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.title' 2>/dev/null || echo "")
 
-  local fname
   local repo_session_slug="${REPO//\//-}"
-  fname="${SESSION_STARTED_AT:0:10}-${SESSION_STARTED_AT:11:8}"
-  fname="${fname//:/-}"  # replace colons with dashes (macOS-safe)
-  fname="${sessions_dir}/${fname}-${repo_session_slug}-pr-${PR_NUMBER}.json"
+  local date_part="${SESSION_STARTED_AT:0:10}"
+  local time_part="${SESSION_STARTED_AT:11:8}"
+  date_part="${date_part//-/}"
+  time_part="${time_part//:/}"
+  local fname="${sessions_dir}/${date_part}-${time_part}-${repo_session_slug}-PR${PR_NUMBER}.json"
 
   local approved="false"
   [[ "$SESSION_OUTCOME" == "approved" || "$SESSION_OUTCOME" == "merged" ]] && approved="true"
