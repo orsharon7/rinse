@@ -138,12 +138,16 @@ for logfile in "${LOGS_DIR}"/*.log; do
   fi
 
   # ── Parse iteration/comment counts from log ───────────────────────────────
-  # Look for lines like: "💬 N comment(s) in review"
+  # Look for lines like: "💬 N comment(s) in review", and also terminal
+  # success lines that imply a completed review with zero comments.
   declare -a comments_arr=()
   while IFS= read -r line; do
-    cnt=$(echo "$line" | grep -oE '^[0-9]+' || echo "")
-    [[ -n "$cnt" ]] && comments_arr+=("$cnt")
-  done < <(grep -oE '[0-9]+ comment\(s\) in review' "$logfile" 2>/dev/null | grep -oE '^[0-9]+' || true)
+    if [[ "$line" =~ ([0-9]+)[[:space:]]+comment\(s\)[[:space:]]+in[[:space:]]+review ]]; then
+      comments_arr+=("${BASH_REMATCH[1]}")
+    elif [[ "$line" =~ Clean[[:space:]]+review.*0[[:space:]]+comments ]] || [[ "$line" =~ Copilot[[:space:]]+APPROVED ]]; then
+      comments_arr+=("0")
+    fi
+  done < "$logfile"
 
   total_comments=0
   for c in "${comments_arr[@]+"${comments_arr[@]}"}"; do

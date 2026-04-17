@@ -587,6 +587,8 @@ while true; do
   fi
 
   if [[ "$rstate" == "APPROVED" ]]; then
+    # Record a 0-comment iteration for the approval pass before exiting.
+    SESSION_COMMENTS_BY_ITER+=(0)
     ui_outcome "✅" "Copilot APPROVED PR #${PR_NUMBER}! Ready to merge."
     log "✅ Copilot APPROVED PR #${PR_NUMBER}! Ready to merge."
     echo "$rid" > "$STATE_FILE"
@@ -625,6 +627,10 @@ while true; do
   comments=$(get_review_comments "$rid")
   comment_count=$(echo "$comments" | jq 'length')
 
+  # Record the comment count for this iteration before any terminal branch so
+  # that approval/clean-review exits are included in the session metrics.
+  SESSION_COMMENTS_BY_ITER+=("$comment_count")
+
   if [[ "$comment_count" -eq 0 ]]; then
     ui_outcome "✅" "Clean review — 0 comments. PR #${PR_NUMBER} is ready to merge."
     log "✅ Clean review — 0 comments. PR #${PR_NUMBER} is ready to merge."
@@ -661,8 +667,6 @@ while true; do
     exit 0
   fi
 
-  # ── Record comments for this iteration in session metrics ─────────────────
-  SESSION_COMMENTS_BY_ITER+=("$comment_count")
   ui_outcome "💬" "${comment_count} comment(s) in review ${rid}" "$GUM_WARN"
   log "💬 ${comment_count} comment(s) in review ${rid} — invoking opencode (${MODEL})..."
 

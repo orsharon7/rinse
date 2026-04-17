@@ -210,6 +210,30 @@ func Save(s Session) error {
 		return fmt.Errorf("stats: cannot marshal session: %w", err)
 	}
 
+	// Write atomically: create a uniquely-named temp file in the same directory,
+	// write to it, then rename to the final path to avoid clobbering concurrent
+	// saves or leaving a stale .tmp on error.
+	tmp, err := os.CreateTemp(dir, fname+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("stats: cannot create temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	if _, werr := tmp.Write(data); werr != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("stats: cannot write temp file: %w", werr)
+	}
+	if cerr := tmp.Close(); cerr != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("stats: cannot close temp file: %w", cerr)
+	}
+	if rerr := os.Rename(tmpPath, path); rerr != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("stats: cannot rename temp file: %w", rerr)
+	}
+	return nil
+}
+
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("stats: cannot write session temp file: %w", err)
