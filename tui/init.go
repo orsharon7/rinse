@@ -40,14 +40,20 @@ func LoadRepoRinseConfig(dir string) (RepoRinseConfig, bool) {
 }
 
 // RunInit implements the `rinse init` subcommand.
-// It scaffolds a .rinse.json config in the current directory with sensible
+// It scaffolds a .rinse.json config in the git repo root with sensible
 // defaults, prompting the user to choose engine and reflection settings.
 func RunInit() {
 	reader := bufio.NewReader(os.Stdin)
 
+	// Resolve the git repo root so the config is always written where the TUI
+	// will find it (detectGitRoot() in tui/wizard.go), regardless of the CWD
+	// from which `rinse init` is invoked.
+	repoRoot := detectGitRoot()
+	configPath := filepath.Join(repoRoot, rinseConfigFile)
+
 	// Check if config already exists.
-	if _, err := os.Stat(rinseConfigFile); err == nil {
-		fmt.Printf("Config already exists. Overwrite? (y/N) ")
+	if _, err := os.Stat(configPath); err == nil {
+		fmt.Printf("Config already exists at %s. Overwrite? (y/N) ", configPath)
 		line, _ := reader.ReadString('\n')
 		line = strings.TrimSpace(strings.ToLower(line))
 		if line != "y" && line != "yes" {
@@ -55,7 +61,7 @@ func RunInit() {
 			os.Exit(0)
 		}
 	} else if !os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "error: cannot access %s: %v\n", rinseConfigFile, err)
+		fmt.Fprintf(os.Stderr, "error: cannot access %s: %v\n", configPath, err)
 		os.Exit(1)
 	}
 
@@ -123,7 +129,7 @@ func RunInit() {
 	}
 
 	// Write via temp file + rename for atomicity (avoids partial writes on crash).
-	tmp, err := os.CreateTemp(".", ".rinse.json.tmp.*")
+	tmp, err := os.CreateTemp(repoRoot, ".rinse.json.tmp.*")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: failed to create temp config: %v\n", err)
 		os.Exit(1)
@@ -139,12 +145,12 @@ func RunInit() {
 		fmt.Fprintf(os.Stderr, "error: failed to close temp config: %v\n", err)
 		os.Exit(1)
 	}
-	if err := os.Rename(tmpName, rinseConfigFile); err != nil {
-		fmt.Fprintf(os.Stderr, "error: failed to write %s: %v\n", rinseConfigFile, err)
+	if err := os.Rename(tmpName, configPath); err != nil {
+		fmt.Fprintf(os.Stderr, "error: failed to write %s: %v\n", configPath, err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("\n✓ Created %s\n", rinseConfigFile)
+	fmt.Printf("\n✓ Created %s\n", configPath)
 	fmt.Println()
 	fmt.Println("Tip: commit .rinse.json so your team shares the same settings.")
 }
