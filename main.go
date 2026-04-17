@@ -50,6 +50,12 @@ func main() {
 		}
 	}
 
+	// Dispatch one-shot CLI subcommands (status, start, help) before the TUI.
+	// Returns true when a subcommand was handled; main() should exit.
+	if cli.TryDispatch() {
+		return
+	}
+
 	if err := tui.Run(version); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
