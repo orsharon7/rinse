@@ -23,6 +23,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -106,6 +107,7 @@ type wizModel struct {
 	autoAdvance      bool
 	saveHistory      bool
 	cFocus           int // 0=toggle1, 1=toggle2, 2=toggle3, 3=next, 4=skip
+	configErr        string // error from TOML config write in Step C
 
 	// step D
 	cycleName     string
@@ -236,12 +238,13 @@ func (m wizModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case wizConfigWrittenMsg:
+		m.configErr = ""
 		m.view = wizStepD
 		return m, nil
 
 	case wizConfigErrMsg:
-		// Config write failed — show inline error but do not advance (per spec).
-		m.cycleErr = "Could not save settings: " + msg.err.Error() + ". Please try again."
+		// Config write failed — show inline error in Step C (per spec).
+		m.configErr = "Could not save settings: " + msg.err.Error() + ". Please try again."
 		return m, nil
 
 	case wizCelebFrameMsg:
@@ -299,19 +302,18 @@ func (m wizModel) advanceFromSplash() (wizModel, tea.Cmd) {
 }
 
 func (m wizModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "ctrl+c":
+	if key.Matches(msg, Keys.ForceQuit) {
 		m.outcome = WizardAborted
 		return m, tea.Quit
 	}
 
 	switch m.view {
 	case wizSplash:
-		// Any key skips the splash timer.
-		if m.spReady {
-			return m.advanceFromSplash()
-		}
-		return m, nil
+		// Any non-quit key skips the splash immediately.
+		// Mark the splash as ready/consumed so a pending splash tick
+		// won't later re-handle this transition.
+		m.spReady = true
+		return m.advanceFromSplash()
 
 	case wizResume:
 		return m.handleResumeKey(msg)
@@ -341,23 +343,23 @@ func (m wizModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // ── Resume banner keys ────────────────────────────────────────────────────────
 
 func (m wizModel) handleResumeKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
-	switch msg.String() {
-	case "up", "k":
+	switch {
+	case key.Matches(msg, Keys.Up):
 		m.resumeChoice = 0
-	case "down", "j":
+	case key.Matches(msg, Keys.Down):
 		m.resumeChoice = 1
-	case "1":
+	case key.Matches(msg, Keys.WizPickUp):
 		m.resumeChoice = 0
 		return m.doResume()
-	case "2":
+	case key.Matches(msg, Keys.WizStartOver):
 		m.resumeChoice = 1
 		return m.doStartOver()
-	case "enter":
+	case key.Matches(msg, Keys.Confirm):
 		if m.resumeChoice == 0 {
 			return m.doResume()
 		}
 		return m.doStartOver()
-	case "q":
+	case key.Matches(msg, Keys.Quit):
 		m.outcome = WizardAborted
 		return m, tea.Quit
 	}
@@ -405,12 +407,12 @@ func (m wizModel) doStartOver() (wizModel, tea.Cmd) {
 // ── Welcome keys ──────────────────────────────────────────────────────────────
 
 func (m wizModel) handleWelcomeKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
-	switch msg.String() {
-	case "up", "k":
+	switch {
+	case key.Matches(msg, Keys.Up):
 		m.welcomeChoice = 0
-	case "down", "j":
+	case key.Matches(msg, Keys.Down):
 		m.welcomeChoice = 1
-	case "enter":
+	case key.Matches(msg, Keys.Confirm):
 		if m.welcomeChoice == 0 {
 			// Get started → Step A
 			saveStepAsync(onboarding.State{Version: onboarding.StateVersion})
@@ -424,7 +426,7 @@ func (m wizModel) handleWelcomeKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 			m.outcome = WizardSkipped
 			return m, tea.Quit
 		}
-	case "q":
+	case key.Matches(msg, Keys.Quit):
 		m.outcome = WizardAborted
 		return m, tea.Quit
 	}
@@ -434,8 +436,8 @@ func (m wizModel) handleWelcomeKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 // ── Step A keys ───────────────────────────────────────────────────────────────
 
 func (m wizModel) handleStepAKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
-	switch msg.String() {
-	case "enter", " ":
+	switch {
+	case key.Matches(msg, Keys.Confirm) || key.Matches(msg, Keys.Toggle):
 		// "Sounds good, let me try it" or "Skip intro" — both go to Step B
 		saveStepAsync(onboarding.State{
 			Version:       onboarding.StateVersion,
@@ -447,7 +449,7 @@ func (m wizModel) handleStepAKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 			m.cycleInput.SetValue(m.cycleName)
 		}
 		return m, textinput.Blink
-	case "q":
+	case key.Matches(msg, Keys.Quit):
 		m.outcome = WizardAborted
 		return m, tea.Quit
 	}
@@ -457,13 +459,13 @@ func (m wizModel) handleStepAKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 // ── Step B keys ───────────────────────────────────────────────────────────────
 
 func (m wizModel) handleStepBKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
+	switch {
+	case key.Matches(msg, Keys.Back):
 		m.view = wizStepA
 		m.cycleInput.Blur()
 		return m, nil
 
-	case "tab":
+	case key.Matches(msg, Keys.Tab):
 		// Cycle suggestion chips
 		m.chipIdx = (m.chipIdx + 1) % len(cycleChips)
 		m.chipSelected = true
@@ -471,7 +473,7 @@ func (m wizModel) handleStepBKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 		m.cycleInputErr = ""
 		return m, nil
 
-	case "enter":
+	case key.Matches(msg, Keys.Confirm):
 		val := strings.TrimSpace(m.cycleInput.Value())
 		if val == "" {
 			m.cycleInputErr = "Give it a name so you can find it easily."
@@ -493,7 +495,7 @@ func (m wizModel) handleStepBKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 		m.cFocus = 0
 		return m, nil
 
-	case "q":
+	case key.Matches(msg, Keys.Quit):
 		m.outcome = WizardAborted
 		return m, tea.Quit
 	}
@@ -519,22 +521,22 @@ const (
 )
 
 func (m wizModel) handleStepCKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
+	switch {
+	case key.Matches(msg, Keys.Back):
 		m.view = wizStepB
 		m.cycleInput.Focus()
 		return m, textinput.Blink
 
-	case "up", "k":
+	case key.Matches(msg, Keys.Up):
 		if m.cFocus > 0 {
 			m.cFocus--
 		}
-	case "down", "j", "tab":
+	case key.Matches(msg, Keys.Down) || key.Matches(msg, Keys.Tab):
 		if m.cFocus < cFocusSkip {
 			m.cFocus++
 		}
 
-	case " ":
+	case key.Matches(msg, Keys.Toggle):
 		switch m.cFocus {
 		case cFocusRemind:
 			m.remindOnComplete = !m.remindOnComplete
@@ -544,7 +546,7 @@ func (m wizModel) handleStepCKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 			m.saveHistory = !m.saveHistory
 		}
 
-	case "enter":
+	case key.Matches(msg, Keys.Confirm):
 		switch m.cFocus {
 		case cFocusRemind:
 			m.remindOnComplete = !m.remindOnComplete
@@ -574,7 +576,7 @@ func (m wizModel) handleStepCKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 			}
 		}
 
-	case "q":
+	case key.Matches(msg, Keys.Quit):
 		m.outcome = WizardAborted
 		return m, tea.Quit
 	}
@@ -586,21 +588,21 @@ func (m wizModel) handleStepCKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 
 func (m wizModel) handleStepDKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 	if m.creatingCycle {
-		if msg.String() == "ctrl+c" {
+		if key.Matches(msg, Keys.ForceQuit) {
 			m.outcome = WizardAborted
 			return m, tea.Quit
 		}
 		return m, nil
 	}
 
-	switch msg.String() {
-	case "esc", "a": // "Adjust first" → back to Step C
+	switch {
+	case key.Matches(msg, Keys.Back) || key.Matches(msg, Keys.WizAdjust): // "Adjust first" → back to Step C
 		m.view = wizStepC
 		m.cFocus = 0
 		m.cycleErr = ""
 		return m, nil
 
-	case "enter", "s": // "Start cycle"
+	case key.Matches(msg, Keys.Confirm) || key.Matches(msg, Keys.WizStart): // "Start cycle"
 		m.creatingCycle = true
 		m.cycleErr = ""
 		cycleName := m.cycleName
@@ -617,7 +619,7 @@ func (m wizModel) handleStepDKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 			return wizCycleCreatedMsg{cycleID: cycle.ID, cycleName: cycle.Name}
 		}
 
-	case "q":
+	case key.Matches(msg, Keys.Quit):
 		m.outcome = WizardAborted
 		return m, tea.Quit
 	}
@@ -628,19 +630,19 @@ func (m wizModel) handleStepDKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 // ── Step E keys ───────────────────────────────────────────────────────────────
 
 func (m wizModel) handleStepEKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
-	switch msg.String() {
-	case "enter", "g": // "Go to my cycles"
-		// Delete onboarding state — onboarding complete.
-		_ = onboarding.DeleteState()
+	switch {
+	case key.Matches(msg, Keys.Confirm) || key.Matches(msg, Keys.WizGoCycles): // "Go to my cycles"
+		// Persist onboarding completion so future launches do not re-run the wizard.
+		_ = onboarding.SaveState(onboarding.State{
+			Version:       onboarding.StateVersion,
+			CompletedStep: onboarding.StepE,
+		})
 		m.outcome = WizardCompleted
 		m.view = wizDone
 		return m, tea.Quit
-	case "q":
-		// Back nav blocked on Step E (cycle already created).
-		return m, nil
-	case "ctrl+c":
-		m.outcome = WizardAborted
-		return m, tea.Quit
+	// "q" is intentionally not handled here — back nav is blocked on Step E
+	// (the cycle has already been created). ForceQuit (ctrl+c) is handled
+	// at the top of handleKey.
 	}
 	return m, nil
 }
@@ -873,8 +875,13 @@ func (m wizModel) renderStepC() string {
 
 	hints := "\n" + theme.StyleMuted.Render("  ↑↓ move  space/enter toggle  esc back  q quit")
 
+	var errLine string
+	if m.configErr != "" {
+		errLine = "\n" + theme.StyleErr.Render("  "+theme.IconCross+" "+m.configErr)
+	}
+
 	return box.Render(progress + "\n\n" + headline + "\n" + sub + "\n\n" +
-		strings.Join(rows, "\n\n") + actions + hints)
+		strings.Join(rows, "\n\n") + actions + hints + errLine)
 }
 
 // ── Step D ────────────────────────────────────────────────────────────────────

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -70,7 +71,7 @@ func CreateCycle(name string, d Defaults) (*Cycle, error) {
 		return nil, fmt.Errorf("could not build request: %w", err)
 	}
 
-	url := APIBase() + "/cycles"
+	url := strings.TrimRight(APIBase(), "/") + "/cycles"
 	resp, err := httpClient.Post(url, "application/json", bytes.NewReader(body)) //nolint:noctx
 	if err != nil {
 		return nil, fmt.Errorf("could not reach rinse backend at %s: %w", url, err)
