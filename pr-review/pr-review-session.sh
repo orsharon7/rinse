@@ -311,6 +311,7 @@ gh_lock_acquire() {
     -X POST \
     -f body="$comment_body" \
     2>/dev/null) || {
+    _gh_lock_remove_label
     >&2 echo "[rinse-lock] Failed to post lock comment — degrading to local-only dedup"
     return 0
   }

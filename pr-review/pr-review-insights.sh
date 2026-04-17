@@ -78,7 +78,7 @@ _ins_classify_comment() {
   fi
 
   # Error handling
-  if grep -qE '\berror\b|\bexception\b|\bcatch\b|\bthrow\b|\bpanic\b|\bfatal\b|nil check|null check|unhandled' <<<"$lower"; then
+  if grep -qE '(^|[^[:alnum:]_])(error|exception|catch|throw|panic|fatal)([^[:alnum:]_]|$)|nil check|null check|unhandled' <<<"$lower"; then
     echo "error_handling"; return
   fi
 
@@ -88,32 +88,32 @@ _ins_classify_comment() {
   fi
 
   # Type safety
-  if grep -qE '\btype\b|\btyping\b|\bany\b|\bcast\b|\bassertion\b|\binterface\b|\bschema\b|type-safe|type safe' <<<"$lower"; then
+  if grep -qE '(^|[^[:alnum:]_])(type|typing|any|cast|assertion|interface|schema)([^[:alnum:]_]|$)|type-safe|type safe' <<<"$lower"; then
     echo "type_safety"; return
   fi
 
   # Testing
-  if grep -qE '\btest\b|\bcoverage\b|\bassert\b|\bspec\b|\bmock\b|\bfixture\b|\bstub\b|\bunit test\b' <<<"$lower"; then
+  if grep -qE '(^|[^[:alnum:]_])(test|coverage|assert|spec|mock|fixture|stub)([^[:alnum:]_]|$)|unit test' <<<"$lower"; then
     echo "testing"; return
   fi
 
   # Documentation
-  if grep -qE '\bdoc\b|\bcomment\b|\bdocstring\b|\bjsdoc\b|\breadme\b|\bexample\b|\bdocument\b' <<<"$lower"; then
+  if grep -qE '(^|[^[:alnum:]_])(doc|comment|docstring|jsdoc|readme|example|document)([^[:alnum:]_]|$)' <<<"$lower"; then
     echo "documentation"; return
   fi
 
   # Naming
-  if grep -qE 'naming|variable name|function name|\bidentifier\b|convention|camelcase|snake_case|mislead' <<<"$lower"; then
+  if grep -qE 'naming|variable name|function name|(^|[^[:alnum:]_])identifier([^[:alnum:]_]|$)|convention|camelcase|snake_case|mislead' <<<"$lower"; then
     echo "naming"; return
   fi
 
   # Style
-  if grep -qE '\bstyle\b|\bformat\b|\bindent\b|\blint\b|\bspacing\b|\bwhitespace\b|trailing' <<<"$lower"; then
+  if grep -qE '(^|[^[:alnum:]_])(style|format|indent|lint|spacing|whitespace)([^[:alnum:]_]|$)|trailing' <<<"$lower"; then
     echo "style"; return
   fi
 
   # Logic / correctness
-  if grep -qE '\bbug\b|\blogic\b|incorrect|wrong|off.by.one|\bcondition\b|\bbranch\b|incorrect behavior|doesn.t work' <<<"$lower"; then
+  if grep -qE '(^|[^[:alnum:]_])(bug|logic)([^[:alnum:]_]|$)|incorrect|wrong|off.by.one|(^|[^[:alnum:]_])(condition|branch)([^[:alnum:]_]|$)|incorrect behavior|doesn.t work' <<<"$lower"; then
     echo "logic"; return
   fi
 
