@@ -120,10 +120,17 @@ ORDER BY started_at ASC`
 			return nil, fmt.Errorf("db: scan session row: %w", err)
 		}
 
-		s.StartedAt, _ = time.Parse(time.RFC3339, startedAtStr)
+		t, err := time.Parse(time.RFC3339, startedAtStr)
+		if err != nil {
+			return nil, fmt.Errorf("db: parse started_at %q for session %s: %w", startedAtStr, s.ID, err)
+		}
+		s.StartedAt = t
 
 		if completedAtStr.Valid {
-			t, _ := time.Parse(time.RFC3339, completedAtStr.String)
+			t, err := time.Parse(time.RFC3339, completedAtStr.String)
+			if err != nil {
+				return nil, fmt.Errorf("db: parse completed_at %q for session %s: %w", completedAtStr.String, s.ID, err)
+			}
 			s.CompletedAt = &t
 		}
 		if durationSec.Valid {

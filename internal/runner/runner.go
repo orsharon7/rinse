@@ -269,14 +269,19 @@ func Run(opts Opts) (Result, error) {
 
 		// Persist comment_event to telemetry DB (best-effort).
 		if telemetryDB != nil {
-			evt := db.CommentEventRow{
-				ID:           db.NewUUID(),
-				SessionID:    session.SessionID,
-				Iteration:    state.Iteration,
-				CommentCount: agentResult.Comments,
-			}
-			if err := telemetryDB.InsertCommentEvent(evt); err != nil {
-				log.Warn("runner: telemetry InsertCommentEvent failed", "error", err)
+			evtID, uuidErr := db.NewUUID()
+			if uuidErr != nil {
+				log.Warn("runner: failed to generate comment event UUID", "error", uuidErr)
+			} else {
+				evt := db.CommentEventRow{
+					ID:           evtID,
+					SessionID:    session.SessionID,
+					Iteration:    state.Iteration,
+					CommentCount: agentResult.Comments,
+				}
+				if err := telemetryDB.InsertCommentEvent(evt); err != nil {
+					log.Warn("runner: telemetry InsertCommentEvent failed", "error", err)
+				}
 			}
 		}
 
@@ -381,6 +386,9 @@ func validateOpts(o *Opts) error {
 	}
 	if o.PR == "" {
 		return errors.New("runner: Opts.PR is required")
+	}
+	if _, err := strconv.Atoi(o.PR); err != nil {
+		return fmt.Errorf("runner: Opts.PR must be a numeric pull-request number, got %q", o.PR)
 	}
 	if o.CWD == "" {
 		return errors.New("runner: Opts.CWD is required")

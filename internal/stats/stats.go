@@ -37,15 +37,18 @@ const (
 )
 
 // newUUID generates a random UUID v4 string.
-func newUUID() string {
+// Returns an error if the OS random source is unavailable.
+func newUUID() (string, error) {
 	b := make([]byte, 16)
-	_, _ = rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("stats: newUUID: crypto/rand unavailable: %w", err)
+	}
 	// Set version 4 (bits 12-15 of byte 6 to 0100)
 	b[6] = (b[6] & 0x0f) | 0x40
 	// Set variant bits (bits 6-7 of byte 8 to 10)
 	b[8] = (b[8] & 0x3f) | 0x80
 	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
-		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
 }
 
 // Session records the outcome of a single rinse PR-review run.
@@ -73,10 +76,15 @@ type Session struct {
 }
 
 // NewSession creates a new Session with a generated UUID and the current time
-// as StartedAt.
+// as StartedAt. It panics if the OS random source is unavailable, since that
+// indicates a severe system fault.
 func NewSession(repo, pr, runner, model string) Session {
+	id, err := newUUID()
+	if err != nil {
+		panic(err)
+	}
 	return Session{
-		SessionID: newUUID(),
+		SessionID: id,
 		StartedAt: time.Now().UTC(),
 		Repo:      repo,
 		PR:        pr,
