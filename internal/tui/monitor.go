@@ -323,7 +323,10 @@ func (m monitorModel) elapsedForDisplay() time.Duration {
 	if m.phase == phaseStarting {
 		return 0
 	}
-	return (time.Since(m.started) + m.clockOffset).Round(time.Second)
+	// Display elapsed runtime using the local/monotonic clock so clockOffset
+	// does not skew the duration.
+	elapsed := time.Since(m.started)
+	return elapsed.Round(time.Second)
 }
 
 // nowAdjusted returns the clock-offset-adjusted current time.
@@ -607,15 +610,6 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		cmds = append(cmds, tick())
-		// Check for overdue crossing once per tick while cycle is active.
-		if !m.overdueAnnounced && m.estimatedEndAt != nil && m.phase != phaseDone && m.phase != phaseError {
-			if m.nowAdjusted().After(*m.estimatedEndAt) {
-				m.overdueAnnounced = true
-				m.toastMsg = theme.StyleBadgeOverdue.Render(" OVERDUE ")
-				cmds = append(cmds, tea.Tick(5*time.Second,
-					func(t time.Time) tea.Msg { return clearToastMsg{} }))
-			}
-		}
 
 	case spinner.TickMsg:
 		var spcmd tea.Cmd
