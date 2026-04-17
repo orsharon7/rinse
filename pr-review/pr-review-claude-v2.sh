@@ -376,20 +376,24 @@ fi
 if [[ "$USE_WORKTREE" == false ]]; then
   _cleanup_on_exit() {
     local rc=$?
+    local should_print_insights=true
     # Best-effort cleanup — don't let errors here mask the original exit code
     set +e
 
     session_clear
     gh_lock_release
 
-    # Finalize insights only if not already finalized by an explicit exit path
+    # Finalize and print insights only if they were not already handled by
+    # an explicit exit path before this EXIT trap ran.
     if [[ -z "${_INS_OUTCOME:-}" ]]; then
       local outcome="error"
-      [[ $rc -eq 0 ]] && outcome="success"
+      [[ $rc -eq 0 ]] && outcome="clean"
       insights_finalize "$outcome"
+    else
+      should_print_insights=false
     fi
 
-    if [[ "${DRY_RUN:-false}" != true ]]; then
+    if [[ "${DRY_RUN:-false}" != true && "$should_print_insights" == true ]]; then
       insights_print $( [[ "${JSON_INSIGHTS:-false}" == true ]] && echo "--json" )
     fi
   }
@@ -555,14 +559,14 @@ while true; do
   ui_outcome "💬" "${comment_count} comment(s) in review ${rid}" "$GUM_WARN"
   log "💬 ${comment_count} comment(s) in review ${rid} — invoking Claude (${MODEL})..."
 
+  comments_json=$(echo "$comments" | jq '.')
+
   # Record insights for this iteration (classify comments by category)
   insights_record_iteration "$comment_count" "$comments_json"
 
   # ── Step 4: Build prompt and invoke Claude ────────────────────────────
 
   ui_step 4 "Fix comments with Claude (${MODEL})"
-
-  comments_json=$(echo "$comments" | jq '.')
 
   read -r -d '' PROMPT << PROMPT_EOF || true
 You are fixing GitHub Copilot code review comments on PR #${PR_NUMBER} in ${REPO}.

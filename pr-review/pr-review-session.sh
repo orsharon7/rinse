@@ -16,8 +16,8 @@
 #      c. Sleeps briefly and re-reads the comment to verify it won the race.
 #      d. If another runner already holds the lock (and it is not stale), this
 #         runner exits cleanly with RC=2.
-#    On exit (clean or crash) the lock is released: label removed, comment
-#    updated to "done".  Stale locks (default: 4 h) are automatically stolen.
+#    On exit (clean or crash) the lock is released: label removed, lock
+#    comment deleted.  Stale locks (default: 4 h) are automatically stolen.
 #
 # Usage — source this file then call the functions:
 #
