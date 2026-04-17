@@ -63,8 +63,15 @@ func (s Session) DurationSeconds() float64 {
 	return s.EndedAt.Sub(s.StartedAt).Seconds()
 }
 
+// sessionsDirOverride, when non-empty, is returned by SessionsDir instead of
+// the default home-based path. Set via SetSessionsDir for test isolation.
+var sessionsDirOverride string
+
 // SessionsDir returns the directory where session JSON files are stored.
 func SessionsDir() (string, error) {
+	if sessionsDirOverride != "" {
+		return sessionsDirOverride, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
