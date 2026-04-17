@@ -108,8 +108,7 @@ func TestRun_ApprovedFirstIteration(t *testing.T) {
 		t.Fatalf("expected CopilotCommentsByIteration[0]=2, got %d", res.Session.CopilotCommentsByIteration[0])
 	}
 	// Assert exactly one session file was written to the temp sessions dir.
-	sessionsDir := t.TempDir() // placeholder; read from env below
-	sessionsDir = os.Getenv("RINSE_SESSIONS_DIR")
+	sessionsDir := os.Getenv("RINSE_SESSIONS_DIR")
 	entries, err := os.ReadDir(sessionsDir)
 	if err != nil {
 		t.Fatalf("reading sessions dir: %v", err)

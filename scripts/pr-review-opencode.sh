@@ -148,8 +148,11 @@ STATE_FILE="${STATE_DIR}/pr-${PR_NUMBER}-last-review"
 # ─── Session JSON writer ──────────────────────────────────────────────────────
 
 write_session_json() {
+  umask 077
+
   local sessions_dir="${HOME}/.rinse/sessions"
   mkdir -p "$sessions_dir"
+  chmod 700 "$sessions_dir"
 
   local ended_at
   ended_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -180,13 +183,13 @@ write_session_json() {
   local time_part="${SESSION_STARTED_AT:11:8}"
   date_part="${date_part//-/}"
   time_part="${time_part//:/}"
-  local fname="${sessions_dir}/${date_part}-${time_part}-${repo_session_slug}-PR${PR_NUMBER}.json"
+  local fname="${sessions_dir}/${date_part}-${time_part}-${repo_session_slug}-PR${PR_NUMBER}-${SESSION_ID}.json"
 
   local approved="false"
   [[ "$SESSION_OUTCOME" == "approved" || "$SESSION_OUTCOME" == "merged" ]] && approved="true"
 
   local tmp_fname
-  tmp_fname="$(dirname "$fname")/.tmp_session_$$.json"
+  tmp_fname="$(mktemp "$(dirname "$fname")/.tmp_session_XXXXXX.json")"
   if jq -n \
     --arg session_id      "$SESSION_ID" \
     --arg repo            "$REPO" \
@@ -221,6 +224,7 @@ write_session_json() {
       estimated_time_saved_seconds:  $saved
     }' > "$tmp_fname"; then
     mv "$tmp_fname" "$fname" \
+      && chmod 600 "$fname" \
       && log "📊 Session saved: ${fname}" \
       || { rm -f "$tmp_fname"; log "⚠️  Could not write session JSON (non-fatal)"; }
   else
