@@ -108,7 +108,9 @@ session_update() {
       iter:           $iter,
       last_review_id: $last_review_id,
       status:         $status
-    }' > "$_tmp_file" && mv "$_tmp_file" "$_SESSION_FILE"
+    }' > "$_tmp_file" \
+    && mv "$_tmp_file" "$_SESSION_FILE" \
+    || { rm -f "$_tmp_file"; return 0; }
 }
 
 # ─── Session: recover ─────────────────────────────────────────────────────────
