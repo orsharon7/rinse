@@ -74,6 +74,14 @@ func runStatusCmd(args []string) {
 		asJSON bool
 	)
 
+	// Pre-scan for --json so early parse errors can be routed through fatalf.
+	for _, a := range args {
+		if a == "--json" {
+			asJSON = true
+			break
+		}
+	}
+
 	// Positional first arg may be a PR number.
 	rest := args
 	if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
@@ -162,8 +170,15 @@ func queryPRStatus(repo, prNum string) (string, error) {
 	out, err := exec.Command("gh", "pr", "view", prNum,
 		"--repo", repo,
 		"--json", "state,merged,reviewDecision,reviews",
-	).Output()
+	).CombinedOutput()
 	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if len(msg) > 500 {
+			msg = msg[:500] + "..."
+		}
+		if msg != "" {
+			return "error", fmt.Errorf("gh pr view: %w: %s", err, msg)
+		}
 		return "error", fmt.Errorf("gh pr view: %w", err)
 	}
 

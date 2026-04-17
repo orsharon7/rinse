@@ -407,6 +407,17 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
+		// When help overlay is open, close it instead of quitting.
+		if m.showHelp {
+			if key.Matches(msg, Keys.Quit) || key.Matches(msg, Keys.Help) {
+				m.showHelp = false
+				return m, tea.Batch(cmds...)
+			}
+			// Any other key also dismisses the overlay.
+			m.showHelp = false
+			return m, tea.Batch(cmds...)
+		}
+
 		// Always handle quit.
 		if key.Matches(msg, Keys.Quit) {
 			if m.cmd != nil && m.cmd.Process != nil {
@@ -423,9 +434,6 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Toggle help overlay.
 		if key.Matches(msg, Keys.Help) {
 			m.showHelp = !m.showHelp
-		} else if m.showHelp {
-			// Any other key dismisses the overlay.
-			m.showHelp = false
 		} else {
 			// Normal key handling when help is not shown.
 			switch {
@@ -737,19 +745,19 @@ func (m monitorModel) executePostCycleAction(choice int) (tea.Model, tea.Cmd) {
 			// Detect local branch; only attempt checkout+delete when detection succeeds.
 			localBranch, revErr := runShell("git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD")
 			if revErr != nil {
-				return actionDoneMsg{output: "⚠️ Merged, remote branch deleted. (local branch cleanup skipped: git rev-parse failed: " + revErr.Error() + ")"}
+				return actionDoneMsg{output: "⚠️ Merged, remote branch deleted.", err: fmt.Errorf("local branch cleanup skipped: git rev-parse failed: %w", revErr)}
 			}
 			localBranch = strings.TrimSpace(localBranch)
 			if localBranch == "" || localBranch == defaultBr {
 				return actionDoneMsg{output: "✅ Merged, remote branch deleted."}
 			}
 			if _, coErr := runShell("git", "-C", cwd, "checkout", defaultBr); coErr != nil {
-				return actionDoneMsg{output: "✅ Merged, remote branch deleted. (checkout " + defaultBr + " failed: " + coErr.Error() + ")"}
+				return actionDoneMsg{output: "⚠️ Merged, remote branch deleted.", err: fmt.Errorf("checkout %s failed: %w", defaultBr, coErr)}
 			}
 			if _, delErr := runShell("git", "-C", cwd, "branch", "-d", localBranch); delErr != nil {
 				// Fall back to force-delete (-D) like the bash implementation.
 				if _, delErrF := runShell("git", "-C", cwd, "branch", "-D", localBranch); delErrF != nil {
-					return actionDoneMsg{output: "✅ Merged, remote branch deleted. (local branch delete failed: " + delErrF.Error() + ")"}
+					return actionDoneMsg{output: "⚠️ Merged, remote branch deleted.", err: fmt.Errorf("local branch delete failed: %w", delErrF)}
 				}
 			}
 			return actionDoneMsg{output: "✅ Merged, remote branch deleted, local branch deleted."}
@@ -1372,9 +1380,9 @@ func RunMonitor(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge 
 		exitCode = 1
 	}
 
-	// Fire webhook if configured (best-effort, non-blocking — runs in a goroutine).
+	// Fire webhook if configured before returning so process exit can't interrupt it.
 	if webhookURL := os.Getenv("RINSE_WEBHOOK_URL"); webhookURL != "" {
-		go fireWebhook(webhookURL, pr, repo, exitCode, fm.phase)
+		fireWebhook(webhookURL, pr, repo, exitCode, fm.phase)
 	}
 
 	return exitCode, nil

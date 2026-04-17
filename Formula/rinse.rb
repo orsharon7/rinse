@@ -16,8 +16,8 @@ class Rinse < Formula
              "."
     end
 
-    # Install pr-review helper scripts into libexec
-    libexec.install Dir["pr-review/*.sh"]
+    # Install pr-review helper scripts into libexec/pr-review subdirectory
+    (libexec/"pr-review").install Dir["pr-review/*.sh"]
     (libexec/"pr-review").chmod_R 0755
 
     # Create a rinse wrapper that sets RINSE_SCRIPT_DIR so scripts are found
