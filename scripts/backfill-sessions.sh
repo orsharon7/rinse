@@ -38,7 +38,7 @@ for log_file in "${log_files[@]}"; do
   filename="$(basename "$log_file")"
 
   # Extract PR number from filename: rinse-pr45.log or rinse-pr45-cycle.log
-  pr_num="$(echo "$filename" | grep -oE 'pr[0-9]+' | grep -oE '[0-9]+')"
+  pr_num="$(echo "$filename" | grep -oE 'pr[0-9]+' | grep -oE '[0-9]+' || true)"
   if [[ -z "$pr_num" ]]; then
     echo "  [SKIP] Cannot parse PR number from: $filename"
     ((failed++)) || true
@@ -76,8 +76,12 @@ for log_file in "${log_files[@]}"; do
   # Parse timestamps → ISO 8601: [2026-04-17 12:17:52] some text
   start_ts="$(echo "$start_line" | grep -oE '20[0-9]{2}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}')"
   end_ts="$(echo "$end_line" | grep -oE '20[0-9]{2}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}')"
-  started_at="${start_ts/ /T}Z"
-  ended_at="${end_ts/ /T}Z"
+  # Convert local timestamps to UTC RFC3339.
+  # Try GNU date (-d) first, then BSD date (-jf) for macOS compatibility.
+  started_at="$(date -u -d "${start_ts}" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null \
+    || date -ujf '%Y-%m-%d %H:%M:%S' "${start_ts}" '+%Y-%m-%dT%H:%M:%SZ')"
+  ended_at="$(date -u -d "${end_ts}" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null \
+    || date -ujf '%Y-%m-%d %H:%M:%S' "${end_ts}" '+%Y-%m-%dT%H:%M:%SZ')"
 
   # Date prefix for filename: YYYYMMDD-HHMMSS
   date_prefix="$(echo "$start_ts" | tr -d ':-' | tr ' ' '-')"
@@ -95,9 +99,7 @@ for log_file in "${log_files[@]}"; do
     model="github-copilot/claude-sonnet-4.6"
   fi
 
-  # Count iterations (lines with ━━━ Iteration N)
-  iterations="$(grep -a -c 'Iteration' "$log_file" 2>/dev/null || echo 0)"
-  # Narrow to actual iteration header lines only
+  # Count iterations (actual iteration header lines only, e.g. ━━━ Iteration N)
   iterations="$(grep -a -E '^.{0,10}Iteration [0-9]+' "$log_file" 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
 
   # Count total comments: sum numbers from "N comment(s) in review NNNN" lines

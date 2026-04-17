@@ -292,20 +292,26 @@ func Summarize(sessions []Session) Summary {
 	return sum
 }
 
+// filterStartedTodayUTC returns only sessions whose StartedAt timestamp falls on
+// the current UTC day.
+func filterStartedTodayUTC(sessions []Session) []Session {
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	var out []Session
+	for _, s := range sessions {
+		if !s.StartedAt.UTC().Before(today) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // LoadToday reads session files from SessionsDir filtered to today (UTC).
 func LoadToday() ([]Session, error) {
 	all, err := Load()
 	if err != nil {
 		return nil, err
 	}
-	today := time.Now().UTC().Truncate(24 * time.Hour)
-	var out []Session
-	for _, s := range all {
-		if !s.StartedAt.UTC().Before(today) {
-			out = append(out, s)
-		}
-	}
-	return out, nil
+	return filterStartedTodayUTC(all), nil
 }
 
 // ReportSummary extends Summary with per-session extremes for the report command.
@@ -315,7 +321,6 @@ type ReportSummary struct {
 	FastestPR  string
 	LongestSec float64
 	LongestPR  string
-	MergedCount int
 }
 
 // SummarizeReport builds a ReportSummary from a session slice.
@@ -332,7 +337,6 @@ func SummarizeReport(sessions []Session) ReportSummary {
 		r.TotalDurationSec += dur
 		if s.Approved {
 			r.ApprovedSessions++
-			r.MergedCount++
 		}
 		for _, p := range s.Patterns {
 			r.PatternCounts[p]++
@@ -352,16 +356,11 @@ func SummarizeReport(sessions []Session) ReportSummary {
 // PrintReport writes the `rinse report` dashboard to stdout.
 // It prints a today-focused summary (or all-time if today has no data).
 func PrintReport(sessions []Session) {
-	today := time.Now().UTC().Truncate(24 * time.Hour)
-	var todaySessions []Session
-	for _, s := range sessions {
-		if !s.StartedAt.UTC().Before(today) {
-			todaySessions = append(todaySessions, s)
-		}
-	}
+	todaySessions := filterStartedTodayUTC(sessions)
+	today := time.Now().UTC()
 
 	target := todaySessions
-	dateLabel := "Today's Report (" + time.Now().Format("January 2, 2006") + ")"
+	dateLabel := "Today's Report (" + today.Format("January 2, 2006") + ")"
 	if len(target) == 0 {
 		target = sessions
 		dateLabel = "All-Time Report"
@@ -386,9 +385,9 @@ func PrintReport(sessions []Session) {
 
 	row("Cycles run", fmt.Sprintf("%d", r.TotalSessions))
 	row("PRs reviewed", fmt.Sprintf("%d", r.TotalSessions))
-	if r.MergedCount > 0 {
-		pct := int(math.Round(float64(r.MergedCount) / float64(r.TotalSessions) * 100))
-		row("PRs approved", fmt.Sprintf("%d (%d%%)", r.MergedCount, pct))
+	if r.TotalSessions > 0 {
+		pct := int(math.Round(float64(r.ApprovedSessions) / float64(r.TotalSessions) * 100))
+		row("PRs approved", fmt.Sprintf("%d (%d%%)", r.ApprovedSessions, pct))
 	}
 	fmt.Println()
 
@@ -396,7 +395,7 @@ func PrintReport(sessions []Session) {
 	if r.TotalSessions > 0 {
 		avgComments = float64(r.TotalComments) / float64(r.TotalSessions)
 	}
-	timeSaved := math.Round(float64(r.TotalComments)*4/60*10) / 10
+	timeSaved := r.EstTimeSavedHours()
 	row("Time saved", fmt.Sprintf("~%.1f hours (est.)", timeSaved))
 	row("Comments fixed", fmt.Sprintf("%d", r.TotalComments))
 	row("Avg per PR", fmt.Sprintf("%.0f comments, %.1f iterations", avgComments, r.AvgIterations()))
