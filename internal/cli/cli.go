@@ -269,6 +269,7 @@ func runStartCmd(args []string) {
 		repo        string
 		cwd         string
 		model       string
+		modelSet    bool
 		runnerName  string
 		doReflect   bool
 		reflectMain string
@@ -308,6 +309,7 @@ func runStartCmd(args []string) {
 			}
 			i++
 			model = args[i]
+			modelSet = true
 		case "--runner":
 			i++
 			if i >= len(args) || strings.HasPrefix(args[i], "--") {
@@ -381,8 +383,10 @@ func runStartCmd(args []string) {
 		script, prNum,
 		"--repo", repo,
 		"--cwd", cwd,
-		"--model", model,
 		"--no-interactive",
+	}
+	if modelSet {
+		cmdArgs = append(cmdArgs, "--model", model)
 	}
 	if doReflect {
 		cmdArgs = append(cmdArgs, "--reflect", "--reflect-main-branch", reflectMain)
@@ -394,12 +398,8 @@ func runStartCmd(args []string) {
 	if asJSON {
 		// Run with inherited stdio so the agent sees streaming output,
 		// then emit a structured JSON result on completion.
-		exitCode := execInherited(cmdArgs)
+		exitCode, errMsg := execInheritedForJSON(cmdArgs)
 		ok := exitCode == 0
-		errMsg := ""
-		if !ok {
-			errMsg = fmt.Sprintf("runner exited with code %d", exitCode)
-		}
 		emitJSON(StartResult{
 			OK:       ok,
 			PR:       prNum,
@@ -455,7 +455,7 @@ func resolveScript(scriptName string) (string, error) {
 
 	script := filepath.Join(scriptDir, scriptName)
 	if _, err := os.Stat(script); err != nil {
-		return "", fmt.Errorf("runner script not found: %s\nSet RINSE_SCRIPT_DIR to override the search path.", script)
+		return "", fmt.Errorf("runner script not found: %s; set RINSE_SCRIPT_DIR to override the search path", script)
 	}
 	return script, nil
 }
@@ -465,18 +465,27 @@ func resolveScript(scriptName string) (string, error) {
 // execInherited runs args with inherited stdio and returns the exit code.
 // Used in --json mode so streaming output is visible throughout.
 func execInherited(args []string) int {
+	code, _ := execInheritedForJSON(args)
+	return code
+}
+
+// execInheritedForJSON runs args with inherited stdio and returns the exit code
+// along with a structured error message that distinguishes start failures
+// (e.g. missing script, permission denied) from runner failures (non-zero exit).
+func execInheritedForJSON(args []string) (int, string) {
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
-			return exitErr.ExitCode()
+			code := exitErr.ExitCode()
+			return code, fmt.Sprintf("runner exited with code %d", code)
 		}
-		fmt.Fprintf(os.Stderr, "error: failed to start runner: %v\n", err)
-		return 1
+		// Start failure: missing script, permission denied, etc.
+		return 1, fmt.Sprintf("failed to start runner: %v", err)
 	}
-	return 0
+	return 0, ""
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
