@@ -16,7 +16,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/orsharon7/rinse/internal/stats"
+	"github.com/orsharon7/rinse/internal/session"
 	"github.com/orsharon7/rinse/internal/theme"
 )
 
@@ -1315,6 +1315,48 @@ func colorLine(line string) string {
 	}
 }
 
+// ── Session extraction ─────────────────────────────────────────────────────────
+
+// extractPatterns derives a best-effort list of top fix patterns from the
+// reflect lines collected during the cycle. It de-duplicates short keyword
+// phrases and returns up to maxPatterns unique entries.
+func extractPatterns(reflectLines []string, maxPatterns int) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	for _, l := range reflectLines {
+		l = strings.TrimSpace(l)
+		if l == "" {
+			continue
+		}
+		// Trim common prefixes/suffixes to get the rule description.
+		for _, prefix := range []string{"✓ ", "✗ ", "• ", "- ", "* "} {
+			l = strings.TrimPrefix(l, prefix)
+		}
+		// Skip status-only lines.
+		lower := strings.ToLower(l)
+		if lower == "complete" || lower == "done" || lower == "starting" ||
+			strings.Contains(lower, "exited non-zero") ||
+			strings.Contains(lower, "rule(s) pushed") ||
+			strings.Contains(lower, "no changes") ||
+			strings.Contains(lower, "nothing to") {
+			continue
+		}
+		// Truncate to a readable length.
+		if len(l) > 60 {
+			l = l[:57] + "..."
+		}
+		if _, ok := seen[l]; ok {
+			continue
+		}
+		seen[l] = struct{}{}
+		out = append(out, l)
+		if len(out) >= maxPatterns {
+			break
+		}
+	}
+	return out
+}
+
 // ── RunMonitor ────────────────────────────────────────────────────────────────
 
 // RunMonitor starts the runner script and displays the live TUI monitor.
@@ -1382,28 +1424,43 @@ func RunMonitor(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge 
 		return err
 	}
 
-	// Persist session metrics for `rinse stats`.
-	if fm, ok := finalModel.(channelMonitor); ok {
-		m := fm.monitorModel
-		approved := m.done && m.exitCode == 0 &&
-			len(m.iterHistory) > 0 &&
-			m.iterHistory[len(m.iterHistory)-1].result == iterApproved
-		session := stats.Session{
-			StartedAt:     m.started,
-			EndedAt:       time.Now(),
-			Repo:          repo,
-			PR:            pr,
-			Runner:        runnerName,
-			Model:         modelName,
-			TotalComments: m.totalComments,
-			Iterations:    m.iter,
-			Approved:      approved,
-		}
-		_ = stats.Save(session)
-	}
-
 	if cmd.Process != nil {
 		_ = cmd.Process.Kill()
+	}
+
+	// ── Post-cycle insight summary ────────────────────────────────────────────
+	// Build and persist a session record, then print the human-readable summary.
+	if fm, ok := finalModel.(channelMonitor); ok {
+		mm := fm.monitorModel
+		// Only record sessions for terminal outcomes (done or error).
+		if mm.done {
+			commentsByRound := make([]int, len(mm.iterHistory))
+			for i, e := range mm.iterHistory {
+				commentsByRound[i] = e.comments
+			}
+			patterns := extractPatterns(mm.reflectLines, 5)
+			sess := session.Session{
+				PR:              mm.pr,
+				Repo:            mm.repo,
+				RunnerName:      mm.runner,
+				StartedAt:       mm.started,
+				EndedAt:         time.Now(),
+				Approved:        mm.phase == phaseDone && mm.exitCode == 0,
+				Iterations:      mm.iter,
+				TotalComments:   mm.totalComments,
+				RulesExtracted:  mm.rulesExtracted,
+				CommentsByRound: commentsByRound,
+				Patterns:        patterns,
+			}
+			// Persist — non-fatal on failure.
+			if saveErr := sess.Save(); saveErr != nil {
+				fmt.Fprintf(os.Stderr, "rinse: could not save session: %v\n", saveErr)
+			}
+			// Print the summary only on successful completion.
+			if mm.exitCode == 0 {
+				session.PrintSummary(sess, false)
+			}
+		}
 	}
 
 	return nil

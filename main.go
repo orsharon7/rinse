@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/orsharon7/rinse/internal/cli"
-	"github.com/orsharon7/rinse/internal/stats"
+	"github.com/orsharon7/rinse/internal/session"
 	"github.com/orsharon7/rinse/internal/tui"
 )
 
@@ -129,16 +129,12 @@ func main() {
 			}
 			os.Exit(0)
 		case "stats":
-			sessions, err := stats.Load()
+			sessions, err := session.LoadAll()
 			if err != nil {
 				fmt.Fprintln(os.Stderr, "error reading sessions:", err)
 				os.Exit(1)
 			}
-			if len(sessions) == 0 {
-				fmt.Println("  No sessions recorded yet. Run rinse on a PR to start tracking stats.")
-				os.Exit(0)
-			}
-			stats.Print(sessions)
+			session.PrintStats(sessions)
 			os.Exit(0)
 		}
 	}

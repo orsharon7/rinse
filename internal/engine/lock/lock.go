@@ -27,7 +27,16 @@ var ErrLocked = errors.New("lock: held by another process")
 
 // Dir is the default base directory for lock files.
 // It mirrors the DAEMON_LOCK_DIR convention from the shell scripts.
-var Dir = filepath.Join(os.Getenv("HOME"), ".pr-review", "locks")
+var Dir = func() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		home = os.Getenv("HOME")
+	}
+	if home == "" {
+		home = os.TempDir()
+	}
+	return filepath.Join(home, ".pr-review", "locks")
+}()
 
 // Lock represents a per-PR advisory lock on disk.
 type Lock struct {
@@ -71,7 +80,12 @@ func Acquire(repo, pr string) (*Lock, error) {
 
 // tryAcquire attempts acquisition once, clears a stale lock, then retries.
 func (l *Lock) tryAcquire() error {
-	if err := os.Mkdir(l.dir, 0o755); err == nil {
+	if err := os.Mkdir(l.dir, 0o755); err != nil {
+		if !errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("lock: mkdir: %w", err)
+		}
+		// Fall through: directory already exists — check whether the owner is alive.
+	} else {
 		return l.writeMeta()
 	}
 
@@ -137,7 +151,7 @@ func (l *Lock) isActive() (bool, error) {
 // Release removes the lock directory, releasing the lock.
 // It is a no-op if the lock directory no longer exists (idempotent).
 func (l *Lock) Release() error {
-	if err := os.RemoveAll(l.dir); err != nil && !os.IsNotExist(err) {
+	if err := os.RemoveAll(l.dir); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("lock: release: %w", err)
 	}
 	return nil
