@@ -152,7 +152,39 @@ func Save(s Session) error {
 	if err != nil {
 		return fmt.Errorf("stats: cannot marshal session: %w", err)
 	}
-	return os.WriteFile(path, data, 0o644)
+
+	tmpFile, err := os.CreateTemp(dir, "session.tmp-*")
+	if err != nil {
+		return fmt.Errorf("stats: cannot create temp file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	success := false
+	defer func() {
+		if !success {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		return fmt.Errorf("stats: cannot write session: %w", err)
+	}
+	if err := tmpFile.Chmod(0o644); err != nil {
+		_ = tmpFile.Close()
+		return fmt.Errorf("stats: cannot chmod session: %w", err)
+	}
+	if err := tmpFile.Sync(); err != nil {
+		_ = tmpFile.Close()
+		return fmt.Errorf("stats: cannot sync session: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("stats: cannot close session: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("stats: cannot rename session: %w", err)
+	}
+	success = true
+	return nil
 }
 
 // Load reads sessions from the best available source:

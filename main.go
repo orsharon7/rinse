@@ -53,7 +53,8 @@ func main() {
 				fmt.Fprintln(os.Stderr, "error saving preference:", err)
 				os.Exit(1)
 			}
-			fmt.Println("  Stats collection enabled. Sessions will be saved to ~/.rinse/sessions/")
+			sessionsDir, _ := stats.SessionsDir()
+		fmt.Printf("  Stats collection enabled. Sessions will be saved to %s\n", sessionsDir)
 			os.Exit(0)
 		case "opt-out":
 			if err := stats.SetOptIn(false); err != nil {
