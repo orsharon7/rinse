@@ -2,8 +2,8 @@
 // fetching Copilot review state via the gh CLI, building the fix prompt,
 // and pushing commits + re-requesting review.
 //
-// Individual agents (opencode, claude) embed agent.Base and supply only
-// their CLI invocation logic.
+// Individual agents (opencode, claude) use the shared helper functions in
+// this package and supply their own CLI invocation logic.
 package agent
 
 import (
@@ -18,8 +18,8 @@ import (
 
 // ReviewState is the parsed outcome of `gh pr review` for a Copilot review.
 type ReviewState struct {
-	// Status is one of: pending, new_review, approved, no_change, no_reviews,
-	// merged, closed, error — mirrors pr-review.sh status output.
+	// Status is one of: pending, new_review, approved, clean, no_change,
+	// no_reviews, merged, closed, error — mirrors pr-review.sh status output.
 	Status string `json:"status"`
 
 	// ReviewID is the GitHub review ID string (empty if no review exists yet).
@@ -96,11 +96,15 @@ func GetComments(scriptDir, repo, pr, cwd string) ([]Comment, error) {
 	}
 
 	clean := bytes.ReplaceAll(out, []byte{0}, nil)
-	var comments []Comment
-	if err := json.Unmarshal(clean, &comments); err != nil {
+	var wrapper struct {
+		ReviewID string    `json:"review_id"`
+		Count    int       `json:"count"`
+		Comments []Comment `json:"comments"`
+	}
+	if err := json.Unmarshal(clean, &wrapper); err != nil {
 		return nil, fmt.Errorf("agent: parse comments: %w", err)
 	}
-	return comments, nil
+	return wrapper.Comments, nil
 }
 
 // BuildPrompt constructs the fix prompt that is passed verbatim to the agent CLI.
@@ -166,18 +170,29 @@ func PushAndRequestReview(scriptDir, repo, pr, cwd string) error {
 }
 
 // ScriptDir attempts to locate the scripts/ directory relative to the CWD.
-// It walks up until it finds a directory containing pr-review.sh.
+// It walks up from cwd to the filesystem root until it finds a directory
+// containing pr-review.sh.
 func ScriptDir(cwd string) (string, error) {
-	// Common case: scripts/ sits at the repo root.
-	candidates := []string{
-		cwd + "/scripts",
-		cwd + "/../scripts",
-		cwd + "/../../scripts",
-	}
-	for _, c := range candidates {
-		if _, err := os.Stat(c + "/pr-review.sh"); err == nil {
-			return c, nil
+	dir := cwd
+	for {
+		candidate := dir + "/scripts"
+		if _, err := os.Stat(candidate + "/pr-review.sh"); err == nil {
+			return candidate, nil
 		}
+		parent := dir + "/.."
+		// Resolve to detect when we've reached the root.
+		resolved, err := os.Stat(parent)
+		if err != nil {
+			break
+		}
+		resolvedDir, err2 := os.Stat(dir)
+		if err2 != nil {
+			break
+		}
+		if os.SameFile(resolved, resolvedDir) {
+			break // reached filesystem root
+		}
+		dir = parent
 	}
 	return "", fmt.Errorf("agent: cannot locate scripts/pr-review.sh relative to %s", cwd)
 }

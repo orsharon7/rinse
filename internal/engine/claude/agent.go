@@ -48,7 +48,7 @@ func (a *Agent) Run(opts engine.RunOpts) (engine.Result, error) {
 	}
 
 	switch rs.Status {
-	case "approved":
+	case "approved", "clean":
 		return engine.Result{Approved: true}, nil
 	case "merged", "closed":
 		return engine.Result{Approved: true}, nil
@@ -56,8 +56,11 @@ func (a *Agent) Run(opts engine.RunOpts) (engine.Result, error) {
 		return engine.Result{Comments: 0}, nil
 	case "error":
 		return engine.Result{}, fmt.Errorf("claude: review status error for PR %s", opts.PR)
+	case "new_review":
+		// fall through to fix
+	default:
+		return engine.Result{}, fmt.Errorf("claude: unknown review status %q for PR %s", rs.Status, opts.PR)
 	}
-	// "new_review" — fall through to fix.
 
 	// 2. Fetch comments.
 	comments, err := agent.GetComments(scriptDir, opts.Repo, opts.PR, opts.CWD)
