@@ -84,6 +84,7 @@ stats_init "$REPO" "$PR_NUMBER" ""   # model unknown for legacy claude script
 
 _RINSE_OUTCOME="aborted"
 _stats_exit_trap() {
+  local exit_code=$?
   if [[ "$_RINSE_OUTCOME" == "aborted" ]]; then
     local final_status_json final_status
     final_status_json=$(bash "$PR_REVIEW" "$PR_NUMBER" status $REPO_FLAG 2>/dev/null || true)
@@ -94,6 +95,13 @@ _stats_exit_trap() {
       clean)    _RINSE_OUTCOME="clean" ;;
       merged)   _RINSE_OUTCOME="merged" ;;
       closed)   _RINSE_OUTCOME="closed" ;;
+      *)
+        # If the outcome wasn't set explicitly and the script exited non-zero,
+        # record it as an error rather than the misleading "aborted".
+        if [[ $exit_code -ne 0 ]]; then
+          _RINSE_OUTCOME="error"
+        fi
+        ;;
     esac
   fi
 
