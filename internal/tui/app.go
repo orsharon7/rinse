@@ -86,14 +86,14 @@ func detectCWD() string {
 
 // ── Runner definitions ────────────────────────────────────────────────────────
 
-type runner struct {
+type agentDef struct {
 	name         string
 	desc         string
 	script       string
 	defaultModel string
 }
 
-var runners = []runner{
+var runners = []agentDef{
 	{"opencode", "GitHub Copilot · no API key", "pr-review-opencode.sh", "github-copilot/claude-sonnet-4.6"},
 	{"claude", "Claude Code · Anthropic key", "pr-review-claude-v2.sh", "claude-sonnet-4-6"},
 }
