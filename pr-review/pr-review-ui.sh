@@ -524,14 +524,16 @@ ui_insights_summary() {
     elapsed_fmt="${secs}s"
   fi
 
-  # Outcome icon
+  # Outcome icon and color
   local outcome_icon="✅"
+  local outcome_color="$GUM_SUCCESS"
+  local outcome_ansi="$_GREEN"
   case "$outcome" in
-    approved) outcome_icon="✅" ;;
-    clean)    outcome_icon="✅" ;;
-    stalled)  outcome_icon="⏳" ;;
-    error)    outcome_icon="❌" ;;
-    *)        outcome_icon="ℹ️" ;;
+    approved) outcome_icon="✅"; outcome_color="$GUM_SUCCESS"; outcome_ansi="$_GREEN" ;;
+    clean)    outcome_icon="✅"; outcome_color="$GUM_SUCCESS"; outcome_ansi="$_GREEN" ;;
+    stalled)  outcome_icon="⏳"; outcome_color="$GUM_WARN";    outcome_ansi="$_YELLOW" ;;
+    error)    outcome_icon="❌"; outcome_color="$GUM_ERROR";   outcome_ansi="$_RED" ;;
+    *)        outcome_icon="ℹ️"; outcome_color="$GUM_MUTED";   outcome_ansi="" ;;
   esac
 
   local cat_names=(security error_handling performance type_safety testing documentation naming style logic general)
@@ -557,7 +559,7 @@ ui_insights_summary() {
 
     # Key stats
     local stats
-    stats="$(gum style --foreground "$GUM_MUTED" "Outcome") $(gum style --bold --foreground "$GUM_SUCCESS" "${outcome_icon} ${outcome}")   $(gum style --foreground "$GUM_MUTED" "Model") $(gum style --bold "${model}")   $(gum style --foreground "$GUM_MUTED" "Elapsed") $(gum style --bold "${elapsed_fmt}")   $(gum style --foreground "$GUM_MUTED" "Iterations") $(gum style --bold "${iters}")   $(gum style --foreground "$GUM_MUTED" "Comments") $(gum style --bold "${total_comments}")"
+    stats="$(gum style --foreground "$GUM_MUTED" "Outcome") $(gum style --bold --foreground "$outcome_color" "${outcome_icon} ${outcome}")   $(gum style --foreground "$GUM_MUTED" "Model") $(gum style --bold "${model}")   $(gum style --foreground "$GUM_MUTED" "Elapsed") $(gum style --bold "${elapsed_fmt}")   $(gum style --foreground "$GUM_MUTED" "Iterations") $(gum style --bold "${iters}")   $(gum style --foreground "$GUM_MUTED" "Comments") $(gum style --bold "${total_comments}")"
     echo "$stats"
 
     # Category breakdown — only when comments were addressed
@@ -594,7 +596,7 @@ ui_insights_summary() {
     _ui_print "${_B}${_BLUE}  RINSE Cycle Summary — PR #${pr}${_R}"
     _ui_print "${_B}${_BLUE}  ${repo}${_R}"
     _ui_print "${_B}${_BLUE}${line}${_R}"
-    _ui_print "  Outcome    ${_B}${_GREEN}${outcome_icon} ${outcome}${_R}"
+    _ui_print "  Outcome    ${_B}${outcome_ansi}${outcome_icon} ${outcome}${_R}"
     _ui_print "  Model      ${_B}${model}${_R}"
     _ui_print "  Elapsed    ${_B}${elapsed_fmt}${_R}"
     _ui_print "  Iterations ${_B}${iters}${_R}"

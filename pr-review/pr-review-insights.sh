@@ -234,7 +234,7 @@ insights_as_json() {
     --argjson iterations  "$_INS_ITER_LOG" \
     '{
       schema:            "rinse-insights-v1",
-      pr:                ($pr | tonumber),
+      pr:                ($pr | tonumber? // null),
       repo:              $repo,
       model:             $model,
       outcome:           $outcome,
