@@ -371,6 +371,7 @@ gh_lock_acquire() {
     -X POST \
     -f body="$comment_body" \
     2>/dev/null) || {
+    _gh_lock_remove_label
     >&2 echo "[rinse-lock] Failed to post lock comment — degrading to local-only dedup"
     return 0
   }
@@ -409,27 +410,38 @@ gh_lock_acquire() {
 # Safe to call multiple times (idempotent).
 gh_lock_release() {
   [[ -z "$_SESSION_REPO" ]] && return 0
+  [[ -z "$_RINSE_LOCK_ID" ]] && return 0
+
+  local comment="" cid="" body meta lid
+
+  if [[ -n "$_LOCK_COMMENT_ID" ]]; then
+    comment=$(gh api "repos/${_SESSION_REPO}/issues/comments/${_LOCK_COMMENT_ID}" 2>/dev/null || true)
+  fi
+
+  if [[ -z "$comment" ]]; then
+    # Fallback: find the current lock comment and verify it carries our lock_id.
+    comment=$(_gh_lock_find_comment)
+  fi
+
+  [[ -z "$comment" ]] && return 0
+
+  body=$(echo "$comment" | jq -r '.body // ""')
+  meta=$(_gh_lock_parse_metadata "$body")
+  lid=$(echo "$meta" | jq -r '.lock_id // ""')
+
+  # Only the lock owner may clear the visible running label or delete the lock comment.
+  if [[ "$lid" != "$_RINSE_LOCK_ID" ]]; then
+    return 0
+  fi
+
+  cid=$(echo "$comment" | jq -r '.id // ""')
 
   _gh_lock_remove_label
 
-  if [[ -n "$_LOCK_COMMENT_ID" ]]; then
-    gh api "repos/${_SESSION_REPO}/issues/comments/${_LOCK_COMMENT_ID}" \
+  if [[ -n "$cid" ]]; then
+    gh api "repos/${_SESSION_REPO}/issues/comments/${cid}" \
       -X DELETE >/dev/null 2>&1 || true
-    _LOCK_COMMENT_ID=""
-  else
-    # Fallback: find and delete any lock comment that carries our lock_id
-    local comment
-    comment=$(_gh_lock_find_comment)
-    if [[ -n "$comment" ]]; then
-      local body meta lid
-      body=$(echo "$comment" | jq -r '.body // ""')
-      meta=$(_gh_lock_parse_metadata "$body")
-      lid=$(echo "$meta" | jq -r '.lock_id // ""')
-      if [[ -n "$_RINSE_LOCK_ID" && "$lid" == "$_RINSE_LOCK_ID" ]]; then
-        local cid
-        cid=$(echo "$comment" | jq -r '.id')
-        gh api "repos/${_SESSION_REPO}/issues/comments/${cid}" -X DELETE >/dev/null 2>&1 || true
-      fi
-    fi
   fi
+
+  _LOCK_COMMENT_ID=""
 }

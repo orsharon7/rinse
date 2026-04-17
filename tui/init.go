@@ -134,9 +134,13 @@ func RunInit() {
 	cfg := RepoRinseConfig{
 		Engine:        selectedRunner.name,
 		Model:         modelOverride,
-		Reflect:       &reflect,
 		ReflectBranch: reflectBranch,
-		AutoMerge:     &autoMerge,
+	}
+	if reflect {
+		cfg.Reflect = &reflect
+	}
+	if autoMerge {
+		cfg.AutoMerge = &autoMerge
 	}
 
 	data, err := json.MarshalIndent(cfg, "", "  ")

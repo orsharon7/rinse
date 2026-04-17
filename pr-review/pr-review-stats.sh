@@ -237,30 +237,53 @@ _cli_show() {
     return
   fi
 
-  local filter
-  if [[ -n "$repo_filter" ]]; then
-    filter="[.[] | select(.repo == \$repo_filter)] | .[-\$limit:][]"
-  else
-    filter=".[-\$limit:][]"
-  fi
-
   echo "RINSE run stats (last ${limit}):"
   echo ""
   printf "%-24s %-30s %-5s %-8s %-6s %-10s %-10s %s\n" \
     "timestamp" "repo" "pr" "dur(s)" "iters" "comments" "outcome" "model"
   echo "$(printf '%.0s─' {1..110})"
 
-  jq -rs --arg repo_filter "$repo_filter" --argjson limit "$limit" "$filter | [
-    .timestamp,
-    .repo,
-    (.pr_number | tostring),
-    (.duration_seconds | tostring),
-    (.iterations | tostring),
-    (.comments_resolved | tostring),
-    .outcome,
-    (.model // "")
-  ] | @tsv" "$RINSE_STATS_FILE" 2>/dev/null | \
-  awk -F'\t' '{ printf "%-24s %-30s %-5s %-8s %-6s %-10s %-10s %s\n", $1, $2, $3, $4, $5, $6, $7, $8 }'
+  if [[ -n "$repo_filter" ]]; then
+    awk -v limit="$limit" -v repo_filter="$repo_filter" '
+      BEGIN {
+        pattern = "\"repo\":\"" repo_filter "\""
+      }
+      index($0, pattern) {
+        buf[count % limit] = $0
+        count++
+      }
+      END {
+        start = (count > limit ? count - limit : 0)
+        for (i = start; i < count; i++) {
+          print buf[i % limit]
+        }
+      }
+    ' "$RINSE_STATS_FILE" 2>/dev/null | \
+    jq -r '[
+      .timestamp,
+      .repo,
+      (.pr_number | tostring),
+      (.duration_seconds | tostring),
+      (.iterations | tostring),
+      (.comments_resolved | tostring),
+      .outcome,
+      (.model // "")
+    ] | @tsv' 2>/dev/null | \
+    awk -F'\t' '{ printf "%-24s %-30s %-5s %-8s %-6s %-10s %-10s %s\n", $1, $2, $3, $4, $5, $6, $7, $8 }'
+  else
+    tail -n "$limit" "$RINSE_STATS_FILE" 2>/dev/null | \
+    jq -r '[
+      .timestamp,
+      .repo,
+      (.pr_number | tostring),
+      (.duration_seconds | tostring),
+      (.iterations | tostring),
+      (.comments_resolved | tostring),
+      .outcome,
+      (.model // "")
+    ] | @tsv' 2>/dev/null | \
+    awk -F'\t' '{ printf "%-24s %-30s %-5s %-8s %-6s %-10s %-10s %s\n", $1, $2, $3, $4, $5, $6, $7, $8 }'
+  fi
 }
 
 _cli_clear() {
