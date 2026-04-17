@@ -1486,10 +1486,10 @@ func sessionOutcome(m monitorModel) stats.Outcome {
 	for i := len(m.lines) - 1; i >= 0 && i >= len(m.lines)-10; i-- {
 		plain := stripANSI(m.lines[i])
 		lower := strings.ToLower(plain)
-		if strings.Contains(plain, "PR merged") || strings.Contains(plain, "🎉") {
+		if strings.Contains(lower, "pr merged") || strings.Contains(plain, "🎉") {
 			return stats.OutcomeMerged
 		}
-		if strings.Contains(plain, "PR closed") || strings.Contains(plain, "📕") {
+		if strings.Contains(lower, "pr closed") || strings.Contains(plain, "📕") {
 			return stats.OutcomeClosed
 		}
 		if strings.Contains(lower, "max iterations") || strings.Contains(lower, "max iteration") {
