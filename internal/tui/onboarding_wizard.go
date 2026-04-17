@@ -17,6 +17,7 @@ package tui
 // completes so the caller can proceed to the main TUI.
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -113,6 +114,7 @@ type wizModel struct {
 	cycleName     string
 	creatingCycle bool
 	cycleErr      string
+	cycleCancel   context.CancelFunc // cancels an in-flight CreateCycle call
 
 	// step E
 	colorOK      bool // true if ANSI color is safe to render
@@ -148,13 +150,14 @@ func newWizModel() wizModel {
 		}
 	}
 
+	d := onboarding.DefaultDefaults()
 	return wizModel{
 		view:             wizSplash,
 		sp:               sp,
 		cycleInput:       ti,
-		remindOnComplete: true,
-		autoAdvance:      false,
-		saveHistory:      true,
+		remindOnComplete: d.RemindOnComplete,
+		autoAdvance:      d.AutoAdvance,
+		saveHistory:      d.SaveHistory,
 		colorOK:          colorOK,
 		celebFrames:      buildCelebFrames(colorOK),
 	}
@@ -211,6 +214,7 @@ func (m wizModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case wizCycleCreatedMsg:
 		m.creatingCycle = false
+		m.cycleCancel = nil
 		m.cycleName = msg.cycleName
 		// Save step D synchronously before moving to E so a later Step E save
 		// cannot be overwritten by an earlier async write finishing late.
@@ -235,6 +239,7 @@ func (m wizModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case wizCycleErrMsg:
 		m.creatingCycle = false
+		m.cycleCancel = nil
 		m.cycleErr = friendlyCycleErr(msg.err)
 		return m, nil
 
@@ -310,6 +315,9 @@ func (m wizModel) advanceFromSplash() (wizModel, tea.Cmd) {
 
 func (m wizModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if key.Matches(msg, Keys.ForceQuit) {
+		if m.cycleCancel != nil {
+			m.cycleCancel()
+		}
 		m.outcome = WizardAborted
 		return m, tea.Quit
 	}
@@ -407,9 +415,10 @@ func (m wizModel) doStartOver() (wizModel, tea.Cmd) {
 	}
 	m.cycleName = ""
 	m.cycleInput.SetValue("")
-	m.remindOnComplete = true
-	m.autoAdvance = false
-	m.saveHistory = true
+	startOver := onboarding.DefaultDefaults()
+	m.remindOnComplete = startOver.RemindOnComplete
+	m.autoAdvance = startOver.AutoAdvance
+	m.saveHistory = startOver.SaveHistory
 	m.savedStep = onboarding.StepNone
 	m.view = wizWelcome
 	return m, nil
@@ -638,8 +647,11 @@ func (m wizModel) handleStepDKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 			AutoAdvance:      m.autoAdvance,
 			SaveHistory:      m.saveHistory,
 		}
+		ctx, cancel := context.WithCancel(context.Background())
+		m.cycleCancel = cancel
 		return m, func() tea.Msg {
-			cycle, err := onboarding.CreateCycle(cycleName, d)
+			defer cancel()
+			cycle, err := onboarding.CreateCycle(ctx, cycleName, d)
 			if err != nil {
 				return wizCycleErrMsg{err}
 			}

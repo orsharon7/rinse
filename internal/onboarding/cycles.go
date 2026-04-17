@@ -2,6 +2,7 @@ package onboarding
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -56,7 +57,9 @@ func APIBase() string {
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // CreateCycle calls POST /cycles and returns the created cycle on success.
-func CreateCycle(name string, d Defaults) (*Cycle, error) {
+// The provided context can be used to cancel the request (e.g. when the user
+// aborts the wizard with ctrl+c).
+func CreateCycle(ctx context.Context, name string, d Defaults) (*Cycle, error) {
 	req := CycleRequest{
 		Name: name,
 		Settings: CycleSettings{
@@ -72,7 +75,12 @@ func CreateCycle(name string, d Defaults) (*Cycle, error) {
 	}
 
 	url := strings.TrimRight(APIBase(), "/") + "/cycles"
-	resp, err := httpClient.Post(url, "application/json", bytes.NewReader(body)) //nolint:noctx
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("could not build request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := httpClient.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("could not reach rinse backend at %s: %w", url, err)
 	}

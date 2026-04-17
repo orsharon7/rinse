@@ -12,8 +12,10 @@
 //	rinse start  <pr>  [options]              [--json]
 //	rinse help
 //
-// RINSE primarily targets Linux and macOS (matching the cross-build Makefile targets),
-// but these subcommands also compile and run on Windows.
+// RINSE primarily targets Linux and macOS (matching the cross-build Makefile targets).
+// The subcommands compile on Windows, but runtime support requires a POSIX shell
+// environment (Git Bash or WSL) because `start` executes .sh runner scripts and
+// both `start`/`status` depend on `gh`.
 
 package cli
 

@@ -3,9 +3,11 @@ package onboarding
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
+	"time"
 )
 
 const StateVersion = 1
@@ -101,6 +103,42 @@ func stepOrdinal(step Step) int {
 	}
 }
 
+// stateLockPath returns the path to the advisory lock directory used to
+// serialize concurrent SaveState calls across goroutines and processes.
+func stateLockPath() string {
+	return StatePath() + ".lock"
+}
+
+// acquireStateLock acquires a cross-process advisory lock using mkdir atomicity.
+// It retries with exponential backoff until the lock is obtained or the timeout
+// (5 s) elapses. Callers must call releaseStateLock when done.
+func acquireStateLock() error {
+	lockDir := stateLockPath()
+	deadline := time.Now().Add(5 * time.Second)
+	wait := 10 * time.Millisecond
+	for {
+		err := os.Mkdir(lockDir, 0o700)
+		if err == nil {
+			return nil // lock acquired
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return err // unexpected error
+		}
+		if time.Now().After(deadline) {
+			return errors.New("timed out waiting for onboarding state lock")
+		}
+		time.Sleep(wait)
+		if wait < 500*time.Millisecond {
+			wait *= 2
+		}
+	}
+}
+
+// releaseStateLock releases the advisory lock acquired by acquireStateLock.
+func releaseStateLock() {
+	_ = os.Remove(stateLockPath())
+}
+
 // SaveState writes the state atomically (write-to-temp + rename).
 // A unique temp file is used per write so concurrent saves do not clobber
 // each other's temp file. SaveState returns any write error; callers are
@@ -110,6 +148,14 @@ func stepOrdinal(step Step) int {
 // already records a step that is ahead of s.CompletedStep, the higher step is
 // preserved so that a stale async write cannot regress onboarding progress.
 func SaveState(s State) error {
+	// Serialize concurrent SaveState calls with a cross-process mkdir-based lock
+	// so that the monotonic read+compare+write is atomic across goroutines and
+	// processes, preventing a slow writer from overwriting a newer step.
+	if err := acquireStateLock(); err != nil {
+		return err
+	}
+	defer releaseStateLock()
+
 	// Monotonic guard: never regress CompletedStep. If the on-disk state is
 	// already ahead (e.g. a later async write finished first), keep the higher
 	// step so stale Bubble Tea commands cannot overwrite newer progress.
