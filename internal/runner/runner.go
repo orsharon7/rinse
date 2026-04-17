@@ -299,8 +299,10 @@ func Run(opts Opts) (Result, error) {
 			"comments_addressed", agentResult.Comments,
 		)
 
-		// Wait before next poll.
-		time.Sleep(opts.PollInterval)
+		// Wait before next poll only if another iteration will run.
+		if state.Iteration < opts.MaxIterations {
+			time.Sleep(opts.PollInterval)
+		}
 	}
 
 	// ── 5. Max iterations reached ─────────────────────────────────────────────
