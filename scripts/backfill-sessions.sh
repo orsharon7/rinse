@@ -29,7 +29,7 @@ if [[ ${#log_files[@]} -eq 0 ]]; then
   exit 0
 fi
 
-echo "Found ${#log_files[@]} log file(s) in /tmp/"
+echo "Found ${#log_files[@]} log file(s) matching $LOG_GLOB"
 created=0
 skipped=0
 failed=0
@@ -101,7 +101,7 @@ for log_file in "${log_files[@]}"; do
   fi
 
   # Count iterations (actual iteration header lines only, e.g. ━━━ Iteration N)
-  iterations="$(grep -a -E '^.{0,10}Iteration [0-9]+' "$log_file" 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
+  iterations="$({ grep -a -E '^.{0,10}Iteration [0-9]+' "$log_file" 2>/dev/null || true; } | wc -l | tr -d ' ')"
 
   # Count total comments: sum numbers from "N comment(s) in review NNNN" lines
   # Deduplicate by review ID to avoid double-counting (log prints same line twice)
