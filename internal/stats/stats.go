@@ -81,7 +81,7 @@ func configDir() (string, error) {
 	return filepath.Join(dir, "rinse"), nil
 }
 
-// config holds user preferences persisted in ~/.rinse/config.json.
+// config holds user preferences persisted in stats.json under configDir().
 type config struct {
 	StatsOptIn *bool `json:"stats_opt_in,omitempty"`
 }
@@ -91,7 +91,7 @@ func loadConfig() (config, error) {
 	if err != nil {
 		return config{}, err
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "config.json"))
+	data, err := os.ReadFile(filepath.Join(dir, "stats.json"))
 	if os.IsNotExist(err) {
 		return config{}, nil
 	}
@@ -118,8 +118,8 @@ func saveConfig(cfg config) error {
 		return err
 	}
 
-	configPath := filepath.Join(dir, "config.json")
-	tmpFile, err := os.CreateTemp(dir, "config.json.tmp-*")
+	configPath := filepath.Join(dir, "stats.json")
+	tmpFile, err := os.CreateTemp(dir, "stats.json.tmp-*")
 	if err != nil {
 		return err
 	}
