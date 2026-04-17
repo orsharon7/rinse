@@ -10,8 +10,10 @@ import (
 	"time"
 )
 
-// stateDir is the base directory for per-PR state files.
-// Mirrors the STATE_DIR convention in the shell scripts; scoped per-repo.
+// stateDir is the base directory for per-PR state files, scoped per-repo.
+// Note: the shell scripts (pr-review.sh, pr-review-opencode.sh) use /tmp/pr-review-state
+// as their STATE_DIR; this Go runner uses a different, persistent location under the
+// user's home directory so checkpoints survive reboots.
 var stateDir = func() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
