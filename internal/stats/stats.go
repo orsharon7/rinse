@@ -206,7 +206,7 @@ func PromptOptIn() (bool, error) {
   ─────────────────────────────────────────────────────
   Rinse can record per-run telemetry locally to power
   the Pro dashboard (PRs reviewed, comments fixed,
-  time saved, top patterns).
+  time saved).
 
   Data is stored ONLY on this machine at:
     %s
