@@ -1,8 +1,14 @@
 # RINSE Telemetry Architecture
 
-## Phase 1: Local SQLite Schema
+## Phase 1: Current Local Storage
 
-All data stored at `~/.rinse/rinse.db`.
+The currently implemented telemetry writes newline-delimited JSON (JSON Lines) to `~/.rinse/stats.json`.
+
+This is the current on-disk format used by the telemetry scripts in this PR. SQLite is a future design target, not the current Phase 1 implementation.
+
+## Roadmap: Local SQLite Schema
+
+Planned future local database path: `~/.rinse/rinse.db`.
 
 ```sql
 -- Wash sessions (one per rinse run)
@@ -124,7 +130,7 @@ Conflict resolution: **last-write-wins by UUID PK**. Because session and cycle I
 
 ```bash
 brew install supabase/tap/supabase
-cd /Users/luli/dev/rinse
+cd /path/to/rinse
 supabase init
 supabase start
 # Studio:    http://localhost:54323
