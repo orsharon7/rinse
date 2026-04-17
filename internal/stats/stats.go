@@ -447,10 +447,8 @@ func Summarize(sessions []Session) Summary {
 	}
 
 	sum := build(all)
-	if len(recent) < len(all) {
-		r := build(recent)
-		sum.Last30Days = &r
-	}
+	r := build(recent)
+	sum.Last30Days = &r
 	return sum
 }
 
