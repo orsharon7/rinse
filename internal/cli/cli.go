@@ -184,7 +184,6 @@ func queryPRStatus(repo, prNum string) (string, error) {
 	type ghPR struct {
 		State          string     `json:"state"`
 		Merged         bool       `json:"merged"`
-		ReviewDecision string     `json:"reviewDecision"`
 		Reviews        []ghReview `json:"reviews"`
 		ReviewRequests []struct {
 			Login string `json:"login"`
@@ -193,7 +192,7 @@ func queryPRStatus(repo, prNum string) (string, error) {
 
 	out, err := exec.Command("gh", "pr", "view", prNum,
 		"--repo", repo,
-		"--json", "state,merged,reviewDecision,reviews,reviewRequests",
+		"--json", "state,merged,reviews,reviewRequests",
 	).Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -389,7 +388,9 @@ func runStartCmd(args []string) {
 		fatalf(asJSON, "%v", err)
 	}
 
-	// Build argument list mirroring wizard.go buildCmd().
+	// Build the argument list for the runner script.
+	// Unlike wizard.go's buildCmd(), this always adds --no-interactive and
+	// only forwards --model when the caller explicitly set it (modelSet).
 	cmdArgs := []string{
 		script, prNum,
 		"--repo", repo,
