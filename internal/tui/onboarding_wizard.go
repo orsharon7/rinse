@@ -285,6 +285,11 @@ func (m wizModel) advanceFromSplash() (wizModel, tea.Cmd) {
 	}
 	if state.Skipped || state.CompletedStep == onboarding.StepE {
 		// Already complete — should not happen (caller checks), but handle gracefully.
+		if state.Skipped {
+			m.outcome = WizardSkipped
+		} else {
+			m.outcome = WizardCompleted
+		}
 		m.view = wizDone
 		return m, tea.Quit
 	}
