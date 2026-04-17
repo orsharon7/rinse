@@ -77,7 +77,9 @@ _INS_ITER_LOG="[]"
 _ins_classify_comment() {
   local body="${1:-}"
   local lower
-  lower=$(printf '%s' "$body" | tr '[:upper:]' '[:lower:]')
+  # Pad with spaces so [^[:alnum:]_]word[^[:alnum:]_] matches at string boundaries
+  # (portable alternative to \b, which is not supported in POSIX ERE / BSD grep)
+  lower=" $(printf '%s' "$body" | tr '[:upper:]' '[:lower:]') "
 
   # Security (highest priority)
   if grep -qE 'inject|sanitiz|xss|csrf|sql injection|(^|[^[:alnum:]_])(auth|authn|authz|authentication|authorization)([^[:alnum:]_]|$)|secret|credential|password|token|eval\(|unsafe' <<<"$lower"; then
