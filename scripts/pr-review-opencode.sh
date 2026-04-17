@@ -140,15 +140,20 @@ stats_init "$REPO" "$PR_NUMBER" "$MODEL"
 # exit path forgets to set it, derive a fallback from the shell exit status so
 # telemetry does not get mislabeled as "aborted" by default.
 _RINSE_OUTCOME=""
+# _stats_exit_trap [exit_code]
+# Accepts an explicit exit code so the EXIT handler can pass $? captured before
+# any cleanup commands overwrite it.  Falls back to $? when called directly.
 _stats_exit_trap() {
-  local exit_code="$?"
+  local exit_code="${1:-$?}"
   local outcome="${_RINSE_OUTCOME:-}"
 
   if [[ -z "$outcome" ]]; then
+    # Map to outcomes supported by the stats schema:
+    # approved|clean|merged|closed|max_iter|error|aborted|dry_run
     case "$exit_code" in
-      0)   outcome="success" ;;
-      124) outcome="timeout" ;;
-      *)   outcome="aborted" ;;
+      0)   outcome="clean" ;;
+      124) outcome="aborted" ;;
+      *)   outcome="error" ;;
     esac
   fi
 
@@ -173,6 +178,7 @@ if [[ "$USE_WORKTREE" == true ]]; then
   mkdir -p "$(dirname "$WORKTREE_DIR")"
 
   cleanup_pr_worktree() {
+    local _trapped_exit=$?
     if [[ -n "$WORKTREE_DIR" && -d "$WORKTREE_DIR" ]]; then
       log "Cleaning up worktree at ${WORKTREE_DIR}..."
       git -C "$REPO_ROOT" worktree remove --force "$WORKTREE_DIR" 2>/dev/null || true
@@ -180,7 +186,7 @@ if [[ "$USE_WORKTREE" == true ]]; then
     fi
     session_clear
     gh_lock_release
-    _stats_exit_trap
+    _stats_exit_trap "$_trapped_exit"
   }
   trap cleanup_pr_worktree EXIT
 
@@ -455,9 +461,10 @@ fi
 # (The worktree path registered its own trap above, which also calls these.)
 if [[ "$USE_WORKTREE" == false ]]; then
   _cleanup_session_lock() {
+    local _trapped_exit=$?
     session_clear
     gh_lock_release
-    _stats_exit_trap
+    _stats_exit_trap "$_trapped_exit"
   }
   trap _cleanup_session_lock EXIT
 fi
