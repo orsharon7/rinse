@@ -20,7 +20,10 @@ func writeSession(t *testing.T, dir string, name string, data []byte) {
 }
 
 // overrideSessionsDir temporarily overrides the sessions directory used by Load
-// by monkey-patching HOME so that SessionsDir() resolves to our temp dir.
+// by monkey-patching the platform-specific home env vars so that
+// SessionsDir() (which calls os.UserHomeDir()) resolves to our temp dir.
+// It sets HOME (Unix), USERPROFILE (Windows), HOMEDRIVE and HOMEPATH (Windows)
+// so that the helper is portable across operating systems.
 // It returns the sessions directory path.
 func overrideSessionsDir(t *testing.T) string {
 	t.Helper()
@@ -29,13 +32,34 @@ func overrideSessionsDir(t *testing.T) string {
 	if err := os.MkdirAll(sessDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	origHome := os.Getenv("HOME")
+
+	type envVar struct{ key, orig string }
+	vars := []envVar{
+		{"HOME", os.Getenv("HOME")},
+		{"USERPROFILE", os.Getenv("USERPROFILE")},
+		{"HOMEDRIVE", os.Getenv("HOMEDRIVE")},
+		{"HOMEPATH", os.Getenv("HOMEPATH")},
+	}
 	if err := os.Setenv("HOME", tmpHome); err != nil {
 		t.Fatalf("Setenv HOME: %v", err)
 	}
+	if err := os.Setenv("USERPROFILE", tmpHome); err != nil {
+		t.Fatalf("Setenv USERPROFILE: %v", err)
+	}
+	// HOMEDRIVE + HOMEPATH together form the home dir on Windows.
+	// On non-Windows these are typically unset, so clearing them is safe.
+	_ = os.Unsetenv("HOMEDRIVE")
+	_ = os.Unsetenv("HOMEPATH")
+
 	t.Cleanup(func() {
-		if err := os.Setenv("HOME", origHome); err != nil {
-			t.Errorf("Setenv HOME (restore): %v", err)
+		for _, v := range vars {
+			if v.orig == "" {
+				_ = os.Unsetenv(v.key)
+			} else {
+				if err := os.Setenv(v.key, v.orig); err != nil {
+					t.Errorf("Setenv %s (restore): %v", v.key, err)
+				}
+			}
 		}
 	})
 	return sessDir
@@ -294,5 +318,49 @@ func TestSummarize_CutoffBoundaryExact30Days(t *testing.T) {
 	sum := stats.Summarize(sessions)
 	if sum.Last30Days.TotalSessions != 1 {
 		t.Errorf("boundary: want 1 session in Last30Days, got %d", sum.Last30Days.TotalSessions)
+	}
+}
+
+// TestSave_HappyPath verifies that Save writes a session file when the user
+// has opted in, and that the written file can be re-loaded with Load() with
+// SchemaVersion and Outcome preserved.
+func TestSave_HappyPath(t *testing.T) {
+	overrideHome(t)
+
+	// Opt in so Save proceeds to write a file.
+	if err := stats.SetOptIn(true); err != nil {
+		t.Fatalf("SetOptIn(true): %v", err)
+	}
+
+	sess := stats.Session{
+		StartedAt:     time.Now().UTC().Truncate(time.Second),
+		EndedAt:       time.Now().UTC().Truncate(time.Second).Add(2 * time.Minute),
+		Repo:          "owner/repo",
+		PR:            "99",
+		TotalComments: 5,
+		Iterations:    2,
+		Outcome:       stats.OutcomeApproved,
+	}
+
+	if err := stats.Save(sess); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	loaded, err := stats.Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if len(loaded) != 1 {
+		t.Fatalf("expected 1 session on disk, got %d", len(loaded))
+	}
+	got := loaded[0]
+	if got.SchemaVersion != stats.SchemaVersion {
+		t.Errorf("SchemaVersion: want %d, got %d", stats.SchemaVersion, got.SchemaVersion)
+	}
+	if got.Outcome != stats.OutcomeApproved {
+		t.Errorf("Outcome: want %q, got %q", stats.OutcomeApproved, got.Outcome)
+	}
+	if got.TotalComments != sess.TotalComments {
+		t.Errorf("TotalComments: want %d, got %d", sess.TotalComments, got.TotalComments)
 	}
 }
