@@ -28,7 +28,7 @@ Request review → wait → read comments → fix → repeat. Rinse handles ever
 ```bash
 git clone https://github.com/orsharon7/rinse.git
 cd rinse
-make install
+bash install.sh
 ```
 
 > **Note:** `make install` installs only the `rinse` binary. The runner scripts (`scripts/pr-review-*.sh`) are **not** installed automatically. To use `rinse` after installation, either:
