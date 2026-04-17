@@ -9,6 +9,7 @@ package stats
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -49,8 +50,18 @@ func newUUID() string {
 	b[6] = (b[6] & 0x0f) | 0x40
 	// Set variant bits (bits 6-7 of byte 8 to 10)
 	b[8] = (b[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
-		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+	// Convert each group to a fixed-size integer so that width/zero-padding
+	// verbs apply to numeric values, not to the slice representation.
+	// (Using %x on a []byte produces the correct hex string, but %08x width
+	// padding applies to the whole slice value and is not portable.)
+	g0 := binary.BigEndian.Uint32(b[0:4])
+	g1 := binary.BigEndian.Uint16(b[4:6])
+	g2 := binary.BigEndian.Uint16(b[6:8])
+	g3 := binary.BigEndian.Uint16(b[8:10])
+	// Last group is 48 bits; encode as uint64 read from the 6 bytes.
+	g4 := uint64(b[10])<<40 | uint64(b[11])<<32 | uint64(b[12])<<24 |
+		uint64(b[13])<<16 | uint64(b[14])<<8 | uint64(b[15])
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", g0, g1, g2, g3, g4)
 }
 
 // Session records the outcome of a single rinse PR-review run.

@@ -193,7 +193,7 @@ write_session_json() {
   [[ "$SESSION_OUTCOME" == "approved" || "$SESSION_OUTCOME" == "merged" ]] && approved="true"
 
   local tmp_fname
-  tmp_fname="$(mktemp "$(dirname "$fname")/.tmp_session_XXXXXX.json")" || { log "⚠️  Could not create temp file for session JSON (non-fatal)"; return; }
+  tmp_fname="$(mktemp "$(dirname "$fname")/.tmp_session_XXXXXX.json")" || { log "⚠️  Could not create temp file for session JSON (non-fatal)"; set -e; return; }
   if jq -n \
     --arg session_id      "$SESSION_ID" \
     --arg repo            "$REPO" \
