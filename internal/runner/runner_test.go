@@ -34,11 +34,23 @@ func (s *stubAgent) Run(_ engine.RunOpts) (engine.Result, error) {
 	return engine.Result{}, nil
 }
 
+func defaultStateDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		home = os.Getenv("HOME")
+	}
+	if home == "" {
+		return os.TempDir()
+	}
+	return filepath.Join(home, ".pr-review", "state")
+}
+
 func tempStateDir(t *testing.T) {
 	t.Helper()
+	restoreDir := defaultStateDir()
 	// runner.SetStateDir is exported via state_test_hook.go for test isolation.
 	runner.SetStateDir(t.TempDir())
-	t.Cleanup(func() { runner.SetStateDir(filepath.Join(os.Getenv("HOME"), ".pr-review", "state")) })
+	t.Cleanup(func() { runner.SetStateDir(restoreDir) })
 }
 
 func tempLockDir(t *testing.T) {

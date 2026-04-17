@@ -71,7 +71,8 @@ func sessionPath(s Session) (string, error) {
 	}
 	safe := strings.ReplaceAll(s.Repo, "/", "_")
 	ts := s.StartedAt.UTC().Format("20060102-150405")
-	name := fmt.Sprintf("%s-pr%s-%s.json", safe, s.PR, ts)
+	nano := s.StartedAt.UTC().UnixNano() % 1e9
+	name := fmt.Sprintf("%s-pr%s-%s-%09d.json", safe, s.PR, ts, nano)
 	return filepath.Join(dir, name), nil
 }
 
