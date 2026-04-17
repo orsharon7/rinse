@@ -399,7 +399,11 @@ func (m wizModel) doResume() (wizModel, tea.Cmd) {
 
 func (m wizModel) doStartOver() (wizModel, tea.Cmd) {
 	// Delete state and restart fresh.
-	_ = onboarding.DeleteState()
+	if err := onboarding.DeleteState(); err != nil {
+		fmt.Fprintf(os.Stderr, "rinse: delete state: %v\n", err)
+		// Stay on the resume screen so the user is not silently left with stale state.
+		return m, nil
+	}
 	m.cycleName = ""
 	m.cycleInput.SetValue("")
 	m.remindOnComplete = true
@@ -581,21 +585,24 @@ func (m wizModel) handleStepCKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 				SaveHistory:      m.saveHistory,
 			}
 			cycleName := m.cycleName
+			s := onboarding.State{
+				Version:        onboarding.StateVersion,
+				CompletedStep:  onboarding.StepC,
+				CycleNameDraft: m.cycleName,
+				Defaults:       d,
+			}
 			m.writingConfig = true
-			return m, tea.Batch(
-				saveStepCmd(onboarding.State{
-					Version:        onboarding.StateVersion,
-					CompletedStep:  onboarding.StepC,
-					CycleNameDraft: m.cycleName,
-					Defaults:       d,
-				}),
-				func() tea.Msg {
-					if err := onboarding.WriteTomlConfig(cycleName, d); err != nil {
-						return wizConfigErrMsg{err}
-					}
-					return wizConfigWrittenMsg{}
-				},
-			)
+			// Serialize the state save and config write in a single command so
+			// a concurrent Step C save cannot overwrite a later (Step D/E) save.
+			return m, func() tea.Msg {
+				if err := onboarding.SaveState(s); err != nil {
+					fmt.Fprintf(os.Stderr, "rinse: state write: %v\n", err)
+				}
+				if err := onboarding.WriteTomlConfig(cycleName, d); err != nil {
+					return wizConfigErrMsg{err}
+				}
+				return wizConfigWrittenMsg{}
+			}
 		}
 
 	case key.Matches(msg, Keys.Quit):
@@ -853,6 +860,12 @@ func (m wizModel) renderStepC() string {
 	headline := theme.StyleStep.Render("A few quick settings")
 	sub := theme.StyleMuted.Render("We have picked sensible defaults. Change anything you like.")
 
+	// Show a saving indicator while the config write is in-flight.
+	if m.writingConfig {
+		return box.Render(progress + "\n\n" + headline + "\n" + sub + "\n\n" +
+			theme.StyleMuted.Render("  Saving…"))
+	}
+
 	toggles := []struct {
 		label   string
 		desc    string
@@ -991,7 +1004,12 @@ func (m wizModel) renderStepE() string {
 	}
 
 	headline := theme.StyleStep.Render("You are in!")
-	body := theme.StyleMuted.Render("Your first cycle is ready. We will let you know when it is done.")
+	var body string
+	if m.remindOnComplete {
+		body = theme.StyleMuted.Render("Your first cycle is ready. We will let you know when it is done.")
+	} else {
+		body = theme.StyleMuted.Render("Your first cycle is ready.")
+	}
 
 	var subBody string
 	if !m.autoAdvance {

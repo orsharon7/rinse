@@ -47,7 +47,10 @@ type State struct {
 	Defaults       Defaults `json:"defaults"`
 }
 
-// StatePath returns ~/.config/rinse/onboarding-state.json
+// StatePath returns the path to the onboarding state file:
+// <user config dir>/rinse/onboarding-state.json
+// where <user config dir> is os.UserConfigDir() (e.g. ~/.config on Linux,
+// ~/Library/Application Support on macOS).
 func StatePath() string {
 	dir, err := os.UserConfigDir()
 	if err != nil {

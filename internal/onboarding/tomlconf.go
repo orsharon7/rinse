@@ -7,7 +7,10 @@ import (
 	"path/filepath"
 )
 
-// TomlConfigPath returns ~/.config/rinse/config.toml
+// TomlConfigPath returns the path to the TOML config file:
+// <user config dir>/rinse/config.toml
+// where <user config dir> is os.UserConfigDir() (e.g. ~/.config on Linux,
+// ~/Library/Application Support on macOS).
 func TomlConfigPath() string {
 	dir, err := os.UserConfigDir()
 	if err != nil {
@@ -34,7 +37,7 @@ func WriteTomlConfig(cycleName string, d Defaults) error {
 	// Manual TOML generation — avoids adding a TOML library dependency.
 	// Structure matches the spec in RIN-25#document-defaults-config.
 	content := fmt.Sprintf(
-		"# ~/.config/rinse/config.toml\n"+
+		"# %s\n"+
 			"# Written by onboarding wizard. Edit this file manually to change defaults.\n\n"+
 			"[defaults]\n"+
 			"remind_on_complete = %v    # Notify when a cycle finishes. (Onboarding Step C toggle 1)\n"+
@@ -42,6 +45,7 @@ func WriteTomlConfig(cycleName string, d Defaults) error {
 			"save_history       = %v    # Persist cycle run history to disk. (Onboarding Step C toggle 3)\n\n"+
 			"[cycle]\n"+
 			"name = %q                    # Set during onboarding Step B. Editable at any time.\n",
+		path,
 		d.RemindOnComplete,
 		d.AutoAdvance,
 		d.SaveHistory,
