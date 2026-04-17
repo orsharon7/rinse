@@ -160,6 +160,13 @@ _stats_exit_trap() {
   stats_record "$outcome"
 }
 
+# Install a base EXIT trap immediately after stats_init so that all exit paths
+# after this point (including early exits before the worktree trap is registered)
+# record telemetry.  The worktree path overrides this with cleanup_pr_worktree;
+# the non-worktree path overrides it with _cleanup_session_lock — both also call
+# _stats_exit_trap, so telemetry is always recorded exactly once.
+trap '_stats_exit_trap $?' EXIT
+
 # ─── Worktree isolation (optional — used by orchestrator for parallel runs) ───
 
 WORKTREE_DIR=""

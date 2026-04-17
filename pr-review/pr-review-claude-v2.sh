@@ -364,6 +364,33 @@ session_init "$REPO" "$PR_NUMBER"
 # ── Insights init ─────────────────────────────────────────────────────────────
 insights_init "$PR_NUMBER" "$REPO" "$MODEL"
 
+# Centralize insights finalization so every exit path (including early exits)
+# produces a summary when --json-insights is active.  Each exit path sets
+# _INSIGHTS_OUTCOME to the semantic label; the trap derives a fallback from the
+# exit code when it is not set.  A done-guard prevents double-finalization for
+# paths that already called insights_finalize before the trap fires.
+_INSIGHTS_OUTCOME=""
+_INSIGHTS_DONE=false
+_insights_exit_trap() {
+  [[ "$_INSIGHTS_DONE" == true ]] && return
+  _INSIGHTS_DONE=true
+  local exit_code="${1:-$?}"
+  local outcome="${_INSIGHTS_OUTCOME:-}"
+  if [[ -z "$outcome" ]]; then
+    case "$exit_code" in
+      0) outcome="clean" ;;
+      *) outcome="error" ;;
+    esac
+  fi
+  insights_finalize "$outcome"
+  if [[ "$JSON_INSIGHTS" == true ]]; then
+    insights_print --json
+  else
+    insights_print
+  fi
+}
+trap '_insights_exit_trap $?' EXIT
+
 if session_recover; then
   log "⚠️  Previous session crashed (iter ${RECOVER_ITER}, last review: ${RECOVER_REVIEW_ID:-none})"
   log "   Recovering — will resume from last known state"
@@ -398,10 +425,10 @@ merged_at=$(echo "$_pr_json" | jq -r '.merged_at // ""')
 
 if [[ "$pr_state" == "closed" && -n "$merged_at" ]]; then
   log "🎉 PR already merged — nothing to do."
-  exit 0
+  _INSIGHTS_OUTCOME="merged"; exit 0
 elif [[ "$pr_state" == "closed" ]]; then
   log "📕 PR is closed (not merged) — nothing to do."
-  exit 1
+  _INSIGHTS_OUTCOME="closed"; exit 1
 fi
 
 # Assess what review state we're starting from
@@ -424,7 +451,7 @@ else
 
   if [[ "$rstate" == "APPROVED" ]]; then
     log "✅ PR already APPROVED by Copilot — nothing to do."
-    exit 0
+    _INSIGHTS_OUTCOME="approved"; exit 0
   fi
 
   comments=$(get_review_comments "$rid")
@@ -483,13 +510,7 @@ while true; do
 
   if ! wait_for_review; then
     log "❌ Timed out waiting for Copilot — aborting"
-    insights_finalize "stalled"
-    if [[ "$JSON_INSIGHTS" == true ]]; then
-      insights_print --json
-    else
-      insights_print
-    fi
-    exit 1
+    _INSIGHTS_OUTCOME="stalled"; exit 1
   fi
 
   # ── Step 3: Read the new review ───────────────────────────────────
@@ -514,7 +535,7 @@ while true; do
   pr_state=$(echo "$_pr_json" | jq -r '.state // "open"')
   merged_at=$(echo "$_pr_json" | jq -r '.merged_at // ""')
   if [[ "$pr_state" == "closed" ]]; then
-    [[ -n "$merged_at" ]] && log "🎉 PR merged!" || log "📕 PR closed."
+    [[ -n "$merged_at" ]] && { log "🎉 PR merged!"; _INSIGHTS_OUTCOME="merged"; } || { log "📕 PR closed."; _INSIGHTS_OUTCOME="closed"; }
     exit 0
   fi
 
@@ -522,12 +543,7 @@ while true; do
     ui_outcome "✅" "Copilot APPROVED PR #${PR_NUMBER}! Ready to merge."
     log "✅ Copilot APPROVED PR #${PR_NUMBER}! Ready to merge."
     echo "$rid" > "$STATE_FILE"
-    insights_finalize "approved"
-    if [[ "$JSON_INSIGHTS" == true ]]; then
-      insights_print --json
-    else
-      insights_print
-    fi
+    _INSIGHTS_OUTCOME="approved"
     ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
     exit 0
   fi
@@ -539,12 +555,7 @@ while true; do
     ui_outcome "✅" "Clean review — 0 comments. PR #${PR_NUMBER} is ready to merge."
     log "✅ Clean review — 0 comments. PR #${PR_NUMBER} is ready to merge."
     echo "$rid" > "$STATE_FILE"
-    insights_finalize "clean"
-    if [[ "$JSON_INSIGHTS" == true ]]; then
-      insights_print --json
-    else
-      insights_print
-    fi
+    _INSIGHTS_OUTCOME="clean"
     ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
     exit 0
   fi
@@ -634,12 +645,7 @@ PROMPT_EOF
       kill "$reflect_pid" 2>/dev/null || true
       ui_reflect_log "killed (claude failed)" false
     fi
-    insights_finalize "error"
-    if [[ "$JSON_INSIGHTS" == true ]]; then
-      insights_print --json
-    else
-      insights_print
-    fi
+    _INSIGHTS_OUTCOME="error"
     exit 1
   fi
 

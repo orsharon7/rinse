@@ -127,9 +127,11 @@ session_update() {
 # After calling this, inspect:
 #   RECOVER_REVIEW_ID — last_review_id from the crashed session (may be empty)
 #   RECOVER_ITER      — last iter from the crashed session
+#   RECOVER_LOCK_ID   — lock_id held by the crashed session (may be empty)
 session_recover() {
   RECOVER_REVIEW_ID=""
   RECOVER_ITER=0
+  RECOVER_LOCK_ID=""
 
   [[ -f "$_SESSION_FILE" ]] || return 1
 
@@ -155,6 +157,7 @@ session_recover() {
   # PID is dead but status is "running" → this was a crash
   RECOVER_REVIEW_ID=$(jq -r '.last_review_id // ""' "$_SESSION_FILE" 2>/dev/null || echo "")
   RECOVER_ITER=$(jq -r '.iter // 0' "$_SESSION_FILE" 2>/dev/null || echo 0)
+  RECOVER_LOCK_ID=$(jq -r '.lock_id // ""' "$_SESSION_FILE" 2>/dev/null || echo "")
 
   return 0
 }
@@ -171,6 +174,20 @@ session_clear() {
       echo "$tmp" > "$_SESSION_FILE" || true
     fi
     rm -f "$_SESSION_FILE"
+  fi
+}
+
+# ─── Session: save lock_id ────────────────────────────────────────────────────
+
+# session_save_lock_id <lock_id>
+# Persists the active lock_id into the session file so that after a crash
+# the runner can reclaim its own lock comment without waiting for the stale
+# timeout.  Safe to call when no session file exists (no-op).
+session_save_lock_id() {
+  [[ -z "$_SESSION_FILE" || ! -f "$_SESSION_FILE" ]] && return 0
+  local tmp
+  if tmp=$(jq --arg lid "$1" '.lock_id = $lid' "$_SESSION_FILE" 2>/dev/null); then
+    echo "$tmp" > "$_SESSION_FILE" || true
   fi
 }
 
@@ -262,11 +279,18 @@ _gh_lock_is_stale() {
 gh_lock_acquire() {
   [[ -z "$_SESSION_REPO" ]] && { >&2 echo "[rinse-lock] session_init not called"; return 0; }
 
-  # Generate a random lock_id — used for self-identification instead of
-  # embedding the internal hostname in PR-visible metadata.
+  # On crash recovery, reuse the lock_id from the crashed session so the
+  # self-identification check below can reclaim the existing lock comment
+  # immediately, without waiting for RINSE_LOCK_TIMEOUT to expire.
   local lock_id
-  lock_id="$(cat /proc/sys/kernel/random/uuid 2>/dev/null || \
-    printf '%s-%s-%s' "$(date -u +%Y%m%dT%H%M%S)" "${_SESSION_PID}" "${RANDOM}${RANDOM}")"
+  if [[ -n "${RECOVER_LOCK_ID:-}" ]]; then
+    lock_id="$RECOVER_LOCK_ID"
+    >&2 echo "[rinse-lock] Crash recovery: reusing lock_id ${lock_id}"
+  else
+    # Generate a new random lock_id for this run.
+    lock_id="$(cat /proc/sys/kernel/random/uuid 2>/dev/null || \
+      printf '%s-%s-%s' "$(date -u +%Y%m%dT%H%M%S)" "${_SESSION_PID}" "${RANDOM}${RANDOM}")"
+  fi
   _RINSE_LOCK_ID="$lock_id"
 
   # Ensure the label exists in the repo
@@ -332,6 +356,9 @@ gh_lock_acquire() {
   }
 
   _LOCK_COMMENT_ID=$(echo "$created_comment" | jq -r '.id')
+
+  # Persist the lock_id so a subsequent crash-recovery run can reclaim this lock.
+  session_save_lock_id "$lock_id"
 
   # ── Phase 3: Race-check (wait 3 s, re-read, verify we still hold the lock) ─
   sleep 3

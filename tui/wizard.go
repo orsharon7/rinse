@@ -114,21 +114,35 @@ func initialModel() model {
 			rinseConfigDir = detectCWD()
 		}
 		if repoCfg, ok := LoadRepoRinseConfig(rinseConfigDir); ok {
-			for i, r := range runners {
-				if strings.EqualFold(r.name, repoCfg.Engine) {
-					rc.Runner = i
-					break
+			appliedRepoDefaults := false
+			if repoCfg.Engine != "" {
+				for i, r := range runners {
+					if strings.EqualFold(r.name, repoCfg.Engine) {
+						rc.Runner = i
+						appliedRepoDefaults = true
+						break
+					}
 				}
 			}
 			if repoCfg.Model != "" {
 				rc.Model = repoCfg.Model
+				appliedRepoDefaults = true
 			}
-			rc.Reflect = repoCfg.Reflect
+			if repoCfg.Reflect {
+				rc.Reflect = true
+				appliedRepoDefaults = true
+			}
 			if repoCfg.ReflectBranch != "" {
 				rc.Branch = repoCfg.ReflectBranch
+				appliedRepoDefaults = true
 			}
-			rc.AutoMerge = repoCfg.AutoMerge
-			hasRepoConfig = true
+			if repoCfg.AutoMerge {
+				rc.AutoMerge = true
+				appliedRepoDefaults = true
+			}
+			if appliedRepoDefaults {
+				hasRepoConfig = true
+			}
 		}
 	}
 
