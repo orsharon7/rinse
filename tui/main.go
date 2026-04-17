@@ -15,6 +15,11 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Dispatch CLI subcommands (status, start, help) before launching the TUI.
+	if tryDispatchCLI() {
+		return
+	}
+
 	m := initialModel()
 
 	p := tea.NewProgram(m,
