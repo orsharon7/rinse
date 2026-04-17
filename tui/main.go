@@ -29,7 +29,7 @@ func main() {
 			os.Exit(0)
 		default:
 			fmt.Fprintf(os.Stderr, "unknown subcommand: %s\n", os.Args[1])
-			fmt.Fprintln(os.Stderr, "usage: rinse [init|--version|-v]")
+			fmt.Fprintln(os.Stderr, "usage: rinse [init|--version|-v|-h|--help]")
 			os.Exit(1)
 		}
 	}

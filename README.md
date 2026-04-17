@@ -303,6 +303,7 @@ Lightweight cron-compatible poller. Add to crontab:
 |------|-----------|
 | `~/.pr-review/logs/<owner_repo>-pr-<n>.log` | `pr-review-claude-v2.sh`, `pr-review-opencode.sh` |
 | `~/.pr-review/logs/<owner_repo>-pr-<n>-reflect.log` | `pr-review-reflect.sh` |
+| `~/.pr-review-claude.log` | `pr-review-claude.sh` (v1 legacy runner) |
 
 ---
 
