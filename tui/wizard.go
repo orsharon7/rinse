@@ -91,10 +91,15 @@ func initialModel() model {
 	cfg := LoadConfig()
 	var rc RepoConfig
 	hasRepoConfig := false
+	// hasPersistedRepoConfig is true only when LoadRepoConfig found a saved
+	// per-repo entry (the user's own previous choices), distinct from defaults
+	// applied from .rinse.json below.
+	hasPersistedRepoConfig := false
 	if repo != "" {
 		if loaded, ok := LoadRepoConfig(repo); ok {
 			rc = loaded
 			hasRepoConfig = true
+			hasPersistedRepoConfig = true
 		}
 	}
 	if !hasRepoConfig && cfg.LastRunner > 0 && cfg.LastRunner < len(runners) {
@@ -108,6 +113,10 @@ func initialModel() model {
 	// there is no saved per-repo config yet, so persisted user choices are not
 	// overwritten on subsequent runs. Resolve the git repo root so .rinse.json
 	// is found even when the user runs `rinse` from a subdirectory of the repo.
+	// Track which specific fields were set so reflect/auto-merge fall back to
+	// cfg.LastReflect/cfg.LastAutoMerge when those pointers are absent.
+	hasRepoReflect := false
+	hasRepoAutoMerge := false
 	if !hasRepoConfig {
 		rinseConfigDir := detectGitRoot()
 		if rinseConfigDir == "" {
@@ -131,6 +140,7 @@ func initialModel() model {
 			if repoCfg.Reflect != nil {
 				rc.Reflect = *repoCfg.Reflect
 				appliedRepoDefaults = true
+				hasRepoReflect = true
 			}
 			if repoCfg.ReflectBranch != "" {
 				rc.Branch = repoCfg.ReflectBranch
@@ -139,6 +149,7 @@ func initialModel() model {
 			if repoCfg.AutoMerge != nil {
 				rc.AutoMerge = *repoCfg.AutoMerge
 				appliedRepoDefaults = true
+				hasRepoAutoMerge = true
 			}
 			if appliedRepoDefaults {
 				hasRepoConfig = true
@@ -176,11 +187,17 @@ func initialModel() model {
 	bi.Prompt = "  " + IconArrow + " "
 	bi.CharLimit = 80
 
-	reflectDefault := rc.Reflect
-	autoMergeDefault := rc.AutoMerge
-	if !hasRepoConfig {
-		reflectDefault = cfg.LastReflect
-		autoMergeDefault = cfg.LastAutoMerge
+	// Use persisted user choices for reflect/auto-merge unless they were
+	// explicitly set by a saved per-repo config OR by non-nil .rinse.json
+	// pointers. This prevents a .rinse.json that only sets `model` from
+	// overriding cfg.LastReflect/cfg.LastAutoMerge with zero-value false.
+	reflectDefault := cfg.LastReflect
+	if hasPersistedRepoConfig || hasRepoReflect {
+		reflectDefault = rc.Reflect
+	}
+	autoMergeDefault := cfg.LastAutoMerge
+	if hasPersistedRepoConfig || hasRepoAutoMerge {
+		autoMergeDefault = rc.AutoMerge
 	}
 
 	runnerIdx := rc.Runner
