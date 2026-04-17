@@ -75,6 +75,17 @@ fi
 
 REPO_FLAG="--repo ${REPO}"
 
+# ─── Stats / telemetry (opt-in) ───────────────────────────────────────────────
+
+SCRIPT_DIR_STATS="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=pr-review-stats.sh
+source "${SCRIPT_DIR_STATS}/pr-review-stats.sh"
+stats_init "$REPO" "$PR_NUMBER" ""   # model unknown for legacy claude script
+
+_RINSE_OUTCOME="aborted"
+_stats_exit_trap() { stats_record "$_RINSE_OUTCOME"; }
+trap _stats_exit_trap EXIT
+
 log "🚀 Claude PR review loop starting"
 log "   PR:          ${REPO}#${PR_NUMBER}"
 log "   Local path:  ${CWD}"
@@ -164,28 +175,33 @@ for iter in $(seq 1 "$MAX_ITER"); do
     approved)
       log "✅ Copilot APPROVED PR #${PR_NUMBER}! Ready to merge."
       echo "$review_result"
+      _RINSE_OUTCOME="approved"
       exit 0
       ;;
 
     clean)
       log "✅ Clean review — Copilot returned 0 comments. PR #${PR_NUMBER} is ready to merge."
       echo "$review_result"
+      _RINSE_OUTCOME="clean"
       exit 0
       ;;
 
     merged)
       log "🎉 PR #${PR_NUMBER} is already merged."
+      _RINSE_OUTCOME="merged"
       exit 0
       ;;
 
     closed)
       log "📕 PR #${PR_NUMBER} was closed without merging."
+      _RINSE_OUTCOME="closed"
       exit 1
       ;;
 
     error)
       msg=$(echo "$review_result" | jq -r '.message // "unknown error"')
       log "❌ pr-review cycle error: ${msg}"
+      _RINSE_OUTCOME="error"
       exit 1
       ;;
 
@@ -287,6 +303,7 @@ PROMPT_EOF
 
   if [[ $claude_exit -ne 0 ]]; then
     log "❌ Claude exited with code ${claude_exit} — aborting (last-known NOT saved, same review will retry)"
+    _RINSE_OUTCOME="error"
     exit 1
   fi
 
@@ -299,6 +316,7 @@ PROMPT_EOF
   mkdir -p "$STATE_DIR"
   echo "$review_id" > "${STATE_DIR}/pr-${PR_NUMBER}-last-review"
   log "💾 Saved last-known review ID: ${review_id}"
+  stats_add_iteration "$comment_count"
 
   log "✓ Claude finished iteration ${iter} — cycling back for next Copilot review..."
   echo ""
@@ -306,4 +324,5 @@ PROMPT_EOF
 done
 
 log "⚠️  Max iterations (${MAX_ITER}) reached without approval. Check ${LOGFILE} for details."
+_RINSE_OUTCOME="max_iter"
 exit 1
