@@ -1766,6 +1766,17 @@ func sessionOutcome(m monitorModel) stats.Outcome {
 	if m.exitCode != 0 {
 		return stats.OutcomeError
 	}
+	// Scan final log lines for merged/closed signals before falling back to
+	// iterHistory, because runner scripts exit 0 on these outcomes too.
+	for i := len(m.lines) - 1; i >= 0 && i >= len(m.lines)-10; i-- {
+		plain := stripANSI(m.lines[i])
+		if strings.Contains(plain, "PR merged") || strings.Contains(plain, "🎉") {
+			return stats.OutcomeMerged
+		}
+		if strings.Contains(plain, "PR closed") || strings.Contains(plain, "📕") {
+			return stats.OutcomeClosed
+		}
+	}
 	if len(m.iterHistory) == 0 {
 		return stats.OutcomeClean
 	}
