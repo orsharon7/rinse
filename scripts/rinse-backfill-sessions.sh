@@ -118,11 +118,11 @@ for logfile in "${LOGS_DIR}"/*.log; do
   time_part="${time_part//:/}"
   started_slug="${date_part}-${time_part}"
   session_prefix="${SESSIONS_DIR}/${started_slug}-${repo_slug}-PR${pr_num}"
-  session_id="$(basename "$logfile")"
-  session_id="${session_id%.log}"
-  session_id="${session_id//[^[:alnum:]._-]/-}"
+  file_suffix="$(basename "$logfile")"
+  file_suffix="${file_suffix%.log}"
+  file_suffix="${file_suffix//[^[:alnum:]._-]/-}"
   legacy_session_fname="${session_prefix}.json"
-  session_fname="${session_prefix}-${session_id}.json"
+  session_fname="${session_prefix}-${file_suffix}.json"
 
   if [[ -f "$legacy_session_fname" ]] || compgen -G "${session_prefix}-*.json" > /dev/null; then
     (( skipped++ )) || true

@@ -470,8 +470,10 @@ pr_state=$(echo "$pr_json" | jq -r '.state')
 merged_at=$(echo "$pr_json" | jq -r '.merged_at // ""')
 
 if [[ "$pr_state" == "closed" && -n "$merged_at" ]]; then
+  SESSION_OUTCOME="merged"
   log "🎉 PR already merged — nothing to do."; exit 0
 elif [[ "$pr_state" == "closed" ]]; then
+  SESSION_OUTCOME="aborted"
   log "📕 PR closed (not merged) — nothing to do."; exit 1
 fi
 
@@ -492,6 +494,7 @@ else
   rat=$(echo "$latest" | jq -r '.submitted_at')
 
   if [[ "$rstate" == "APPROVED" ]]; then
+    SESSION_OUTCOME="approved"
     log "✅ PR already APPROVED by Copilot — nothing to do."; exit 0
   fi
 

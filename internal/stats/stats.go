@@ -81,12 +81,13 @@ type Session struct {
 // as StartedAt.
 func NewSession(repo, pr, runner, model string) Session {
 	return Session{
-		SessionID: newUUID(),
-		StartedAt: time.Now().UTC(),
-		Repo:      repo,
-		PR:        pr,
-		Runner:    runner,
-		Model:     model,
+		SessionID:                  newUUID(),
+		StartedAt:                  time.Now().UTC(),
+		Repo:                       repo,
+		PR:                         pr,
+		Runner:                     runner,
+		Model:                      model,
+		CopilotCommentsByIteration: []int{},
 	}
 }
 
@@ -178,6 +179,10 @@ func Save(s Session) error {
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("stats: cannot create sessions dir: %w", err)
+	}
+
+	if s.SessionID == "" {
+		s.SessionID = newUUID()
 	}
 
 	repoSlug := strings.ReplaceAll(s.Repo, "/", "-")
