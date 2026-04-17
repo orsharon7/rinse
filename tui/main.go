@@ -17,7 +17,7 @@ func main() {
 
 	// Handle -h/--help flags.
 	if len(os.Args) > 1 && (os.Args[1] == "--help" || os.Args[1] == "-h") {
-		fmt.Println("usage: rinse [init|--version|-v]")
+		fmt.Println("usage: rinse [init|--version|-v|-h|--help]")
 		os.Exit(0)
 	}
 

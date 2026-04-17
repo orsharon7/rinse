@@ -89,7 +89,7 @@ log "   Log file:    ${LOGFILE}"
 log "🔍 Checking current PR state..."
 startup_status=$(bash "$PR_REVIEW" "$PR_NUMBER" status $REPO_FLAG 2>/dev/null) || true
 startup_state=$(echo "$startup_status" | jq -r '.status // "unknown"')
-STATE_DIR="/tmp/pr-review-state"
+STATE_DIR="${HOME}/.pr-review/state"
 STATE_FILE="${STATE_DIR}/pr-${PR_NUMBER}-last-review"
 
 case "$startup_state" in
@@ -295,7 +295,7 @@ PROMPT_EOF
   # and returns new_review again — infinite loop on the same comments.
   # pr-review.sh reads this file in load_last_known() and uses it to detect
   # whether Copilot has posted a *new* review since our last fix.
-  STATE_DIR="/tmp/pr-review-state"
+  STATE_DIR="${HOME}/.pr-review/state"
   mkdir -p "$STATE_DIR"
   echo "$review_id" > "${STATE_DIR}/pr-${PR_NUMBER}-last-review"
   log "💾 Saved last-known review ID: ${review_id}"
