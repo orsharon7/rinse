@@ -110,6 +110,24 @@ func SessionsDir() (string, error) {
 // Save writes the session as a JSON file in SessionsDir (legacy path, used by
 // shell scripts). New code should write to the SQLite DB instead.
 func Save(s Session) error {
+	optedIn, err := IsOptedIn()
+	if err != nil {
+		return nil // non-fatal; skip saving on config read error
+	}
+	if !optedIn {
+		// No preference set yet — prompt if interactive; silently skip in CI.
+		fi, statErr := os.Stdin.Stat()
+		if statErr != nil || (fi.Mode()&os.ModeCharDevice) == 0 {
+			return nil // CI/non-TTY: silently off
+		}
+		optedIn, err = PromptOptIn()
+		if err != nil || !optedIn {
+			return nil
+		}
+	}
+
+	s.SchemaVersion = SchemaVersion
+
 	dir, err := SessionsDir()
 	if err != nil {
 		return fmt.Errorf("stats: cannot determine sessions dir: %w", err)
@@ -293,6 +311,7 @@ type Summary struct {
 	ApprovedSessions int
 	TotalDurationSec float64
 	PatternCounts    map[string]int
+	OutcomeCounts    map[Outcome]int
 	// Last30Days is a filtered summary over the last 30 days.
 	Last30Days *Summary
 }
@@ -352,15 +371,19 @@ func Summarize(sessions []Session) Summary {
 	}
 
 	build := func(ss []Session) Summary {
-		sum := Summary{PatternCounts: make(map[string]int)}
+		sum := Summary{
+			PatternCounts: make(map[string]int),
+			OutcomeCounts: make(map[Outcome]int),
+		}
 		for _, s := range ss {
 			sum.TotalSessions++
 			sum.TotalComments += s.TotalComments
 			sum.TotalIterations += s.Iterations
 			sum.TotalDurationSec += s.DurationSeconds()
-			if s.Approved {
+			if s.Outcome == OutcomeApproved {
 				sum.ApprovedSessions++
 			}
+			sum.OutcomeCounts[s.Outcome]++
 			for _, p := range s.Patterns {
 				sum.PatternCounts[p]++
 			}
@@ -562,6 +585,9 @@ func Print(sessions []Session) {
 	fmt.Printf("  Comments fixed:   %d\n", display.TotalComments)
 	fmt.Printf("  Avg iterations:   %.1f\n", display.AvgIterations())
 	fmt.Printf("  Est. time saved:  ~%.1f hours\n", display.EstTimeSavedHours())
+	if n := display.ApprovedSessions; n > 0 {
+		fmt.Printf("  Approved:         %d\n", n)
+	}
 
 	top := display.TopPatterns(5)
 	if len(top) > 0 {
