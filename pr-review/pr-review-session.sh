@@ -368,10 +368,18 @@ gh_lock_release() {
     return 0
   }
 
-  body=$(echo "$comment" | jq -r '.body // ""')
-  meta=$(_gh_lock_parse_metadata "$body")
-  host=$(echo "$meta" | jq -r '.hostname // ""')
-  pid=$(echo "$meta" | jq -r '.pid // 0')
+  body=$(echo "$comment" | jq -er '.body // ""' 2>/dev/null || echo "")
+  meta=$(_gh_lock_parse_metadata "$body" 2>/dev/null || echo "")
+
+  if [[ -z "$meta" ]] || ! echo "$meta" | jq -e . >/dev/null 2>&1; then
+    # Metadata is missing or malformed; do not remove shared lock state unless
+    # ownership can be verified.
+    _LOCK_COMMENT_ID=""
+    return 0
+  fi
+
+  host=$(echo "$meta" | jq -er '.hostname // ""' 2>/dev/null || echo "")
+  pid=$(echo "$meta" | jq -er '.pid // 0' 2>/dev/null || echo "0")
 
   if [[ "$host" != "$_SESSION_HOSTNAME" || "$pid" != "$_SESSION_PID" ]]; then
     # Do not remove shared lock state unless this process is the lock owner.
@@ -379,7 +387,7 @@ gh_lock_release() {
     return 0
   fi
 
-  cid=$(echo "$comment" | jq -r '.id // ""')
+  cid=$(echo "$comment" | jq -r '.id // ""' 2>/dev/null || echo "")
   if [[ -n "$cid" ]]; then
     gh api "repos/${_SESSION_REPO}/issues/comments/${cid}" -X DELETE >/dev/null 2>&1 || true
   fi
