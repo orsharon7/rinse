@@ -92,8 +92,7 @@ from `~/.local/share/opencode/auth.json`.
 | `--no-interactive` | — | Disable terminal UI (useful in CI or when piping output) |
 | `--dry-run` | — | Print startup state and exit |
 
-Available GitHub Copilot models: `github-copilot/claude-sonnet-4`,
-`github-copilot/claude-sonnet-4.5`, `github-copilot/claude-sonnet-4.6`
+The `--model` flag accepts any valid opencode model string. Example GitHub Copilot model strings: `github-copilot/claude-sonnet-4`, `github-copilot/claude-sonnet-4.5`, `github-copilot/claude-sonnet-4.6` (default). This list is not exhaustive — pass any model string supported by your opencode installation.
 
 **Example:**
 
@@ -348,4 +347,4 @@ Contributions are welcome!
 
 ## License
 
-RINSE is source-available under the [Business Source License 1.1](LICENSE). Free for personal and dev use. [Commercial license →](COMMERCIAL_LICENSE.md)
+This project is licensed under the [MIT License](LICENSE).
