@@ -610,6 +610,14 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		cmds = append(cmds, tick())
+		// Overdue detection: fire a toast once when ETA is crossed.
+		if !m.overdueAnnounced {
+			etaSt, _ := resolveETA(m.phase, m.estimatedEndAt, m.nowAdjusted())
+			if etaSt == etaOverdue {
+				m.toastMsg = "⚠ overdue"
+				m.overdueAnnounced = true
+			}
+		}
 
 	case spinner.TickMsg:
 		var spcmd tea.Cmd
