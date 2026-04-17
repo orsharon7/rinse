@@ -1,4 +1,4 @@
-// state_test_hook.go — only compiled for tests.
+// state_test_hook_test.go — compiled for tests only (Go _test.go convention).
 // Exposes internal state directory for test isolation.
 package runner
 

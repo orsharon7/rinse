@@ -24,6 +24,10 @@ var ErrMaxIterations = errors.New("runner: max iterations reached without approv
 // review cycle for the same PR.
 var ErrAlreadyRunning = errors.New("runner: another process is already running for this PR")
 
+// ErrMaxWaitPolls is returned when the runner has polled for an actionable
+// review more than MaxWaitPolls times without receiving one.
+var ErrMaxWaitPolls = errors.New("runner: max wait polls reached without actionable review")
+
 // Opts carries all configuration for a single PR's review lifecycle.
 type Opts struct {
 	// Repo is the "owner/repo" string (e.g. "orsharon7/rinse").
@@ -41,6 +45,11 @@ type Opts struct {
 	// MaxIterations caps the number of fix-and-review cycles.
 	// Defaults to DefaultMaxIterations when 0.
 	MaxIterations int
+
+	// MaxWaitPolls caps the number of consecutive "waiting" polls before Run
+	// gives up waiting for an actionable review. Defaults to 60 (30 min at the
+	// default 30 s PollInterval).
+	MaxWaitPolls int
 
 	// PollInterval is how long to wait between Copilot review status checks.
 	// Defaults to 30s when zero.
@@ -116,6 +125,7 @@ func Run(opts Opts) (Result, error) {
 	}
 
 	// ── 3. Main cycle loop ────────────────────────────────────────────────────
+	waitPolls := 0
 	for state.Iteration < opts.MaxIterations {
 		log.Info("runner: starting iteration",
 			"repo", opts.Repo,
@@ -143,13 +153,28 @@ func Run(opts Opts) (Result, error) {
 
 		if agentResult.Waiting {
 			// Not actionable yet — do not count against MaxIterations.
+			waitPolls++
+			if waitPolls > opts.MaxWaitPolls {
+				log.Warn("runner: max wait polls reached without actionable review",
+					"repo", opts.Repo,
+					"pr", opts.PR,
+					"wait_polls", waitPolls,
+				)
+				return Result{
+					Iterations:           state.Iteration,
+					ResumedFromIteration: resumedFrom,
+				}, ErrMaxWaitPolls
+			}
 			log.Info("runner: waiting for actionable review",
 				"repo", opts.Repo,
 				"pr", opts.PR,
+				"wait_poll", waitPolls,
+				"max_wait_polls", opts.MaxWaitPolls,
 			)
 			time.Sleep(opts.PollInterval)
 			continue
 		}
+		waitPolls = 0 // reset on actionable result
 
 		state.Iteration++
 
@@ -228,6 +253,9 @@ func validateOpts(o *Opts) error {
 	}
 	if o.MaxIterations <= 0 {
 		o.MaxIterations = DefaultMaxIterations
+	}
+	if o.MaxWaitPolls <= 0 {
+		o.MaxWaitPolls = 60
 	}
 	if o.PollInterval <= 0 {
 		o.PollInterval = 30 * time.Second
