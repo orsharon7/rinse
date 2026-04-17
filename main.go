@@ -114,6 +114,12 @@ func main() {
 		case "--version", "-v":
 			fmt.Printf("rinse %s\n", version)
 			os.Exit(0)
+		case "init":
+			if err := tui.RunInit(); err != nil {
+				fmt.Fprintln(os.Stderr, "error:", err)
+				os.Exit(1)
+			}
+			os.Exit(0)
 		case "stats":
 			sessions, err := stats.Load()
 			if err != nil {
@@ -121,7 +127,7 @@ func main() {
 				os.Exit(1)
 			}
 			if len(sessions) == 0 {
-				fmt.Println("\n  No sessions recorded yet. Run rinse on a PR to start tracking stats.\n")
+				fmt.Println("  No sessions recorded yet. Run rinse on a PR to start tracking stats.")
 				os.Exit(0)
 			}
 			stats.Print(sessions)
