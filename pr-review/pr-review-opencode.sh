@@ -428,7 +428,6 @@ fi
 if [[ "$DRY_RUN" != true ]]; then
   if ! gh_lock_acquire; then
     log "🔒 Another RINSE runner already holds the lock for PR #${PR_NUMBER} — exiting to avoid duplicate run"
-    _INS_OUTCOME="skipped"
     insights_finalize "skipped"
     if [[ "${JSON_INSIGHTS:-false}" == true ]]; then
       insights_print --json

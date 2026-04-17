@@ -430,11 +430,8 @@ fi
 if [[ "$DRY_RUN" != true ]]; then
   if ! gh_lock_acquire; then
     log "🔒 Another RINSE runner already holds the lock for PR #${PR_NUMBER} — exiting to avoid duplicate run"
-    # Treat this as an explicitly handled non-run path, but still finalize
-    # and emit insights so --json-insights can report a machine-readable
-    # skipped outcome. The EXIT trap will observe _INS_OUTCOME and avoid
-    # double-finalizing/double-printing.
-    _INS_OUTCOME="skipped"
+    # skipped outcome. insights_finalize records the handled outcome so the
+    # EXIT trap can avoid double-finalizing/double-printing.
     insights_finalize "skipped"
     if [[ "${JSON_INSIGHTS:-false}" == true ]]; then
       insights_print --json
