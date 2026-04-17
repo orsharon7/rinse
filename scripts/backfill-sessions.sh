@@ -100,6 +100,15 @@ for log_file in "${log_files[@]}"; do
     model="github-copilot/claude-sonnet-4.6"
   fi
 
+  # Detect runner from log content: look for "Starting <runner>" or ui_header lines.
+  # Supported runners: opencode, Claude (claude-code). Fall back to "unknown".
+  runner="unknown"
+  if grep -a -qiE 'Starting opencode|runner.*opencode|opencode.*runner' "$log_file" 2>/dev/null; then
+    runner="opencode"
+  elif grep -a -qiE 'Starting [Cc]laude|runner.*claude|claude.*runner|ui_header.*claude' "$log_file" 2>/dev/null; then
+    runner="claude"
+  fi
+
   # Count iterations (actual iteration header lines only, e.g. ━━━ Iteration N)
   iterations="$({ grep -a -E '^.{0,10}Iteration [0-9]+' "$log_file" 2>/dev/null || true; } | wc -l | tr -d ' ')"
 
@@ -131,7 +140,7 @@ for log_file in "${log_files[@]}"; do
   \"ended_at\": \"${ended_at}\",
   \"repo\": \"${repo}\",
   \"pr\": \"${pr_num}\",
-  \"runner\": \"opencode\",
+  \"runner\": \"${runner}\",
   \"model\": \"${model}\",
   \"total_comments\": ${total_comments},
   \"iterations\": ${iterations},
