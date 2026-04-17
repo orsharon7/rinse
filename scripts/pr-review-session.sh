@@ -269,9 +269,9 @@ gh_lock_acquire() {
 
     if [[ -n "$existing_meta" ]]; then
       local existing_host existing_pid existing_locked_at
-      existing_host=$(echo "$existing_meta" | jq -r '.hostname // ""')
-      existing_pid=$(echo "$existing_meta" | jq -r '.pid // 0')
-      existing_locked_at=$(echo "$existing_meta" | jq -r '.locked_at // ""')
+      existing_host=$(echo "$existing_meta" | jq -r '.hostname // ""' 2>/dev/null || printf '%s' "")
+      existing_pid=$(echo "$existing_meta" | jq -r '.pid // 0' 2>/dev/null || printf '%s' "0")
+      existing_locked_at=$(echo "$existing_meta" | jq -r '.locked_at // ""' 2>/dev/null || printf '%s' "")
 
       # Is this our own lock (same host, same PID)? Re-use it.
       if [[ "$existing_host" == "$_SESSION_HOSTNAME" && "$existing_pid" == "$_SESSION_PID" ]]; then
@@ -329,7 +329,7 @@ gh_lock_acquire() {
   verify_comment=$(_gh_lock_find_comment)
   if [[ -n "$verify_comment" ]]; then
     verify_meta=$(_gh_lock_parse_metadata "$(echo "$verify_comment" | jq -r '.body // ""')")
-    verify_lid=$(echo "$verify_meta" | jq -r '.lock_id // ""')
+    verify_lid=$(echo "$verify_meta" | jq -r '.lock_id // ""' 2>/dev/null || printf '%s' "")
     if [[ "$verify_lid" != "$lock_id" ]]; then
       # Another runner's comment is now the canonical one — we lost the race
       >&2 echo "[rinse-lock] Lost the acquisition race (another runner's comment took precedence)"
