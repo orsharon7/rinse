@@ -1,7 +1,7 @@
 // Package stats provides session history recording and summary reporting for rinse.
 //
 // Sessions are stored as JSON files under ~/.rinse/sessions/ with filenames
-// like 20060102-150405-000000000-owner-repo-PR42.json (date, time, nanoseconds,
+// like 20060102-150405-<unix_nano>-owner-repo-PR42.json (date, time, Unix nanoseconds,
 // repo slug with slashes replaced by dashes, and PR number). The rinse stats command reads
 // all session files, aggregates metrics, and prints a formatted summary.
 package stats
@@ -275,9 +275,9 @@ func Save(s Session) error {
 	if safePR == "" {
 		safePR = "unknown"
 	}
-	fname := fmt.Sprintf("%s-%09d-%s-PR%s.json",
+	fname := fmt.Sprintf("%s-%d-%s-PR%s.json",
 		s.StartedAt.Format("20060102-150405"),
-		s.StartedAt.Nanosecond(),
+		s.StartedAt.UnixNano(),
 		repoSlug,
 		safePR,
 	)
