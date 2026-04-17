@@ -49,17 +49,33 @@ jobs:
           # Persist credentials so git push works inside the loop.
           persist-credentials: true
 
+      # Checkout the base branch into a separate path so that the review
+      # loop script is always sourced from a trusted ref, not the PR head.
+      # This prevents a PR author from exfiltrating secrets via a modified script.
+      - name: Checkout base branch (trusted scripts)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          path: _rinse-base
+          fetch-depth: 1
+          persist-credentials: false
+
       - name: Configure git identity
         run: |
           git config user.name  "rinse[bot]"
           git config user.email "rinse[bot]@users.noreply.github.com"
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.17.0'
+
       - name: Install dependencies
         run: |
           set -euo pipefail
           # jq and shellcheck are pre-installed on ubuntu-latest runners.
-          # Install the Claude Code CLI.
-          npm install -g @anthropic-ai/claude-code
+          # Install a pinned Claude Code CLI version for reproducible runs.
+          npm install -g @anthropic-ai/claude-code@1.0.64
           claude --version
 
       - name: Validate environment
@@ -89,7 +105,7 @@ jobs:
           echo "  Branch : ${{ github.event.pull_request.head.ref }}"
           echo "  Commit : ${{ github.event.pull_request.head.sha }}"
 
-          bash pr-review/pr-review-claude-v2.sh "${PR_NUMBER}" \
+          bash _rinse-base/pr-review/pr-review-claude-v2.sh "${PR_NUMBER}" \
             --repo   "${REPO}"    \
             --cwd    "${CWD}"     \
             --model  "claude-sonnet-4-6"
