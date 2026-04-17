@@ -266,6 +266,19 @@ func Run(opts Opts) (Result, error) {
 		state.Iteration++
 		totalComments += agentResult.Comments
 
+		// Persist comment_event to telemetry DB (best-effort).
+		if telemetryDB != nil {
+			evt := db.CommentEventRow{
+				ID:           db.NewUUID(),
+				SessionID:    session.SessionID,
+				Iteration:    state.Iteration,
+				CommentCount: agentResult.Comments,
+			}
+			if err := telemetryDB.InsertCommentEvent(evt); err != nil {
+				log.Warn("runner: telemetry InsertCommentEvent failed", "error", err)
+			}
+		}
+
 		// Persist the review ID so the next iteration can detect no_change.
 		if agentResult.ReviewID != "" {
 			state.LastReviewID = agentResult.ReviewID

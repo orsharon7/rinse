@@ -216,17 +216,16 @@ func loadFromDB() ([]Session, error) {
 func loadFromJSON() ([]Session, error) {
 	dir, err := SessionsDir()
 	if err != nil {
-		return nil, err
+		return sortByStarted(sessions), nil
 	}
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
-		return nil, nil
+		return sortByStarted(sessions), nil
 	}
 	if err != nil {
-		return nil, err
+		return sortByStarted(sessions), err
 	}
 
-	var sessions []Session
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
@@ -239,12 +238,43 @@ func loadFromJSON() ([]Session, error) {
 		if err := json.Unmarshal(data, &s); err != nil {
 			continue
 		}
+		if seen[s.SessionID] {
+			continue // DB record takes precedence
+		}
 		sessions = append(sessions, s)
 	}
+
+	return sortByStarted(sessions), nil
+}
+
+// dbRowToSession converts a db.SessionRow to a stats.Session.
+func dbRowToSession(r db.SessionRow) Session {
+	s := Session{
+		SessionID: r.ID,
+		Repo:      r.Repo,
+		PR:        fmt.Sprintf("%d", r.PRNumber),
+		PRTitle:   r.PRTitle,
+		StartedAt: r.StartedAt,
+		Model:     r.Model,
+		Outcome:   Outcome(r.Outcome),
+		Iterations: r.Iterations,
+		TotalComments: r.TotalCommentsFixed,
+	}
+	if r.CompletedAt != nil {
+		s.EndedAt = *r.CompletedAt
+	}
+	if r.EstimatedTimeSavedSeconds != nil {
+		s.EstimatedTimeSavedSeconds = *r.EstimatedTimeSavedSeconds
+	}
+	s.Approved = s.Outcome == OutcomeApproved || s.Outcome == OutcomeMerged
+	return s
+}
+
+func sortByStarted(sessions []Session) []Session {
 	sort.Slice(sessions, func(i, j int) bool {
 		return sessions[i].StartedAt.Before(sessions[j].StartedAt)
 	})
-	return sessions, nil
+	return sessions
 }
 
 // Summary holds aggregated metrics across a set of sessions.
