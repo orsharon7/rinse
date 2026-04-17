@@ -122,31 +122,31 @@ func runStatusCmd(args []string) {
 		case "--repo":
 			i++
 			if i >= len(rest) || strings.HasPrefix(rest[i], "-") {
-				fatalf(asJSON, "--repo requires a value")
+				statusFatalf(asJSON, prNum, repo, "--repo requires a value")
 			}
 			repo = rest[i]
 		case "--json":
 			asJSON = true
 		default:
-			fatalf(asJSON, "unknown flag: %s", rest[i])
+			statusFatalf(asJSON, prNum, repo, "unknown flag: %s", rest[i])
 		}
 	}
 
 	if repo == "" {
 		repo = detectRepo()
 		if repo == "" {
-			fatalf(asJSON, "no repository detected — run from inside a git checkout or pass --repo")
+			statusFatalf(asJSON, prNum, repo, "no repository detected — run from inside a git checkout or pass --repo")
 		}
 	}
 	if prNum == "" {
 		prNum = detectCurrentPR(repo)
 		if prNum == "" {
-			fatalf(asJSON, "could not detect current PR — pass a PR number as the first argument")
+			statusFatalf(asJSON, prNum, repo, "could not detect current PR — pass a PR number as the first argument")
 		}
 	}
 	pr, err := strconv.Atoi(prNum)
 	if err != nil || pr <= 0 {
-		fatalf(asJSON, "PR number must be a positive integer, got: %s", prNum)
+		statusFatalf(asJSON, prNum, repo, "PR number must be a positive integer, got: %s", prNum)
 	}
 
 	status, err := queryPRStatus(repo, prNum)
@@ -170,17 +170,22 @@ func runStatusCmd(args []string) {
 
 // queryPRStatus returns a normalised review status string for a PR using gh.
 // Possible values: approved / pending / new_review / merged / closed / no_reviews / error
+//
+// Status is derived from the latest Copilot-authored review, not the aggregate
+// reviewDecision (which includes human reviews and could mislead callers).
 func queryPRStatus(repo, prNum string) (string, error) {
+	type ghReview struct {
+		Author struct {
+			Login string `json:"login"`
+		} `json:"author"`
+		State       string `json:"state"`
+		SubmittedAt string `json:"submittedAt"` // ISO-8601; lexicographic sort is correct
+	}
 	type ghPR struct {
-		State          string `json:"state"`
-		Merged         bool   `json:"merged"`
-		ReviewDecision string `json:"reviewDecision"`
-		Reviews        []struct {
-			Author struct {
-				Login string `json:"login"`
-			} `json:"author"`
-			State string `json:"state"`
-		} `json:"reviews"`
+		State          string     `json:"state"`
+		Merged         bool       `json:"merged"`
+		ReviewDecision string     `json:"reviewDecision"`
+		Reviews        []ghReview `json:"reviews"`
 		ReviewRequests []struct {
 			Login string `json:"login"`
 		} `json:"reviewRequests"`
@@ -219,18 +224,26 @@ func queryPRStatus(repo, prNum string) (string, error) {
 		}
 	}
 
-	switch strings.ToUpper(p.ReviewDecision) {
-	case "APPROVED":
-		return "approved", nil
-	case "REVIEW_REQUIRED":
-		if len(p.Reviews) == 0 {
-			return "no_reviews", nil
+	// Find the latest Copilot-authored review by submitted timestamp.
+	// SubmittedAt is ISO-8601, so lexicographic comparison gives chronological order.
+	var latestState string
+	var latestAt string
+	for _, rev := range p.Reviews {
+		if !strings.Contains(strings.ToLower(rev.Author.Login), "copilot") {
+			continue
 		}
-		return "new_review", nil
+		if rev.SubmittedAt > latestAt {
+			latestAt = rev.SubmittedAt
+			latestState = rev.State
+		}
 	}
 
-	if len(p.Reviews) == 0 {
+	if latestState == "" {
+		// No Copilot review found at all.
 		return "no_reviews", nil
+	}
+	if strings.ToUpper(latestState) == "APPROVED" {
+		return "approved", nil
 	}
 	return "new_review", nil
 }
@@ -534,6 +547,18 @@ func fatalf(asJSON bool, format string, a ...any) {
 			Error string `json:"error"`
 		}
 		emitJSON(errOut{OK: false, Error: msg})
+	} else {
+		fmt.Fprintf(os.Stderr, "error: %s\n", msg)
+	}
+	os.Exit(1)
+}
+
+// statusFatalf is like fatalf but always emits a StatusResult-shaped envelope in
+// JSON mode so that all `status --json` error paths have a consistent schema.
+func statusFatalf(asJSON bool, prNum, repo, format string, a ...any) {
+	msg := fmt.Sprintf(format, a...)
+	if asJSON {
+		emitJSON(StatusResult{OK: false, PR: prNum, Repo: repo, Status: "error", Error: msg})
 	} else {
 		fmt.Fprintf(os.Stderr, "error: %s\n", msg)
 	}
