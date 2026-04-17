@@ -108,9 +108,11 @@ for logfile in "${LOGS_DIR}"/*.log; do
   # Compute file-slug for session filename using the Go stats convention:
   # YYYYMMDD-HHMMSS-<repo>-PR<N>.json
   repo_slug="${REPO//\//-}"
-  started_slug="${started_at:0:10}"
-  started_slug="${started_slug//-/}${started_at:10:1}${started_at:11:8}"
-  started_slug="${started_slug//:/}"
+  date_part="${started_at:0:10}"
+  date_part="${date_part//-/}"
+  time_part="${started_at:11:8}"
+  time_part="${time_part//:/}"
+  started_slug="${date_part}-${time_part}"
   session_fname="${SESSIONS_DIR}/${started_slug}-${repo_slug}-PR${pr_num}.json"
 
   if [[ -f "$session_fname" ]]; then
@@ -179,7 +181,9 @@ for logfile in "${LOGS_DIR}"/*.log; do
   bk_approved="false"
   [[ "$outcome" == "approved" || "$outcome" == "merged" ]] && bk_approved="true"
 
-  jq -n \
+  local tmp_session_fname
+  tmp_session_fname="$(dirname "$session_fname")/.tmp_session_$$.json"
+  if jq -n \
     --arg session_id     "$session_id" \
     --arg repo           "$REPO" \
     --arg pr             "$pr_num" \
@@ -211,7 +215,13 @@ for logfile in "${LOGS_DIR}"/*.log; do
       copilot_comments_by_iteration: $comments,
       total_comments:                $total,
       estimated_time_saved_seconds:  $saved
-    }' > "$session_fname"
+    }' > "$tmp_session_fname"; then
+    mv "$tmp_session_fname" "$session_fname"
+  else
+    rm -f "$tmp_session_fname"
+    >&2 echo "⚠️  jq failed — skipping ${session_fname}"
+    continue
+  fi
 
   echo "✅ Backfilled: ${session_fname}  (PR #${pr_num}, ${outcome}, ${total_comments} comments)"
   (( processed++ )) || true
