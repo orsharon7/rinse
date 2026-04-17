@@ -15,6 +15,15 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Handle subcommands.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "init":
+			RunInit()
+			os.Exit(0)
+		}
+	}
+
 	m := initialModel()
 
 	p := tea.NewProgram(m,
