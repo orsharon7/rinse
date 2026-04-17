@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
+	"github.com/orsharon7/rinse/internal/db"
 	"github.com/orsharon7/rinse/internal/engine"
 	"github.com/orsharon7/rinse/internal/engine/lock"
 	"github.com/orsharon7/rinse/internal/stats"
@@ -108,11 +110,62 @@ func Run(opts Opts) (Result, error) {
 	session := stats.NewSession(opts.Repo, opts.PR, opts.Agent.Name(), opts.Model)
 	session.PRTitle = opts.PRTitle
 
+	// Open the telemetry DB (best-effort: a DB failure must not abort the run).
+	telemetryDB, dbErr := db.Open()
+	if dbErr != nil {
+		log.Warn("runner: telemetry DB unavailable; session will not be persisted to SQLite",
+			"error", dbErr)
+	}
+
+	prNum, _ := strconv.Atoi(opts.PR)
+
+	if telemetryDB != nil {
+		row := db.SessionRow{
+			ID:       session.SessionID,
+			Repo:     opts.Repo,
+			PRNumber: prNum,
+			PRTitle:  opts.PRTitle,
+			Model:    opts.Model,
+			Outcome:  "open",
+			StartedAt: session.StartedAt,
+		}
+		if err := telemetryDB.InsertSession(row); err != nil {
+			log.Warn("runner: telemetry InsertSession failed", "error", err)
+		}
+	}
+
 	persistSession := func(outcome stats.Outcome) {
 		session.Iterations = session.Iterations // already tracked below
 		session.Finish(outcome, 240)
 		if err := stats.Save(session); err != nil {
 			log.Error("runner: save session", "error", err)
+		}
+
+		// Mirror the terminal state into the telemetry DB.
+		if telemetryDB != nil {
+			completedAt := session.EndedAt
+			durationSec := int(session.EndedAt.Sub(session.StartedAt).Seconds())
+			estSaved := session.EstimatedTimeSavedSeconds
+			dbOutcome := string(outcome)
+
+			row := db.SessionRow{
+				ID:                          session.SessionID,
+				Repo:                        opts.Repo,
+				PRNumber:                    prNum,
+				PRTitle:                     opts.PRTitle,
+				Model:                       opts.Model,
+				Outcome:                     dbOutcome,
+				StartedAt:                   session.StartedAt,
+				CompletedAt:                 &completedAt,
+				DurationSeconds:             &durationSec,
+				EstimatedTimeSavedSeconds:   &estSaved,
+				Iterations:                  session.Iterations,
+				TotalCommentsFixed:          session.TotalComments,
+			}
+			if err := telemetryDB.UpdateSession(row); err != nil {
+				log.Warn("runner: telemetry UpdateSession failed", "error", err)
+			}
+			_ = telemetryDB.Close()
 		}
 	}
 
@@ -206,6 +259,19 @@ func Run(opts Opts) (Result, error) {
 		// Track per-iteration comment counts for the session.
 		session.CopilotCommentsByIteration = append(session.CopilotCommentsByIteration, agentResult.Comments)
 		session.Iterations = state.Iteration
+
+		// Persist comment_event to telemetry DB (best-effort).
+		if telemetryDB != nil {
+			evt := db.CommentEventRow{
+				ID:           db.NewUUID(),
+				SessionID:    session.SessionID,
+				Iteration:    state.Iteration,
+				CommentCount: agentResult.Comments,
+			}
+			if err := telemetryDB.InsertCommentEvent(evt); err != nil {
+				log.Warn("runner: telemetry InsertCommentEvent failed", "error", err)
+			}
+		}
 
 		// Persist the review ID so the next iteration can detect no_change.
 		if agentResult.ReviewID != "" {

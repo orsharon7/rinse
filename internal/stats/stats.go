@@ -15,6 +15,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/orsharon7/rinse/internal/db"
 )
 
 // Outcome describes the terminal result of a RINSE cycle.
@@ -137,22 +139,42 @@ func Save(s Session) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
-// Load reads all session files from SessionsDir and returns them ordered
-// oldest-first. Files that cannot be parsed are silently skipped.
+// Load reads sessions from the SQLite telemetry DB (~/.rinse/rinse.db) and
+// from legacy JSON files in ~/.rinse/sessions/.  Sessions that appear in both
+// sources are deduplicated by SessionID — the DB record wins.  Results are
+// ordered oldest-first.
 func Load() ([]Session, error) {
+	// ── 1. Read from SQLite DB ────────────────────────────────────────────────
+	seen := make(map[string]bool) // session_id → present in DB
+	var sessions []Session
+
+	telDB, dbErr := db.Open()
+	if dbErr == nil {
+		defer telDB.Close()
+		rows, err := telDB.LoadSessions()
+		if err == nil {
+			for _, r := range rows {
+				s := dbRowToSession(r)
+				sessions = append(sessions, s)
+				seen[s.SessionID] = true
+			}
+		}
+	}
+	// DB failure is non-fatal; we fall through to JSON files.
+
+	// ── 2. Read legacy JSON files (skip if already in DB) ────────────────────
 	dir, err := SessionsDir()
 	if err != nil {
-		return nil, err
+		return sortByStarted(sessions), nil
 	}
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
-		return nil, nil
+		return sortByStarted(sessions), nil
 	}
 	if err != nil {
-		return nil, err
+		return sortByStarted(sessions), err
 	}
 
-	var sessions []Session
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
@@ -165,12 +187,43 @@ func Load() ([]Session, error) {
 		if err := json.Unmarshal(data, &s); err != nil {
 			continue
 		}
+		if seen[s.SessionID] {
+			continue // DB record takes precedence
+		}
 		sessions = append(sessions, s)
 	}
+
+	return sortByStarted(sessions), nil
+}
+
+// dbRowToSession converts a db.SessionRow to a stats.Session.
+func dbRowToSession(r db.SessionRow) Session {
+	s := Session{
+		SessionID: r.ID,
+		Repo:      r.Repo,
+		PR:        fmt.Sprintf("%d", r.PRNumber),
+		PRTitle:   r.PRTitle,
+		StartedAt: r.StartedAt,
+		Model:     r.Model,
+		Outcome:   Outcome(r.Outcome),
+		Iterations: r.Iterations,
+		TotalComments: r.TotalCommentsFixed,
+	}
+	if r.CompletedAt != nil {
+		s.EndedAt = *r.CompletedAt
+	}
+	if r.EstimatedTimeSavedSeconds != nil {
+		s.EstimatedTimeSavedSeconds = *r.EstimatedTimeSavedSeconds
+	}
+	s.Approved = s.Outcome == OutcomeApproved || s.Outcome == OutcomeMerged
+	return s
+}
+
+func sortByStarted(sessions []Session) []Session {
 	sort.Slice(sessions, func(i, j int) bool {
 		return sessions[i].StartedAt.Before(sessions[j].StartedAt)
 	})
-	return sessions, nil
+	return sessions
 }
 
 // Summary holds aggregated metrics across a set of sessions.
