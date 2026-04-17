@@ -78,9 +78,10 @@ for logfile in "${LOGS_DIR}"/*.log; do
   # ── Parse log timestamps ──────────────────────────────────────────────────
   # Log lines typically start with a timestamp pattern like:
   #   [2026-04-17 14:00:01] 🚀 Starting opencode PR review loop
-  # We extract the first and last ISO-like timestamp from the file.
-  first_ts=$(grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}:[0-9]{2}' "$logfile" 2>/dev/null | head -1 || echo "")
-  last_ts=$(grep  -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}:[0-9]{2}' "$logfile" 2>/dev/null | tail -1 || echo "")
+  # Only extract leading bracketed timestamps written by the logger so we
+  # don't accidentally pick up ISO-like timestamps from arbitrary command output.
+  first_ts=$(grep -oE '^\[[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}:[0-9]{2}\]' "$logfile" 2>/dev/null | sed 's/^\[//; s/\]$//' | head -1 || echo "")
+  last_ts=$(grep  -oE '^\[[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}:[0-9]{2}\]' "$logfile" 2>/dev/null | sed 's/^\[//; s/\]$//' | tail -1 || echo "")
 
   # Fallback to file mtime when timestamps not in log.
   if [[ -z "$first_ts" ]]; then
@@ -104,11 +105,13 @@ for logfile in "${LOGS_DIR}"/*.log; do
   started_at=$(_ts_to_utc "$first_ts")
   ended_at=$(_ts_to_utc "$last_ts")
 
-  # Compute file-slug for session filename (matches pattern used in Go/shell).
+  # Compute file-slug for session filename using the Go stats convention:
+  # YYYYMMDD-HHMMSS-<repo>-PR<N>.json
   repo_slug="${REPO//\//-}"
-  started_slug="${started_at:0:10}-${started_at:11:8}"
-  started_slug="${started_slug//:/-}"
-  session_fname="${SESSIONS_DIR}/${started_slug}-${repo_slug}-pr-${pr_num}.json"
+  started_slug="${started_at:0:10}"
+  started_slug="${started_slug//-/}${started_at:10:1}${started_at:11:8}"
+  started_slug="${started_slug//:/}"
+  session_fname="${SESSIONS_DIR}/${started_slug}-${repo_slug}-PR${pr_num}.json"
 
   if [[ -f "$session_fname" ]]; then
     (( skipped++ )) || true
@@ -173,7 +176,7 @@ for logfile in "${LOGS_DIR}"/*.log; do
     continue
   fi
 
-  local bk_approved="false"
+  bk_approved="false"
   [[ "$outcome" == "approved" || "$outcome" == "merged" ]] && bk_approved="true"
 
   jq -n \
