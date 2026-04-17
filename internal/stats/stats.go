@@ -1,8 +1,12 @@
 // Package stats provides session history recording and summary reporting for rinse.
 //
-// Sessions are stored as JSON files under ~/.rinse/sessions/ with filenames
-// like 20060102-150405-owner-repo-PR42.json. The rinse stats command reads
-// all session files, aggregates metrics, and prints a formatted summary.
+// Sessions are stored in two places:
+//   - ~/.rinse/rinse.db  (SQLite, preferred — written by the Go runner)
+//   - ~/.rinse/sessions/ (JSON files, legacy — written by the shell scripts)
+//
+// Load() reads the DB when available and falls back to JSON files. This lets
+// existing shell-script sessions coexist with new Go-runner sessions until the
+// migration is complete.
 package stats
 
 import (
@@ -14,6 +18,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/orsharon7/rinse/internal/db"
 )
 
 // Session records the outcome of a single rinse PR-review run.
@@ -38,7 +44,7 @@ func (s Session) DurationSeconds() float64 {
 	return s.EndedAt.Sub(s.StartedAt).Seconds()
 }
 
-// SessionsDir returns the directory where session JSON files are stored.
+// SessionsDir returns the directory where legacy session JSON files are stored.
 func SessionsDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -47,7 +53,8 @@ func SessionsDir() (string, error) {
 	return filepath.Join(home, ".rinse", "sessions"), nil
 }
 
-// Save writes the session as a JSON file in SessionsDir.
+// Save writes the session as a JSON file in SessionsDir (legacy path, used by
+// shell scripts). New code should write to the SQLite DB instead.
 func Save(s Session) error {
 	dir, err := SessionsDir()
 	if err != nil {
@@ -72,9 +79,95 @@ func Save(s Session) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
-// Load reads all session files from SessionsDir and returns them ordered
-// oldest-first. Files that cannot be parsed are silently skipped.
+// Load reads sessions from the best available source:
+//   - ~/.rinse/rinse.db when it exists (SQLite, preferred)
+//   - ~/.rinse/sessions/*.json as fallback (legacy JSON files)
+//
+// Sessions from both sources are merged and deduped by (repo, PR, started_at
+// truncated to the minute) so that a mixed environment shows unified stats.
 func Load() ([]Session, error) {
+	dbSessions, dbErr := loadFromDB()
+	jsonSessions, jsonErr := loadFromJSON()
+
+	// If both sources fail, surface the DB error (more informative).
+	if dbErr != nil && jsonErr != nil {
+		return nil, fmt.Errorf("stats: db: %w; json: %v", dbErr, jsonErr)
+	}
+
+	// Merge, dedup by session fingerprint (repo|pr|started-minute).
+	seen := make(map[string]bool, len(dbSessions)+len(jsonSessions))
+	merged := make([]Session, 0, len(dbSessions)+len(jsonSessions))
+
+	add := func(s Session) {
+		key := fmt.Sprintf("%s|%s|%s", s.Repo, s.PR,
+			s.StartedAt.UTC().Truncate(time.Minute).Format(time.RFC3339))
+		if !seen[key] {
+			seen[key] = true
+			merged = append(merged, s)
+		}
+	}
+
+	// DB sessions take precedence — add first so JSON dupes are skipped.
+	for _, s := range dbSessions {
+		add(s)
+	}
+	for _, s := range jsonSessions {
+		add(s)
+	}
+
+	sort.Slice(merged, func(i, j int) bool {
+		return merged[i].StartedAt.Before(merged[j].StartedAt)
+	})
+	return merged, nil
+}
+
+// loadFromDB opens the default SQLite DB and converts rows to Session values.
+// Returns (nil, nil) when the DB file does not exist yet — not an error.
+func loadFromDB() ([]Session, error) {
+	dbPath, err := db.Path()
+	if err != nil {
+		return nil, err
+	}
+	if _, statErr := os.Stat(dbPath); os.IsNotExist(statErr) {
+		return nil, nil // DB not created yet — not an error
+	} else if statErr != nil {
+		return nil, statErr
+	}
+
+	d, err := db.Open(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	defer d.Close()
+
+	rows, err := d.LoadSessions()
+	if err != nil {
+		return nil, err
+	}
+
+	sessions := make([]Session, 0, len(rows))
+	for _, r := range rows {
+		s := Session{
+			StartedAt:     r.StartedAt,
+			Repo:          r.Repo,
+			PR:            fmt.Sprintf("%d", r.PRNumber),
+			Runner:        r.Runner,
+			Model:         r.Model,
+			TotalComments: r.TotalCommentsFixed,
+			Iterations:    r.Iterations,
+			Approved:      r.Outcome == "merged",
+			Patterns:      r.Patterns,
+		}
+		if r.CompletedAt != nil {
+			s.EndedAt = *r.CompletedAt
+		}
+		sessions = append(sessions, s)
+	}
+	return sessions, nil
+}
+
+// loadFromJSON reads legacy JSON session files from SessionsDir.
+func loadFromJSON() ([]Session, error) {
 	dir, err := SessionsDir()
 	if err != nil {
 		return nil, err
