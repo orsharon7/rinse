@@ -16,6 +16,7 @@
 #   --worktree             Use a git worktree for isolation (used by orchestrator)
 #   --repo-root <path>     Original repo root when --worktree is active
 #   --dry-run              Print startup state and exit without running Claude
+#   --json-insights        Print machine-readable JSON summary after each cycle
 #
 # Requirements:
 #   - claude CLI in PATH
@@ -602,6 +603,9 @@ while true; do
 
   ui_outcome "💬" "${comment_count} comment(s) in review ${rid}" "$GUM_WARN"
   log "💬 ${comment_count} comment(s) in review ${rid} — invoking Claude (${MODEL})..."
+
+  # Record insights for this iteration (classify comments by category)
+  insights_record_iteration "$comment_count" "$comments_json"
 
   # ── Step 4: Build prompt and invoke Claude ────────────────────────────
 
