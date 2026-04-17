@@ -192,6 +192,89 @@ func TestSummarize_OutcomeCounts(t *testing.T) {
 	}
 }
 
+// ── IsOptedIn / SetOptIn / Save opt-out tests ─────────────────────────────────
+
+// overrideHome redirects both HOME (and XDG_CONFIG_HOME if set) to a temp
+// directory so that configDir() and SessionsDir() resolve to isolated paths.
+func overrideHome(t *testing.T) string {
+	t.Helper()
+	tmpHome := t.TempDir()
+	origHome := os.Getenv("HOME")
+	origXDG := os.Getenv("XDG_CONFIG_HOME")
+	if err := os.Setenv("HOME", tmpHome); err != nil {
+		t.Fatalf("Setenv HOME: %v", err)
+	}
+	// Clear XDG_CONFIG_HOME so we don't accidentally write to the real config dir.
+	_ = os.Unsetenv("XDG_CONFIG_HOME")
+	t.Cleanup(func() {
+		if err := os.Setenv("HOME", origHome); err != nil {
+			t.Errorf("Setenv HOME (restore): %v", err)
+		}
+		if origXDG != "" {
+			_ = os.Setenv("XDG_CONFIG_HOME", origXDG)
+		}
+	})
+	return tmpHome
+}
+
+func TestIsOptedIn_UnsetPreference(t *testing.T) {
+	overrideHome(t)
+	// No stats.json exists — expect (false, nil).
+	got, err := stats.IsOptedIn()
+	if err != nil {
+		t.Fatalf("IsOptedIn() unexpected error: %v", err)
+	}
+	if got {
+		t.Errorf("IsOptedIn() with no preference set: want false, got true")
+	}
+}
+
+func TestSetOptIn_RoundTrip(t *testing.T) {
+	overrideHome(t)
+	for _, optIn := range []bool{true, false} {
+		if err := stats.SetOptIn(optIn); err != nil {
+			t.Fatalf("SetOptIn(%v) error: %v", optIn, err)
+		}
+		got, err := stats.IsOptedIn()
+		if err != nil {
+			t.Fatalf("IsOptedIn() after SetOptIn(%v) error: %v", optIn, err)
+		}
+		if got != optIn {
+			t.Errorf("IsOptedIn() after SetOptIn(%v): want %v, got %v", optIn, optIn, got)
+		}
+	}
+}
+
+func TestSave_SkipsWhenOptedOut(t *testing.T) {
+	overrideHome(t)
+	// Opt out explicitly.
+	if err := stats.SetOptIn(false); err != nil {
+		t.Fatalf("SetOptIn(false): %v", err)
+	}
+
+	sess := stats.Session{
+		StartedAt:     time.Now(),
+		EndedAt:       time.Now().Add(time.Minute),
+		Repo:          "owner/repo",
+		PR:            "42",
+		TotalComments: 3,
+		Iterations:    1,
+		Outcome:       stats.OutcomeApproved,
+	}
+	if err := stats.Save(sess); err != nil {
+		t.Fatalf("Save() with opted-out user returned error: %v", err)
+	}
+
+	// No session files should have been written.
+	sessions, err := stats.Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if len(sessions) != 0 {
+		t.Errorf("Save() with opted-out user: expected 0 sessions on disk, got %d", len(sessions))
+	}
+}
+
 func TestSummarize_CutoffBoundaryExact30Days(t *testing.T) {
 	// A session at the 30-day cutoff should NOT be in Last30Days because
 	// Summarize uses StartedAt.After(cutoff). A session 29 days ago should
