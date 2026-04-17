@@ -21,8 +21,8 @@ func writeSession(t *testing.T, dir string, name string, data []byte) {
 
 // overrideSessionsDir temporarily overrides the sessions directory used by Load
 // by monkey-patching HOME so that SessionsDir() resolves to our temp dir.
-// It returns the sessions directory path and a cleanup function.
-func overrideSessionsDir(t *testing.T) (string, func()) {
+// It returns the sessions directory path.
+func overrideSessionsDir(t *testing.T) string {
 	t.Helper()
 	tmpHome := t.TempDir()
 	sessDir := filepath.Join(tmpHome, ".rinse", "sessions")
@@ -30,15 +30,21 @@ func overrideSessionsDir(t *testing.T) (string, func()) {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpHome)
-	return sessDir, func() { os.Setenv("HOME", origHome) }
+	if err := os.Setenv("HOME", tmpHome); err != nil {
+		t.Fatalf("Setenv HOME: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Setenv("HOME", origHome); err != nil {
+			t.Errorf("Setenv HOME (restore): %v", err)
+		}
+	})
+	return sessDir
 }
 
 // ── Load() migration tests ────────────────────────────────────────────────────
 
 func TestLoad_MigratesLegacyApprovedTrue(t *testing.T) {
-	dir, cleanup := overrideSessionsDir(t)
-	defer cleanup()
+	dir := overrideSessionsDir(t)
 
 	now := time.Now().UTC().Truncate(time.Second)
 	raw := map[string]interface{}{
@@ -65,8 +71,7 @@ func TestLoad_MigratesLegacyApprovedTrue(t *testing.T) {
 }
 
 func TestLoad_MigratesLegacyApprovedFalse(t *testing.T) {
-	dir, cleanup := overrideSessionsDir(t)
-	defer cleanup()
+	dir := overrideSessionsDir(t)
 
 	now := time.Now().UTC().Truncate(time.Second)
 	raw := map[string]interface{}{
@@ -93,8 +98,7 @@ func TestLoad_MigratesLegacyApprovedFalse(t *testing.T) {
 }
 
 func TestLoad_MigratesNoLegacyField(t *testing.T) {
-	dir, cleanup := overrideSessionsDir(t)
-	defer cleanup()
+	dir := overrideSessionsDir(t)
 
 	now := time.Now().UTC().Truncate(time.Second)
 	raw := map[string]interface{}{
