@@ -706,6 +706,15 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Parse runner-emitted ETA: "[eta] <RFC3339>"
+		if strings.HasPrefix(plain, "[eta] ") {
+			ts := strings.TrimPrefix(plain, "[eta] ")
+			if t, err := time.Parse(time.RFC3339, strings.TrimSpace(ts)); err == nil {
+				m.estimatedEndAt = &t
+			}
+			break
+		}
+
 		// Suppress wait-tick lines — render as progress bar instead.
 		if isWaitTickLine(plain) {
 			var e, mx int
@@ -1319,7 +1328,14 @@ func (m monitorModel) renderTimingTooltip() string {
 
 	dismissHint := theme.StyleMuted.Render("  any key to dismiss")
 
-	content := label + "\n" + utcLine + "\n" + localLine + "\n\n" + elapsedLabel + "\n\n" + dismissHint
+	var etaLine string
+	if m.estimatedEndAt != nil {
+		eta := *m.estimatedEndAt
+		etaLine = "\n" + theme.StyleMuted.Render("ETA:") + " " +
+			lipgloss.NewStyle().Foreground(theme.Text).Render(eta.Local().Format("15:04:05 MST")+" ("+eta.UTC().Format("15:04:05 UTC")+")")
+	}
+
+	content := label + "\n" + utcLine + "\n" + localLine + "\n\n" + elapsedLabel + etaLine + "\n\n" + dismissHint
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
