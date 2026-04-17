@@ -65,16 +65,14 @@ type Result struct {
 	ResumedFromIteration int
 }
 
-// Run drives the PR review lifecycle:
+// Run orchestrates a PR review run for a single pull request.
 //
-//  1. Acquire a per-PR on-disk lock (atomic, stale-lock aware).
-//  2. Load any existing checkpoint (crash recovery / partial resume).
-//  3. Loop: invoke Agent, checkpoint state, push & re-request review.
-//  4. Exit when Copilot approves, PR is merged/closed, or max iterations reached.
-//  5. Clear the checkpoint on terminal outcomes.
-//
-// Run honours the "never swallow errors" engineering standard: subprocess
-// errors are propagated with context rather than swallowed.
+// It validates options, acquires a per-PR on-disk lock, resumes from any
+// existing checkpoint, and repeatedly invokes the configured Agent until a
+// terminal outcome is reached or an error occurs. Any agent-specific actions,
+// such as pushing changes, re-requesting review, or checking remote PR state,
+// are the responsibility of the supplied engine.Agent implementation rather
+// than runner.Run itself.
 func Run(opts Opts) (Result, error) {
 	if err := validateOpts(&opts); err != nil {
 		return Result{}, err
