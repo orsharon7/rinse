@@ -33,6 +33,9 @@ type KeyMap struct {
 	Toggle key.Binding
 	// Monitor timing tooltip.
 	TimingInfo key.Binding
+	// Monitor save shortcuts.
+	SaveReflect key.Binding
+	SaveAll     key.Binding
 }
 
 // Keys is the global singleton KeyMap used by all views.
@@ -112,6 +115,14 @@ var Keys = KeyMap{
 	TimingInfo: key.NewBinding(
 		key.WithKeys("t"),
 		key.WithHelp("t", "timing tooltip"),
+	),
+	SaveReflect: key.NewBinding(
+		key.WithKeys("s"),
+		key.WithHelp("s", "save reflect log"),
+	),
+	SaveAll: key.NewBinding(
+		key.WithKeys("S"),
+		key.WithHelp("S", "save full session log"),
 	),
 }
 
