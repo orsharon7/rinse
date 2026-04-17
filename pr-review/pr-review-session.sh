@@ -65,6 +65,7 @@ _SESSION_FILE=""       # full path to the session JSON file
 _SESSION_HOSTNAME=""   # $(hostname)
 _SESSION_PID=$$        # this runner's PID
 _LOCK_COMMENT_ID=""    # GitHub comment ID of the lock comment we created
+_RINSE_LOCK_ID=""      # lock_id generated once per process (reused across calls)
 
 # ─── Session: init ────────────────────────────────────────────────────────────
 
@@ -252,8 +253,16 @@ _gh_lock_is_stale() {
 gh_lock_acquire() {
   [[ -z "$_SESSION_REPO" ]] && { >&2 echo "[rinse-lock] session_init not called"; return 0; }
 
+  # Generate a random lock_id once per process and reuse it on later calls,
+  # so reacquiring is idempotent and we can recognize our own existing lock.
   local lock_id
-  lock_id="$(date -u +%Y%m%dT%H%M%S)-${_SESSION_PID}"
+  if [[ -n "$_RINSE_LOCK_ID" ]]; then
+    lock_id="$_RINSE_LOCK_ID"
+  else
+    lock_id="$(cat /proc/sys/kernel/random/uuid 2>/dev/null || \
+      printf '%s-%s-%s' "$(date -u +%Y%m%dT%H%M%S)" "${_SESSION_PID}" "${RANDOM}${RANDOM}")"
+    _RINSE_LOCK_ID="$lock_id"
+  fi
 
   # Ensure the label exists in the repo
   _gh_lock_ensure_label_created
@@ -352,14 +361,15 @@ gh_lock_acquire() {
 gh_lock_release() {
   [[ -z "$_SESSION_REPO" ]] && return 0
 
-  _gh_lock_remove_label
-
   if [[ -n "$_LOCK_COMMENT_ID" ]]; then
+    # We successfully acquired the lock — remove label and delete our comment.
+    _gh_lock_remove_label
     gh api "repos/${_SESSION_REPO}/issues/comments/${_LOCK_COMMENT_ID}" \
       -X DELETE >/dev/null 2>&1 || true
     _LOCK_COMMENT_ID=""
   else
-    # Fallback: find and delete any lock comment left by this host/PID
+    # We never successfully acquired the lock.
+    # Only remove the label/comment if the lock comment belongs to this host+PID.
     local comment
     comment=$(_gh_lock_find_comment)
     if [[ -n "$comment" ]]; then
@@ -369,10 +379,12 @@ gh_lock_release() {
       host=$(echo "$meta" | jq -r '.hostname // ""')
       pid=$(echo "$meta" | jq -r '.pid // 0')
       if [[ "$host" == "$_SESSION_HOSTNAME" && "$pid" == "$_SESSION_PID" ]]; then
+        _gh_lock_remove_label
         local cid
         cid=$(echo "$comment" | jq -r '.id')
         gh api "repos/${_SESSION_REPO}/issues/comments/${cid}" -X DELETE >/dev/null 2>&1 || true
       fi
+      # If the lock belongs to another runner, do NOT remove their label or comment.
     fi
   fi
 }
