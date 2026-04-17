@@ -97,9 +97,9 @@ rinse --help       # show help
 
 Interactive TUI preferences are saved in your user config directory under `rinse/config.json` (for example, `~/.config/rinse/config.json` on Linux). Other Rinse data such as session history or runtime state may still appear under `~/.rinse/`.
 
-### Available Copilot models
+### Example Copilot models (non-exhaustive)
 
-Configure these via the TUI `model` setting (or by invoking the underlying runner scripts directly), not via a `rinse --model` flag.
+Configure any valid model string via the TUI `model` setting (or by invoking the underlying runner scripts directly), not via a `rinse --model` flag. The table below shows a few examples — any model string accepted by your runner can be used.
 
 | Model | Model string |
 |-------|--------------|

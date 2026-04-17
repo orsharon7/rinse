@@ -182,7 +182,7 @@ supabase start
 # Anon key:  printed by supabase start
 ```
 
-Environment config for local dev. RINSE currently stores config as JSON at `~/.config/rinse/config.json` (Linux/macOS XDG) or the platform equivalent. The TOML format below is a proposed future alternative:
+Environment config for local dev. RINSE currently stores config as JSON in your user config directory (on Linux, typically `~/.config/rinse/config.json`). The TOML format below is a proposed future alternative:
 
 ```toml
 # Proposed future config format
