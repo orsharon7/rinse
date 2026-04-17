@@ -154,6 +154,10 @@ document.documentElement.classList.add('js');
   const form = document.getElementById('waitlistForm');
   if (!form) return;
   form.addEventListener('submit', async (e) => {
+    if (!window.fetch) {
+      // fetch unavailable; let the form POST naturally
+      return;
+    }
     e.preventDefault();
     const btn = form.querySelector('.waitlist-btn');
     const input = form.querySelector('.waitlist-input');
