@@ -131,9 +131,8 @@ insights_init() {
   _INS_OUTCOME=""
   _INS_ITER_LOG="[]"
 
-  # Reset category counters
-  unset _INS_CATS
-  declare -gA _INS_CATS 2>/dev/null || declare -A _INS_CATS
+  # Reset category counters on the already-declared global associative array.
+  _INS_CATS=()
   local cats=(security error_handling performance type_safety testing documentation naming style logic general)
   for cat in "${cats[@]}"; do
     _INS_CATS["$cat"]=0

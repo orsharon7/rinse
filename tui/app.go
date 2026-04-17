@@ -83,6 +83,17 @@ func detectCWD() string {
 	return d
 }
 
+// detectGitRoot returns the root of the git repository containing the current
+// working directory, as reported by "git rev-parse --show-toplevel".
+// Returns an empty string if not inside a git repo or the command fails.
+func detectGitRoot() string {
+	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // ── Runner definitions ────────────────────────────────────────────────────────
 
 type runner struct {

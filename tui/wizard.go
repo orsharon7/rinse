@@ -106,7 +106,13 @@ func initialModel() model {
 
 	// Apply per-repo .rinse.json overrides (created by `rinse init`) so the TUI
 	// honours team-shared defaults when the file is present in the repo root.
-	if repoCfg, ok := LoadRepoRinseConfig(detectCWD()); ok {
+	// Resolve the git repo root so .rinse.json is found even when the user runs
+	// `rinse` from a subdirectory of the repo.
+	rinseConfigDir := detectGitRoot()
+	if rinseConfigDir == "" {
+		rinseConfigDir = detectCWD()
+	}
+	if repoCfg, ok := LoadRepoRinseConfig(rinseConfigDir); ok {
 		for i, r := range runners {
 			if strings.EqualFold(r.name, repoCfg.Engine) {
 				rc.Runner = i
