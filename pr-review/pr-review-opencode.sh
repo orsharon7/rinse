@@ -18,6 +18,7 @@
 #   --worktree                    Use a git worktree for isolation (used by orchestrator)
 #   --repo-root <path>            Original repo root when --worktree is active
 #   --dry-run                     Print startup state and exit without running opencode
+#   --json-insights               Print machine-readable JSON summary after each cycle
 #
 # Requirements:
 #   - opencode CLI in PATH (opencode --version)
@@ -425,6 +426,11 @@ if [[ "$DRY_RUN" != true ]]; then
     log "🔒 Another RINSE runner already holds the lock for PR #${PR_NUMBER} — exiting to avoid duplicate run"
     _INS_OUTCOME="skipped"
     insights_finalize "skipped"
+    if [[ "${JSON_INSIGHTS:-false}" == true ]]; then
+      insights_print --json
+    else
+      insights_print
+    fi
     exit 2
   fi
   log "🔑 Acquired distributed lock for PR #${PR_NUMBER}"

@@ -15,6 +15,12 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Handle -h/--help flags.
+	if len(os.Args) > 1 && (os.Args[1] == "--help" || os.Args[1] == "-h") {
+		fmt.Println("usage: rinse [init|--version|-v]")
+		os.Exit(0)
+	}
+
 	// Handle subcommands.
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
