@@ -45,6 +45,11 @@ source "${SCRIPT_DIR}/pr-review-ui.sh"
 # shellcheck source=pr-review-session.sh
 source "${SCRIPT_DIR}/pr-review-session.sh"
 
+# ─── Insights ─────────────────────────────────────────────────────────────────
+
+# shellcheck source=pr-review-insights.sh
+source "${SCRIPT_DIR}/pr-review-insights.sh"
+
 # ─── Args ─────────────────────────────────────────────────────────────────────
 
 if [[ $# -lt 1 || "$1" == "--help" || "$1" == "-h" ]]; then
@@ -65,6 +70,7 @@ REFLECT_MODEL=""
 REFLECT_MAIN_BRANCH="main"
 USE_WORKTREE=false
 REPO_ROOT=""
+JSON_INSIGHTS=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -79,6 +85,7 @@ while [[ $# -gt 0 ]]; do
     --worktree)            USE_WORKTREE=true;        shift ;;
     --repo-root)           REPO_ROOT="$2";           shift 2 ;;
     --dry-run)             DRY_RUN=true;             shift ;;
+    --json-insights)       JSON_INSIGHTS=true;       shift ;;
     *) >&2 echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -124,13 +131,31 @@ if [[ "$USE_WORKTREE" == true ]]; then
 
   # Cleanup trap — remove the worktree on exit / signal
   cleanup_pr_worktree() {
+    local rc=$?
+    set +e
     if [[ -n "$WORKTREE_DIR" && -d "$WORKTREE_DIR" ]]; then
       log "Cleaning up worktree at ${WORKTREE_DIR}..."
       git -C "$REPO_ROOT" worktree remove --force "$WORKTREE_DIR" 2>/dev/null || true
       rm -rf "$WORKTREE_DIR" 2>/dev/null || true
     fi
     session_clear
-    gh_lock_release
+    if [[ "${DRY_RUN:-false}" != true ]]; then
+      gh_lock_release
+    fi
+    local should_print_insights=false
+    if [[ "${DRY_RUN:-false}" != true && -z "${_INS_OUTCOME:-}" && "${_INS_START_EPOCH:-0}" -gt 0 ]]; then
+      should_print_insights=true
+    fi
+    if [[ -z "${_INS_OUTCOME:-}" && "${_INS_START_EPOCH:-0}" -gt 0 ]]; then
+      insights_finalize "unknown"
+    fi
+    if [[ "$should_print_insights" == true ]]; then
+      if [[ "${JSON_INSIGHTS:-false}" == true ]]; then
+        insights_print --json
+      else
+        insights_print
+      fi
+    fi
   }
   trap cleanup_pr_worktree EXIT
 
@@ -352,6 +377,9 @@ log "   Log file:    ${LOGFILE}"
 
 session_init "$REPO" "$PR_NUMBER"
 
+# ── Insights init ─────────────────────────────────────────────────────────────
+insights_init "$PR_NUMBER" "$REPO" "$MODEL"
+
 if session_recover; then
   log "⚠️  Previous session crashed (iter ${RECOVER_ITER}, last review: ${RECOVER_REVIEW_ID:-none})"
   log "   Recovering — will resume from last known state"
@@ -362,16 +390,45 @@ if session_recover; then
 fi
 
 if [[ "$USE_WORKTREE" == false ]]; then
-  _cleanup_session_lock() {
+  _cleanup_on_exit() {
+    local rc=$?
+    local should_print_insights=true
+    set +e
+
     session_clear
-    gh_lock_release
+    if [[ "${DRY_RUN:-false}" != true ]]; then
+      gh_lock_release
+    fi
+
+    # Finalize and print insights only if not already handled by an explicit exit path.
+    if [[ -z "${_INS_OUTCOME:-}" ]]; then
+      local outcome="error"
+      [[ $rc -eq 0 ]] && outcome="clean"
+      insights_finalize "$outcome"
+    else
+      should_print_insights=false
+    fi
+
+    if [[ "${DRY_RUN:-false}" != true && "$should_print_insights" == true ]]; then
+      if [[ "${JSON_INSIGHTS:-false}" == true ]]; then
+        insights_print --json
+      else
+        insights_print
+      fi
+    fi
   }
-  trap _cleanup_session_lock EXIT
+  trap _cleanup_on_exit EXIT
 fi
 
 if [[ "$DRY_RUN" != true ]]; then
   if ! gh_lock_acquire; then
     log "🔒 Another RINSE runner already holds the lock for PR #${PR_NUMBER} — exiting to avoid duplicate run"
+    insights_finalize "skipped"
+    if [[ "${JSON_INSIGHTS:-false}" == true ]]; then
+      insights_print --json
+    else
+      insights_print
+    fi
     exit 2
   fi
   log "🔑 Acquired distributed lock for PR #${PR_NUMBER}"
@@ -386,9 +443,13 @@ merged_at=$(echo "$_pr_json" | jq -r '.merged_at // ""')
 
 if [[ "$pr_state" == "closed" && -n "$merged_at" ]]; then
   log "🎉 PR already merged — nothing to do."
+  insights_finalize "already_merged"
+  [[ "${JSON_INSIGHTS:-false}" == true ]] && insights_print --json || insights_print
   exit 0
 elif [[ "$pr_state" == "closed" ]]; then
   log "📕 PR is closed (not merged) — nothing to do."
+  insights_finalize "closed"
+  [[ "${JSON_INSIGHTS:-false}" == true ]] && insights_print --json || insights_print
   exit 1
 fi
 
@@ -412,6 +473,8 @@ else
 
   if [[ "$rstate" == "APPROVED" ]]; then
     log "✅ PR already APPROVED by Copilot — nothing to do."
+    insights_finalize "approved"
+    [[ "${JSON_INSIGHTS:-false}" == true ]] && insights_print --json || insights_print
     exit 0
   fi
 
@@ -471,6 +534,12 @@ while true; do
 
   if ! wait_for_review; then
     log "❌ Timed out waiting for Copilot — aborting"
+    insights_finalize "stalled"
+    if [[ "${JSON_INSIGHTS:-false}" == true ]]; then
+      insights_print --json
+    else
+      insights_print
+    fi
     exit 1
   fi
 
@@ -504,6 +573,12 @@ while true; do
     ui_outcome "✅" "Copilot APPROVED PR #${PR_NUMBER}! Ready to merge."
     log "✅ Copilot APPROVED PR #${PR_NUMBER}! Ready to merge."
     echo "$rid" > "$STATE_FILE"
+    insights_finalize "approved"
+    if [[ "${JSON_INSIGHTS:-false}" == true ]]; then
+      insights_print --json
+    else
+      insights_print
+    fi
     ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
     exit 0
   fi
@@ -515,6 +590,12 @@ while true; do
     ui_outcome "✅" "Clean review — 0 comments. PR #${PR_NUMBER} is ready to merge."
     log "✅ Clean review — 0 comments. PR #${PR_NUMBER} is ready to merge."
     echo "$rid" > "$STATE_FILE"
+    insights_finalize "clean"
+    if [[ "${JSON_INSIGHTS:-false}" == true ]]; then
+      insights_print --json
+    else
+      insights_print
+    fi
     ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
     exit 0
   fi
@@ -527,6 +608,9 @@ while true; do
   ui_step 4 "Fix comments with Claude (${MODEL})"
 
   comments_json=$(echo "$comments" | jq '.')
+
+  # Record insights for this iteration (classify comments by category)
+  insights_record_iteration "$comment_count" "$comments_json"
 
   read -r -d '' PROMPT << PROMPT_EOF || true
 You are fixing GitHub Copilot code review comments on PR #${PR_NUMBER} in ${REPO}.
@@ -600,6 +684,12 @@ PROMPT_EOF
     if [[ -n "$reflect_pid" ]]; then
       kill "$reflect_pid" 2>/dev/null || true
       ui_reflect_log "killed (claude failed)" false
+    fi
+    insights_finalize "error"
+    if [[ "${JSON_INSIGHTS:-false}" == true ]]; then
+      insights_print --json
+    else
+      insights_print
     fi
     exit 1
   fi
