@@ -187,11 +187,14 @@ func queryPRStatus(repo, prNum string) (string, error) {
 			} `json:"author"`
 			State string `json:"state"`
 		} `json:"reviews"`
+		ReviewRequests []struct {
+			Login string `json:"login"`
+		} `json:"reviewRequests"`
 	}
 
 	out, err := exec.Command("gh", "pr", "view", prNum,
 		"--repo", repo,
-		"--json", "state,merged,reviewDecision,reviews",
+		"--json", "state,merged,reviewDecision,reviews,reviewRequests",
 	).Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -215,16 +218,17 @@ func queryPRStatus(repo, prNum string) (string, error) {
 		return "closed", nil
 	}
 
+	// Copilot is "pending" when it appears in requested_reviewers (not yet submitted a review).
+	for _, rr := range p.ReviewRequests {
+		if strings.Contains(strings.ToLower(rr.Login), "copilot") {
+			return "pending", nil
+		}
+	}
+
 	switch strings.ToUpper(p.ReviewDecision) {
 	case "APPROVED":
 		return "approved", nil
 	case "REVIEW_REQUIRED":
-		for _, r := range p.Reviews {
-			if strings.Contains(strings.ToLower(r.Author.Login), "copilot") &&
-				strings.EqualFold(r.State, "PENDING") {
-				return "pending", nil
-			}
-		}
 		if len(p.Reviews) == 0 {
 			return "no_reviews", nil
 		}
@@ -368,7 +372,7 @@ func runStartCmd(args []string) {
 	if model == "" {
 		model = r.defaultModel
 	}
-	if reflectMain == "" {
+	if doReflect && reflectMain == "" {
 		reflectMain = detectDefaultBranch(repo)
 	}
 
