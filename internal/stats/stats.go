@@ -159,9 +159,9 @@ func Save(s Session) error {
 	if safePR == "" {
 		safePR = "unknown"
 	}
-	fname := fmt.Sprintf("%s-%09d-%s-PR%s.json",
+	fname := fmt.Sprintf("%s-%d-%s-PR%s.json",
 		s.StartedAt.Format("20060102-150405"),
-		s.StartedAt.Nanosecond(),
+		s.StartedAt.UnixNano(),
 		repoSlug,
 		safePR,
 	)
