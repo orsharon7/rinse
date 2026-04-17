@@ -1,6 +1,10 @@
 # rinse
 
+[![License: BSL 1.1](https://img.shields.io/badge/License-BSL%201.1-blue.svg)](LICENSE)
+
 CLI automation tools for GitHub Copilot PR review workflows.
+
+> RINSE is source-available under the Business Source License 1.1. Free for personal and dev use. [Commercial license →](COMMERCIAL_LICENSE.md)
 
 ## Install
 
