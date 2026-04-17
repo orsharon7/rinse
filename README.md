@@ -23,13 +23,19 @@ Request review → wait → read comments → fix → repeat. Rinse handles ever
 
 ## ⚡ Install
 
-Clone the repo and run the installer (requires Go ≥ 1.24 or a pre-built binary in `dist/`):
-
 ```bash
 git clone https://github.com/orsharon7/rinse.git
 cd rinse
-bash install.sh
+make install
 ```
+
+Or build and install manually (requires Go ≥ 1.24):
+
+```bash
+go build -o ~/.local/bin/rinse .
+```
+
+Pre-built binaries are also available on the [Releases](https://github.com/orsharon7/rinse/releases) page.
 
 ---
 
@@ -80,12 +86,14 @@ rinse --help       # show help
 | `branch` | branch name | Target branch for reflection commits (default: `main`) |
 | `auto-merge` | on/off | Auto-merge PR once Copilot approves |
 
-Settings are saved per-repo under `~/.rinse/`.
+Settings are saved in your user config directory under `rinse/config.json` (for example, `~/.config/rinse/config.json` on Linux).
 
 ### Available Copilot models
 
-| Model | Flag value |
-|-------|-----------|
+Configure these via the TUI `model` setting (or by invoking the underlying runner scripts directly), not via a `rinse --model` flag.
+
+| Model | Model string |
+|-------|--------------|
 | Claude Sonnet 4.6 | `github-copilot/claude-sonnet-4.6` |
 | Claude Sonnet 4.5 | `github-copilot/claude-sonnet-4.5` |
 | Claude Sonnet 4   | `github-copilot/claude-sonnet-4` |
@@ -94,14 +102,16 @@ Settings are saved per-repo under `~/.rinse/`.
 
 ## 🪞 Reflection agent
 
-The `--reflect` flag runs a reflection pass in parallel with each fix cycle.
+The `reflect` setting runs a reflection pass in parallel with each fix cycle.
 
 It reads Copilot's comments, extracts generalizable coding rules, and permanently updates `AGENTS.md` + `CLAUDE.md` in your repo — **pushed directly to `main` via a git worktree, never polluting the PR branch**.
 
 Every future cycle loads those rules automatically, so the AI makes fewer mistakes and Copilot leaves fewer comments. The loop gets faster over time.
 
+Enable reflection via the TUI settings (press `s` inside the PR picker and toggle `reflect` on), or pass `--reflect` directly to the underlying runner scripts:
+
 ```bash
-rinse start 42 --repo owner/repo --cwd ~/dev/my-repo --reflect
+./scripts/pr-review-opencode.sh 42 --repo owner/repo --cwd ~/dev/my-repo --reflect
 ```
 
 ---
@@ -122,7 +132,7 @@ rinse start 42 --repo owner/repo --cwd ~/dev/my-repo --reflect
 
 1. Fork the repo and create a branch: `git checkout -b feat/my-change`
 2. Make your changes — keep code POSIX-compatible where possible
-3. Test against a real PR: `rinse start <number> --repo owner/repo`
+3. Test against a real PR: `rinse` (launch the TUI and select the PR)
 4. Open a PR — Copilot reviews it automatically
 5. Use `--reflect` to update coding rules for future sessions
 
