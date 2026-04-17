@@ -65,13 +65,14 @@ jobs:
 
           test "$(git rev-parse HEAD)" = "${PR_SHA}"
 
-      # Checkout the base branch into a separate path so that the review
-      # loop script is always sourced from a trusted ref, not the PR head.
-      # This prevents a PR author from exfiltrating secrets via a modified script.
-      - name: Checkout base branch (trusted scripts)
+      # Checkout a fixed protected branch into a separate path so that the review
+      # loop script is always sourced from a trusted ref, not the PR head or a
+      # PR-selected base branch. This prevents script tampering via attacker-
+      # controlled target branches.
+      - name: Checkout trusted scripts
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.base.ref }}
+          ref: refs/heads/${{ github.event.repository.default_branch }}
           path: _rinse-base
           fetch-depth: 1
           persist-credentials: false
