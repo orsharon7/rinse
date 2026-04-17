@@ -36,6 +36,9 @@ func RunInit() {
 			fmt.Println("Aborted.")
 			os.Exit(0)
 		}
+	} else if !os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "error: failed to stat %s: %v\n", rinseConfigFile, err)
+		os.Exit(1)
 	}
 
 	fmt.Println("Initializing Rinse config for this repo...")

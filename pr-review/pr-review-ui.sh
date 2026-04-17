@@ -49,6 +49,16 @@ _ui_print()   { printf "%b\n" "$*"; }
 ui_ts()       { date '+%H:%M:%S'; }
 ui_ts_full()  { date '+%Y-%m-%d %H:%M:%S'; }
 
+# _ui_term_width: returns terminal width clamped to [20, ∞), defaulting to 80
+# on tput failure or non-numeric output.
+_ui_term_width() {
+  local w
+  w=$(tput cols 2>/dev/null || echo 80)
+  [[ ! "$w" =~ ^[0-9]+$ ]] && w=80
+  [[ $w -lt 20 ]] && w=20
+  echo "$w"
+}
+
 # ─── log() ───────────────────────────────────────────────────────────────────
 #
 # Routes to gum log when available, otherwise falls back to timestamped plain text.
@@ -89,7 +99,7 @@ ui_header() {
   echo ""
   if [[ "$_UI_GUM" == true && "$_UI_TTY" == true ]]; then
     local w
-    w=$(tput cols 2>/dev/null || echo 80)
+    w=$(_ui_term_width)
     gum style \
       --bold \
       --foreground "$GUM_ACCENT" \
@@ -112,7 +122,7 @@ ui_header() {
 ui_divider() {
   if [[ "$_UI_GUM" == true && "$_UI_TTY" == true ]]; then
     local w
-    w=$(tput cols 2>/dev/null || echo 80)
+    w=$(_ui_term_width)
     gum style --foreground "$GUM_MUTED" "$(printf '─%.0s' $(seq 1 $w))"
   else
     _ui_print "${_D}$(printf '─%.0s' $(seq 1 70))${_R}"
@@ -126,7 +136,7 @@ ui_iter_header() {
   echo ""
   if [[ "$_UI_GUM" == true && "$_UI_TTY" == true ]]; then
     local w
-    w=$(tput cols 2>/dev/null || echo 80)
+    w=$(_ui_term_width)
     local label="  Iteration ${iter}    ${ts}  "
     local pad=$(( w - ${#label} - 2 ))
     [[ $pad -lt 0 ]] && pad=0
@@ -219,7 +229,7 @@ ui_step() {
   local num="$1" label="$2"
   if [[ "$_UI_GUM" == true && "$_UI_TTY" == true ]]; then
     local w
-    w=$(tput cols 2>/dev/null || echo 80)
+    w=$(_ui_term_width)
     local text="  ▸ Step ${num}: ${label}  "
     local pad=$(( w - ${#text} - 2 ))
     [[ $pad -lt 0 ]] && pad=0
@@ -532,7 +542,7 @@ ui_insights_summary() {
   echo ""
   if [[ "$_UI_GUM" == true && "$_UI_TTY" == true ]]; then
     local w
-    w=$(tput cols 2>/dev/null || echo 80)
+    w=$(_ui_term_width)
 
     # Header box
     gum style \

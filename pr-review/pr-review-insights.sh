@@ -35,8 +35,17 @@ _INS_TOTAL_ITERS=0
 _INS_TOTAL_COMMENTS=0
 _INS_OUTCOME=""
 
+# Insights require bash 4+ for associative arrays. On bash 3.x (e.g., macOS default),
+# set _INS_SUPPORTED=false so all public functions become no-ops.
+_INS_SUPPORTED=false
+if [[ "${BASH_VERSINFO[0]:-0}" -ge 4 ]]; then
+  _INS_SUPPORTED=true
+fi
+
 # Category counters (associative array — requires bash 4+)
-declare -A _INS_CATS 2>/dev/null || true
+if [[ "$_INS_SUPPORTED" == true ]]; then
+  declare -A _INS_CATS
+fi
 
 # Per-iteration log (JSON array of objects) — built incrementally
 _INS_ITER_LOG="[]"
@@ -114,6 +123,12 @@ _ins_classify_comment() {
 # ─── insights_init ────────────────────────────────────────────────────────────
 
 insights_init() {
+  # Require bash 4+ for associative arrays; disable insights gracefully on older bash.
+  if [[ "$_INS_SUPPORTED" != true ]]; then
+    >&2 echo "[rinse-insights] bash 4+ required for insights; disabling."
+    return 0
+  fi
+
   _INS_PR="${1:?insights_init: pr_number required}"
   _INS_REPO="${2:?insights_init: repo required}"
   _INS_MODEL="${3:-unknown}"
@@ -135,6 +150,7 @@ insights_init() {
 # ─── insights_record_iteration ────────────────────────────────────────────────
 
 insights_record_iteration() {
+  [[ "$_INS_SUPPORTED" != true ]] && return 0
   local comment_count="${1:-0}"
   local comments_json="${2:-[]}"
 
@@ -145,13 +161,15 @@ insights_record_iteration() {
   local iter_cats="{}"
   local i n
   n=$(printf '%s' "$comments_json" | jq 'length' 2>/dev/null || echo 0)
-  for i in $(seq 0 $(( n - 1 ))); do
-    local body
-    body=$(printf '%s' "$comments_json" | jq -r ".[$i].body // \"\"" 2>/dev/null || echo "")
-    local cat
-    cat=$(_ins_classify_comment "$body")
-    _INS_CATS["$cat"]=$(( ${_INS_CATS["$cat"]:-0} + 1 ))
-  done
+  if (( n > 0 )); then
+    for i in $(seq 0 $(( n - 1 ))); do
+      local body
+      body=$(printf '%s' "$comments_json" | jq -r ".[$i].body // \"\"" 2>/dev/null || echo "")
+      local cat
+      cat=$(_ins_classify_comment "$body")
+      _INS_CATS["$cat"]=$(( ${_INS_CATS["$cat"]:-0} + 1 ))
+    done
+  fi
 
   # Snapshot category counts for this iteration
   local cats_snapshot
@@ -183,6 +201,7 @@ insights_record_iteration() {
 # ─── insights_finalize ────────────────────────────────────────────────────────
 
 insights_finalize() {
+  [[ "$_INS_SUPPORTED" != true ]] && return 0
   _INS_OUTCOME="${1:-unknown}"
   _INS_END_EPOCH=$(date -u +%s 2>/dev/null || echo 0)
 }
@@ -243,6 +262,7 @@ insights_as_json() {
 # Renders insights. Call after insights_finalize.
 
 insights_print() {
+  [[ "$_INS_SUPPORTED" != true ]] && return 0
   local json_mode=false
   [[ "${1:-}" == "--json" ]] && json_mode=true
 

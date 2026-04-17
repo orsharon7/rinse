@@ -85,10 +85,15 @@ session_update() {
   local last_rid="${2:-}"
   [[ -z "$_SESSION_FILE" ]] && return 0
 
+  local started_at=""
+  if [[ -f "$_SESSION_FILE" ]]; then
+    started_at="$(jq -r '.started_at // ""' "$_SESSION_FILE" 2>/dev/null || echo "")"
+  fi
+
   jq -n \
     --arg hostname "$_SESSION_HOSTNAME" \
     --argjson pid "$_SESSION_PID" \
-    --arg started_at "$(cat "${_SESSION_FILE}" 2>/dev/null | jq -r '.started_at // ""')" \
+    --arg started_at "$started_at" \
     --arg updated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --argjson iter "$iter" \
     --arg last_review_id "$last_rid" \
@@ -120,9 +125,9 @@ session_recover() {
   [[ -f "$_SESSION_FILE" ]] || return 1
 
   local pid hostname status
-  pid=$(jq -r '.pid // 0' "$_SESSION_FILE")
-  hostname=$(jq -r '.hostname // ""' "$_SESSION_FILE")
-  status=$(jq -r '.status // "unknown"' "$_SESSION_FILE")
+  pid=$(jq -r '.pid // 0' "$_SESSION_FILE" 2>/dev/null || echo "0")
+  hostname=$(jq -r '.hostname // ""' "$_SESSION_FILE" 2>/dev/null || echo "")
+  status=$(jq -r '.status // "unknown"' "$_SESSION_FILE" 2>/dev/null || echo "unknown")
 
   # Only recover sessions from this host (cross-host crash → gh_lock will handle dedup)
   if [[ "$hostname" != "$_SESSION_HOSTNAME" ]]; then
@@ -139,8 +144,8 @@ session_recover() {
   fi
 
   # PID is dead but status is "running" → this was a crash
-  RECOVER_REVIEW_ID=$(jq -r '.last_review_id // ""' "$_SESSION_FILE")
-  RECOVER_ITER=$(jq -r '.iter // 0' "$_SESSION_FILE")
+  RECOVER_REVIEW_ID=$(jq -r '.last_review_id // ""' "$_SESSION_FILE" 2>/dev/null || echo "")
+  RECOVER_ITER=$(jq -r '.iter // 0' "$_SESSION_FILE" 2>/dev/null || echo "0")
 
   return 0
 }
@@ -153,7 +158,9 @@ session_clear() {
   [[ -z "$_SESSION_FILE" ]] && return 0
   if [[ -f "$_SESSION_FILE" ]]; then
     local tmp
-    tmp=$(jq '.status = "done"' "$_SESSION_FILE") && echo "$tmp" > "$_SESSION_FILE"
+    if tmp=$(jq '.status = "done"' "$_SESSION_FILE" 2>/dev/null); then
+      echo "$tmp" > "$_SESSION_FILE"
+    fi
     rm -f "$_SESSION_FILE"
   fi
 }
@@ -203,7 +210,12 @@ _gh_lock_find_comment() {
 _gh_lock_parse_metadata() {
   local body="$1"
   # Extract the JSON block between the marker line and the closing HTML comment
-  echo "$body" | grep -A1 "${_RINSE_LOCK_MARKER}" | tail -1
+  local line
+  line=$(echo "$body" | grep -A1 "${_RINSE_LOCK_MARKER}" | tail -1)
+  # Strip HTML comment wrapper: <!-- ... -->
+  line="${line#<!-- }"
+  line="${line% -->}"
+  echo "$line"
 }
 
 _gh_lock_is_stale() {
@@ -294,7 +306,7 @@ gh_lock_acquire() {
     '{hostname: $hostname, pid: $pid, locked_at: $locked_at, lock_id: $lock_id}')
 
   local comment_body
-  comment_body="$(printf '%s\n%s' "$_RINSE_LOCK_MARKER" "$meta_json")"
+  comment_body="$(printf '%s\n<!-- %s -->' "$_RINSE_LOCK_MARKER" "$meta_json")"
 
   _gh_lock_add_label
 
@@ -320,10 +332,9 @@ gh_lock_acquire() {
     if [[ "$verify_lid" != "$lock_id" ]]; then
       # Another runner's comment is now the canonical one — we lost the race
       >&2 echo "[rinse-lock] Lost the acquisition race (another runner's comment took precedence)"
-      # Clean up our own comment
+      # Clean up our own comment only; do NOT remove the label since the winner still holds the lock
       gh api "repos/${_SESSION_REPO}/issues/comments/${_LOCK_COMMENT_ID}" -X DELETE >/dev/null 2>&1 || true
       _LOCK_COMMENT_ID=""
-      _gh_lock_remove_label
       return 1
     fi
   fi

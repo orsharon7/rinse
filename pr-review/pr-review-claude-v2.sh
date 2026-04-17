@@ -374,11 +374,26 @@ if session_recover; then
 fi
 
 if [[ "$USE_WORKTREE" == false ]]; then
-  _cleanup_session_lock() {
+  _cleanup_on_exit() {
+    local rc=$?
+    # Best-effort cleanup — don't let errors here mask the original exit code
+    set +e
+
     session_clear
     gh_lock_release
+
+    # Finalize insights only if not already finalized by an explicit exit path
+    if [[ -z "${_INS_OUTCOME:-}" ]]; then
+      local outcome="error"
+      [[ $rc -eq 0 ]] && outcome="success"
+      insights_finalize "$outcome"
+    fi
+
+    if [[ "${DRY_RUN:-false}" != true ]]; then
+      insights_print $( [[ "${JSON_INSIGHTS:-false}" == true ]] && echo "--json" )
+    fi
   }
-  trap _cleanup_session_lock EXIT
+  trap _cleanup_on_exit EXIT
 fi
 
 if [[ "$DRY_RUN" != true ]]; then
