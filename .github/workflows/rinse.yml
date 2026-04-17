@@ -1,7 +1,9 @@
 name: RINSE — Copilot PR Review Loop
 
-# Runs RINSE on every new or updated PR, driving Copilot review cycles until
-# the PR is approved (no hard iteration cap; bounded by timeout-minutes on the job).
+# Runs RINSE on new or updated same-repo PRs from trusted contributors
+# (MEMBER or OWNER), excluding pushes made by github-actions[bot], driving
+# Copilot review cycles until the PR is approved (no hard iteration cap;
+# bounded by timeout-minutes on the job).
 #
 # Required secrets:
 #   ANTHROPIC_API_KEY  — Claude API key (for `claude` CLI)
@@ -107,7 +109,7 @@ jobs:
       - name: Run RINSE
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          # GH_TOKEN is automatically provided by GitHub Actions.
+          # GitHub Actions provides GITHUB_TOKEN; map it to GH_TOKEN for the gh CLI.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Tell claude CLI not to prompt for permissions interactively.
           CLAUDE_DANGEROUSLY_SKIP_PERMISSIONS: "1"
