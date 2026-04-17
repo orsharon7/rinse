@@ -17,12 +17,6 @@ on:
   pull_request:
     types: [opened, reopened, synchronize]
 
-# Only one RINSE run per PR at a time. If a new push arrives while a run is
-# in-flight, cancel the old run and start fresh on the new commit.
-concurrency:
-  group: rinse-pr-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
 permissions:
   contents: write        # push fix commits to the PR branch
   pull-requests: write   # request Copilot reviews, post replies
@@ -42,6 +36,13 @@ jobs:
       github.actor != 'github-actions[bot]' &&
       (github.event.pull_request.author_association == 'MEMBER' ||
        github.event.pull_request.author_association == 'OWNER')
+    # Only one RINSE run per PR at a time. If a new push arrives while a run is
+    # in-flight, cancel the old run and start fresh on the new commit.
+    # Concurrency is scoped to the job so that skipped runs (bot-triggered) do
+    # not participate in cancellation and cannot interrupt an active loop run.
+    concurrency:
+      group: rinse-pr-${{ github.event.pull_request.number }}-${{ github.actor }}
+      cancel-in-progress: true
     timeout-minutes: 30
 
     steps:
@@ -81,10 +82,14 @@ jobs:
 
       - name: Exclude trusted-scripts checkout from git staging
         run: |
+          set -euo pipefail
           # Prevent _rinse-base/ (a nested git repo) from being staged by
           # `git add -A` inside the review-loop script, which would corrupt
           # the PR branch with a gitlink or a large untracked directory.
-          echo "_rinse-base/" >> .git/info/exclude
+          mkdir -p .git/info
+          if ! grep -qxF "_rinse-base/" .git/info/exclude 2>/dev/null; then
+            echo "_rinse-base/" >> .git/info/exclude
+          fi
 
       - name: Configure git identity
         run: |
