@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/orsharon7/rinse/internal/config"
+	"github.com/orsharon7/rinse/internal/onboarding"
 )
 
 // version is set by Run() from the value injected at build time via -ldflags.
@@ -142,6 +143,24 @@ func fmtPRNumber(n int) string {
 // at build time via -ldflags.
 func Run(ver string) error {
 	version = ver
+
+	// First-run onboarding wizard: if onboarding is not complete, run the
+	// wizard before the main PR-picker TUI. Skipped or aborted outcomes both
+	// fall through to the main TUI so the app stays usable.
+	if !onboarding.IsComplete() {
+		outcome, err := RunOnboardingWizard(ver)
+		if err != nil {
+			return err
+		}
+		switch outcome {
+		case WizardAborted:
+			return nil // user quit — exit cleanly
+		case WizardSkipped:
+			// User chose "Skip setup" — proceed to main TUI below.
+		case WizardCompleted:
+			// Onboarding done — proceed to main TUI below.
+		}
+	}
 
 	m := initialModel()
 
