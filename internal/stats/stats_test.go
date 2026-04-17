@@ -22,8 +22,8 @@ func writeSession(t *testing.T, dir string, name string, data []byte) {
 // overrideSessionsDir temporarily overrides the sessions directory used by Load
 // by monkey-patching the platform-specific home env vars so that
 // SessionsDir() (which calls os.UserHomeDir()) resolves to our temp dir.
-// It sets HOME (Unix), USERPROFILE (Windows), HOMEDRIVE and HOMEPATH (Windows)
-// so that the helper is portable across operating systems.
+// It sets HOME (Unix) and USERPROFILE (Windows), and unsets HOMEDRIVE and
+// HOMEPATH so Windows home-dir resolution uses USERPROFILE in these tests.
 // It returns the sessions directory path.
 func overrideSessionsDir(t *testing.T) string {
 	t.Helper()
