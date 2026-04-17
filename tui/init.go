@@ -111,6 +111,12 @@ func RunInit() {
 		os.Exit(1)
 	}
 	tmpName := tmp.Name()
+	if cherr := os.Chmod(tmpName, 0o644); cherr != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		fmt.Fprintf(os.Stderr, "error: failed to set temp file permissions: %v\n", cherr)
+		os.Exit(1)
+	}
 	if _, werr := tmp.Write(append(data, '\n')); werr != nil {
 		tmp.Close()
 		os.Remove(tmpName)

@@ -301,8 +301,7 @@ Lightweight cron-compatible poller. Add to crontab:
 
 | File | Written by |
 |------|-----------|
-| `~/.pr-review-claude.log` | `pr-review-claude-v2.sh`, `pr-review-claude.sh` |
-| `~/.pr-review-opencode.log` | `pr-review-opencode.sh` |
+| `~/.pr-review/logs/<repo>-pr-<n>.log` | `pr-review-claude-v2.sh`, `pr-review-opencode.sh` |
 | `~/.pr-review-reflect.log` | `pr-review-reflect.sh` |
 
 ---
@@ -341,7 +340,7 @@ Contributions are welcome!
 - All scripts are in `pr-review/`. The TUI source is in `tui/` (Go ≥ 1.24).
 - Run `make` inside `tui/` to build the binary locally.
 - Run `rinse init` in a repo directory to scaffold a per-repo `.rinse.json` config (engine, model, reflection, auto-merge). Commit the file so your team shares the same defaults.
-- Log output goes to `~/.pr-review-*.log` — check there first when debugging.
+- Log output goes to `~/.pr-review/logs/<repo>-pr-<n>.log` — check there first when debugging.
 - Use `--dry-run` on any runner to inspect startup state without making API calls.
 - `AGENTS.md` and `CLAUDE.md` at the repo root carry coding rules that AI agents load automatically. If you notice a pattern worth encoding, add a rule there.
 

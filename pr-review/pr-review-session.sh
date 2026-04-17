@@ -345,32 +345,49 @@ gh_lock_acquire() {
 # ─── GH lock: release ────────────────────────────────────────────────────────
 
 # gh_lock_release
-# Remove the running label and delete the lock comment.
+# Remove the running label and delete the lock comment, but only if this
+# process can verify that it owns the lock comment metadata.
+# Safe to call multiple times (idempotent).
+# Remove the running label and delete the lock comment, but only if this
+# process can verify that it owns the lock comment metadata.
 # Safe to call multiple times (idempotent).
 gh_lock_release() {
   [[ -z "$_SESSION_REPO" ]] && return 0
 
-  _gh_lock_remove_label
+  local comment="" cid="" body meta host pid
 
   if [[ -n "$_LOCK_COMMENT_ID" ]]; then
-    gh api "repos/${_SESSION_REPO}/issues/comments/${_LOCK_COMMENT_ID}" \
-      -X DELETE >/dev/null 2>&1 || true
-    _LOCK_COMMENT_ID=""
-  else
-    # Fallback: find and delete any lock comment left by this host/PID
-    local comment
-    comment=$(_gh_lock_find_comment)
-    if [[ -n "$comment" ]]; then
-      local body meta host pid
-      body=$(echo "$comment" | jq -r '.body // ""')
-      meta=$(_gh_lock_parse_metadata "$body")
-      host=$(echo "$meta" | jq -r '.hostname // ""')
-      pid=$(echo "$meta" | jq -r '.pid // 0')
-      if [[ "$host" == "$_SESSION_HOSTNAME" && "$pid" == "$_SESSION_PID" ]]; then
-        local cid
-        cid=$(echo "$comment" | jq -r '.id')
-        gh api "repos/${_SESSION_REPO}/issues/comments/${cid}" -X DELETE >/dev/null 2>&1 || true
-      fi
-    fi
+    comment=$(
+      gh api "repos/${_SESSION_REPO}/issues/comments/${_LOCK_COMMENT_ID}" 2>/dev/null || true
+    )
   fi
+
+  if [[ -z "$comment" ]]; then
+    # Fallback: find the current lock comment on the PR and verify ownership
+    comment=$(_gh_lock_find_comment)
+  fi
+
+  [[ -z "$comment" ]] && {
+    _LOCK_COMMENT_ID=""
+    return 0
+  }
+
+  body=$(echo "$comment" | jq -r '.body // ""')
+  meta=$(_gh_lock_parse_metadata "$body")
+  host=$(echo "$meta" | jq -r '.hostname // ""')
+  pid=$(echo "$meta" | jq -r '.pid // 0')
+
+  if [[ "$host" != "$_SESSION_HOSTNAME" || "$pid" != "$_SESSION_PID" ]]; then
+    # Do not remove shared lock state unless this process is the lock owner.
+    _LOCK_COMMENT_ID=""
+    return 0
+  fi
+
+  cid=$(echo "$comment" | jq -r '.id // ""')
+  if [[ -n "$cid" ]]; then
+    gh api "repos/${_SESSION_REPO}/issues/comments/${cid}" -X DELETE >/dev/null 2>&1 || true
+  fi
+
+  _gh_lock_remove_label
+  _LOCK_COMMENT_ID=""
 }

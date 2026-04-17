@@ -73,47 +73,47 @@ _ins_classify_comment() {
   lower=$(printf '%s' "$body" | tr '[:upper:]' '[:lower:]')
 
   # Security (highest priority)
-  if echo "$lower" | grep -qE 'inject|sanitiz|xss|csrf|sql injection|auth|secret|credential|password|token|eval\(|unsafe'; then
+  if grep -qE 'inject|sanitiz|xss|csrf|sql injection|auth|secret|credential|password|token|eval\(|unsafe' <<<"$lower"; then
     echo "security"; return
   fi
 
   # Error handling
-  if echo "$lower" | grep -qE '\berror\b|\bexception\b|\bcatch\b|\bthrow\b|\bpanic\b|\bfatal\b|nil check|null check|unhandled'; then
+  if grep -qE '\berror\b|\bexception\b|\bcatch\b|\bthrow\b|\bpanic\b|\bfatal\b|nil check|null check|unhandled' <<<"$lower"; then
     echo "error_handling"; return
   fi
 
   # Performance
-  if echo "$lower" | grep -qE 'performance|complexity|o\(n\)|o\(n\^2\)|cache|memoiz|lazy|eager|alloc|memory leak|overhead'; then
+  if grep -qE 'performance|complexity|o\(n\)|o\(n\^2\)|cache|memoiz|lazy|eager|alloc|memory leak|overhead' <<<"$lower"; then
     echo "performance"; return
   fi
 
   # Type safety
-  if echo "$lower" | grep -qE '\btype\b|\btyping\b|\bany\b|\bcast\b|\bassertion\b|\binterface\b|\bschema\b|type-safe|type safe'; then
+  if grep -qE '\btype\b|\btyping\b|\bany\b|\bcast\b|\bassertion\b|\binterface\b|\bschema\b|type-safe|type safe' <<<"$lower"; then
     echo "type_safety"; return
   fi
 
   # Testing
-  if echo "$lower" | grep -qE '\btest\b|\bcoverage\b|\bassert\b|\bspec\b|\bmock\b|\bfixture\b|\bstub\b|\bunit test\b'; then
+  if grep -qE '\btest\b|\bcoverage\b|\bassert\b|\bspec\b|\bmock\b|\bfixture\b|\bstub\b|\bunit test\b' <<<"$lower"; then
     echo "testing"; return
   fi
 
   # Documentation
-  if echo "$lower" | grep -qE '\bdoc\b|\bcomment\b|\bdocstring\b|\bjsdoc\b|\breadme\b|\bexample\b|\bdocument\b'; then
+  if grep -qE '\bdoc\b|\bcomment\b|\bdocstring\b|\bjsdoc\b|\breadme\b|\bexample\b|\bdocument\b' <<<"$lower"; then
     echo "documentation"; return
   fi
 
   # Naming
-  if echo "$lower" | grep -qE 'naming|variable name|function name|\bidentifier\b|convention|camelcase|snake_case|mislead'; then
+  if grep -qE 'naming|variable name|function name|\bidentifier\b|convention|camelcase|snake_case|mislead' <<<"$lower"; then
     echo "naming"; return
   fi
 
   # Style
-  if echo "$lower" | grep -qE '\bstyle\b|\bformat\b|\bindent\b|\blint\b|\bspacing\b|\bwhitespace\b|trailing'; then
+  if grep -qE '\bstyle\b|\bformat\b|\bindent\b|\blint\b|\bspacing\b|\bwhitespace\b|trailing' <<<"$lower"; then
     echo "style"; return
   fi
 
   # Logic / correctness
-  if echo "$lower" | grep -qE '\bbug\b|\blogic\b|incorrect|wrong|off.by.one|\bcondition\b|\bbranch\b|incorrect behavior|doesn.t work'; then
+  if grep -qE '\bbug\b|\blogic\b|incorrect|wrong|off.by.one|\bcondition\b|\bbranch\b|incorrect behavior|doesn.t work' <<<"$lower"; then
     echo "logic"; return
   fi
 

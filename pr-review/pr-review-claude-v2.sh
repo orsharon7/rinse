@@ -403,6 +403,9 @@ fi
 if [[ "$DRY_RUN" != true ]]; then
   if ! gh_lock_acquire; then
     log "🔒 Another RINSE runner already holds the lock for PR #${PR_NUMBER} — exiting to avoid duplicate run"
+    # Mark this as an explicitly handled non-run path so the EXIT trap
+    # does not finalize/print insights for a cycle that never started.
+    _INS_OUTCOME="skipped"
     exit 2
   fi
   log "🔑 Acquired distributed lock for PR #${PR_NUMBER}"
