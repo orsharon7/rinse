@@ -88,4 +88,4 @@ jobs:
           bash pr-review/pr-review-claude-v2.sh "${PR_NUMBER}" \
             --repo   "${REPO}"    \
             --cwd    "${CWD}"     \
-            --model  "claude-sonnet-4-5"
+            --model  "claude-sonnet-4-6"
