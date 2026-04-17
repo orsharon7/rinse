@@ -94,8 +94,8 @@ func TestRun_ApprovedFirstIteration(t *testing.T) {
 	if res.Iterations != 1 {
 		t.Fatalf("expected 1 iteration, got %d", res.Iterations)
 	}
-	// Session field assertions (3101623170)
-	if res.Session.Outcome != "approved" {
+	// Session field assertions.
+	if res.Session.Outcome != stats.OutcomeApproved {
 		t.Fatalf("expected session Outcome=approved, got %q", res.Session.Outcome)
 	}
 	if res.Session.TotalComments != 2 {
@@ -106,6 +106,22 @@ func TestRun_ApprovedFirstIteration(t *testing.T) {
 	}
 	if res.Session.CopilotCommentsByIteration[0] != 2 {
 		t.Fatalf("expected CopilotCommentsByIteration[0]=2, got %d", res.Session.CopilotCommentsByIteration[0])
+	}
+	// Assert exactly one session file was written to the temp sessions dir.
+	sessionsDir := t.TempDir() // placeholder; read from env below
+	sessionsDir = os.Getenv("RINSE_SESSIONS_DIR")
+	entries, err := os.ReadDir(sessionsDir)
+	if err != nil {
+		t.Fatalf("reading sessions dir: %v", err)
+	}
+	var jsonFiles []os.DirEntry
+	for _, e := range entries {
+		if !e.IsDir() && len(e.Name()) > 5 && e.Name()[len(e.Name())-5:] == ".json" {
+			jsonFiles = append(jsonFiles, e)
+		}
+	}
+	if len(jsonFiles) != 1 {
+		t.Fatalf("expected exactly 1 session file, got %d", len(jsonFiles))
 	}
 }
 
@@ -131,6 +147,21 @@ func TestRun_MaxIterationsReached(t *testing.T) {
 	}
 	if res.Session.Outcome != stats.OutcomeMaxIter {
 		t.Fatalf("expected session Outcome=%q, got %q", stats.OutcomeMaxIter, res.Session.Outcome)
+	}
+	// Assert exactly one session file was written to the temp sessions dir.
+	sessionsDir := os.Getenv("RINSE_SESSIONS_DIR")
+	entries, err := os.ReadDir(sessionsDir)
+	if err != nil {
+		t.Fatalf("reading sessions dir: %v", err)
+	}
+	var jsonFiles []os.DirEntry
+	for _, e := range entries {
+		if !e.IsDir() && len(e.Name()) > 5 && e.Name()[len(e.Name())-5:] == ".json" {
+			jsonFiles = append(jsonFiles, e)
+		}
+	}
+	if len(jsonFiles) != 1 {
+		t.Fatalf("expected exactly 1 session file, got %d", len(jsonFiles))
 	}
 }
 

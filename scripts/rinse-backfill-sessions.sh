@@ -181,7 +181,6 @@ for logfile in "${LOGS_DIR}"/*.log; do
   bk_approved="false"
   [[ "$outcome" == "approved" || "$outcome" == "merged" ]] && bk_approved="true"
 
-  local tmp_session_fname
   tmp_session_fname="$(dirname "$session_fname")/.tmp_session_$$.json"
   if jq -n \
     --arg session_id     "$session_id" \

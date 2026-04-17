@@ -138,11 +138,15 @@ func (s *Session) UnmarshalJSON(data []byte) error {
 }
 
 // MarshalJSON ensures Go-written session files always emit an "approved" value
-// that is consistent with the outcome.
+// that is consistent with the outcome. When Outcome is empty (e.g. older
+// shell-written files that only set "approved"), the existing Approved value
+// is preserved so re-marshaling never corrupts it.
 func (s Session) MarshalJSON() ([]byte, error) {
 	type sessionAlias Session
 	alias := sessionAlias(s)
-	alias.Approved = s.Outcome == OutcomeApproved || s.Outcome == OutcomeMerged
+	if s.Outcome != "" {
+		alias.Approved = s.Outcome == OutcomeApproved || s.Outcome == OutcomeMerged
+	}
 
 	return json.Marshal(alias)
 }
@@ -162,20 +166,24 @@ func SessionsDir() (string, error) {
 }
 
 // Save writes the session as a JSON file in SessionsDir.
+// The filename includes the session ID to avoid collisions when multiple runs
+// start within the same second. The file is written via a temp file and
+// atomically renamed so readers never see a partial write.
 func Save(s Session) error {
 	dir, err := SessionsDir()
 	if err != nil {
 		return fmt.Errorf("stats: cannot determine sessions dir: %w", err)
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("stats: cannot create sessions dir: %w", err)
 	}
 
 	repoSlug := strings.ReplaceAll(s.Repo, "/", "-")
-	fname := fmt.Sprintf("%s-%s-PR%s.json",
+	fname := fmt.Sprintf("%s-%s-PR%s-%s.json",
 		s.StartedAt.Format("20060102-150405"),
 		repoSlug,
 		s.PR,
+		s.SessionID,
 	)
 	path := filepath.Join(dir, fname)
 
@@ -183,7 +191,16 @@ func Save(s Session) error {
 	if err != nil {
 		return fmt.Errorf("stats: cannot marshal session: %w", err)
 	}
-	return os.WriteFile(path, data, 0o644)
+
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return fmt.Errorf("stats: cannot write session temp file: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("stats: cannot rename session file: %w", err)
+	}
+	return nil
 }
 
 // Load reads all session files from SessionsDir and returns them ordered

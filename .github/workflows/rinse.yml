@@ -1,7 +1,8 @@
 name: RINSE — Copilot PR Review Loop
 
 # Runs RINSE on every new or updated PR, driving Copilot review cycles until
-# the PR is approved (no hard iteration cap; bounded by timeout-minutes on the job).
+# the PR is approved or another stop condition is reached; the job is also
+# bounded by timeout-minutes.
 #
 # Required secrets:
 #   ANTHROPIC_API_KEY  — Claude API key (for `claude` CLI)
