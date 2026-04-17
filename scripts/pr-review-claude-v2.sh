@@ -413,7 +413,15 @@ _insights_exit_trap() {
     insights_print
   fi
 }
-trap '_insights_exit_trap $?' EXIT
+if [[ "$USE_WORKTREE" == true ]]; then
+  trap '_exit_code=$?; cleanup_pr_worktree; _insights_exit_trap "$_exit_code"' EXIT
+else
+  _cleanup_session_lock() {
+    session_clear
+    gh_lock_release
+  }
+  trap '_exit_code=$?; _cleanup_session_lock; _insights_exit_trap "$_exit_code"' EXIT
+fi
 
 if session_recover; then
   log "⚠️  Previous session crashed (iter ${RECOVER_ITER}, last review: ${RECOVER_REVIEW_ID:-none})"
