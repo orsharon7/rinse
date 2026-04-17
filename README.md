@@ -348,4 +348,4 @@ Contributions are welcome!
 
 ## License
 
-MIT
+RINSE is source-available under the [Business Source License 1.1](LICENSE). Free for personal and dev use. [Commercial license →](COMMERCIAL_LICENSE.md)
