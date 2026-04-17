@@ -529,11 +529,14 @@ ui_insights_summary() {
   local outcome_color="$GUM_SUCCESS"
   local outcome_ansi="$_GREEN"
   case "$outcome" in
-    approved) outcome_icon="✅"; outcome_color="$GUM_SUCCESS"; outcome_ansi="$_GREEN" ;;
-    clean)    outcome_icon="✅"; outcome_color="$GUM_SUCCESS"; outcome_ansi="$_GREEN" ;;
-    stalled)  outcome_icon="⏳"; outcome_color="$GUM_WARN";    outcome_ansi="$_YELLOW" ;;
-    error)    outcome_icon="❌"; outcome_color="$GUM_ERROR";   outcome_ansi="$_RED" ;;
-    *)        outcome_icon="ℹ️"; outcome_color="$GUM_MUTED";   outcome_ansi="" ;;
+    approved)       outcome_icon="✅"; outcome_color="$GUM_SUCCESS"; outcome_ansi="$_GREEN" ;;
+    clean)          outcome_icon="✅"; outcome_color="$GUM_SUCCESS"; outcome_ansi="$_GREEN" ;;
+    already_merged) outcome_icon="✅"; outcome_color="$GUM_SUCCESS"; outcome_ansi="$_GREEN" ;;
+    stalled)        outcome_icon="⏳"; outcome_color="$GUM_WARN";    outcome_ansi="$_YELLOW" ;;
+    skipped)        outcome_icon="⏭️"; outcome_color="$GUM_WARN";    outcome_ansi="$_YELLOW" ;;
+    error)          outcome_icon="❌"; outcome_color="$GUM_ERROR";   outcome_ansi="$_RED" ;;
+    closed)         outcome_icon="📪"; outcome_color="$GUM_MUTED";   outcome_ansi="" ;;
+    *)              outcome_icon="ℹ️"; outcome_color="$GUM_MUTED";   outcome_ansi="" ;;
   esac
 
   local cat_names=(security error_handling performance type_safety testing documentation naming style logic general)
@@ -559,7 +562,7 @@ ui_insights_summary() {
 
     # Key stats
     local stats
-    stats="$(gum style --foreground "$GUM_MUTED" "Outcome") $(gum style --bold --foreground "$outcome_color" "${outcome_icon} ${outcome}")   $(gum style --foreground "$GUM_MUTED" "Model") $(gum style --bold "${model}")   $(gum style --foreground "$GUM_MUTED" "Elapsed") $(gum style --bold "${elapsed_fmt}")   $(gum style --foreground "$GUM_MUTED" "Iterations") $(gum style --bold "${iters}")   $(gum style --foreground "$GUM_MUTED" "Comments") $(gum style --bold "${total_comments}")"
+    stats="$(gum style --foreground "$GUM_MUTED" "Outcome") $(gum style --bold --foreground "$outcome_color" "${outcome_icon} ${outcome}")   $(gum style --foreground "$GUM_MUTED" "Model") $(gum style --bold "${model}")   $(gum style --foreground "$GUM_MUTED" "Elapsed") $(gum style --bold "${elapsed_fmt}")   $(gum style --foreground "$GUM_MUTED" "Iterations") $(gum style --bold "${iters}")   $(gum style --foreground "$GUM_MUTED" "Comments addressed") $(gum style --bold "${total_comments}")"
     echo "$stats"
 
     # Category breakdown — only when comments were addressed
