@@ -147,6 +147,10 @@ func Save(s Session) error {
 		return fmt.Errorf("stats: cannot create sessions dir: %w", err)
 	}
 
+	if s.SessionID == "" {
+		s.SessionID = newUUID()
+	}
+
 	repoSlug := strings.ReplaceAll(s.Repo, "/", "-")
 	safePR := strings.Map(func(r rune) rune {
 		switch {
