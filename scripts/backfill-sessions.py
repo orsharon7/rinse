@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Backfill today's RINSE cycles from log files into ~/.rinse/rinse.db"""
+"""Backfill RINSE cycles from log files into ~/.rinse/rinse.db"""
 
 import re, sqlite3, uuid
 from datetime import datetime
