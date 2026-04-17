@@ -13,7 +13,7 @@ import (
 // uses consistent defaults without having to configure them individually.
 type RepoRinseConfig struct {
 	Engine        string `json:"engine"`                  // "opencode" or "claude"
-	Model         string `json:"model"`                   // model override (empty = engine default)
+	Model         string `json:"model,omitempty"`         // model override (empty = engine default)
 	Reflect       bool   `json:"reflect"`                 // enable reflection agent
 	ReflectBranch string `json:"reflect_branch,omitempty"` // branch to push rules to (empty = default)
 	AutoMerge     bool   `json:"auto_merge"`              // auto-merge after approval
@@ -30,7 +30,10 @@ func RunInit() error {
 	reader := bufio.NewReader(os.Stdin)
 
 	// Check if config already exists.
-	if _, err := os.Stat(rinseConfigFile); err == nil {
+	if fi, err := os.Stat(rinseConfigFile); err == nil {
+		if !fi.Mode().IsRegular() {
+			return fmt.Errorf("%s exists but is not a regular file (mode: %s); remove it manually and re-run", rinseConfigFile, fi.Mode())
+		}
 		fmt.Printf("Config already exists. Overwrite? (y/N) ")
 		line, _ := reader.ReadString('\n')
 		line = strings.TrimSpace(strings.ToLower(line))
@@ -93,7 +96,7 @@ func RunInit() error {
 
 	reflectBranch := ""
 	if reflect {
-		fmt.Print("Reflection branch (leave blank for default 'main'): ")
+		fmt.Print("Reflection branch (leave blank to use the repo default branch): ")
 		branchLine, _ := reader.ReadString('\n')
 		reflectBranch = strings.TrimSpace(branchLine)
 	}
