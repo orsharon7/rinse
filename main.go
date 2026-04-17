@@ -25,7 +25,10 @@ func main() {
 			}
 			if len(sessions) == 0 {
 				fmt.Println("\n  No sessions recorded yet. Run rinse on a PR to start tracking stats.\n")
-				fmt.Println("  Stats collection requires opt-in. Run: rinse opt-in\n")
+				optedIn, _ := stats.IsOptedIn()
+				if !optedIn {
+					fmt.Println("  If stats collection is not enabled, run: rinse opt-in\n")
+				}
 				os.Exit(0)
 			}
 			stats.Print(sessions)

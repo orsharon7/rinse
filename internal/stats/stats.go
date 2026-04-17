@@ -49,6 +49,11 @@ type Session struct {
 	Iterations    int      `json:"iterations"`
 	Outcome       Outcome  `json:"outcome"`
 	Patterns      []string `json:"patterns,omitempty"`
+
+	// LegacyApproved is a read-only migration field for pre-Outcome session files.
+	// When Outcome is empty and LegacyApproved is true, Outcome is normalised to
+	// OutcomeApproved during Load so that existing on-disk files continue to count.
+	LegacyApproved *bool `json:"approved,omitempty"`
 }
 
 // DurationSeconds returns the session duration in seconds.
@@ -66,12 +71,14 @@ func SessionsDir() (string, error) {
 }
 
 // configDir returns the directory for rinse config files.
+// Uses os.UserConfigDir() (same root as internal/config/config.go) to avoid
+// a second config root at ~/.rinse.
 func configDir() (string, error) {
-	home, err := os.UserHomeDir()
+	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".rinse"), nil
+	return filepath.Join(dir, "rinse"), nil
 }
 
 // config holds user preferences persisted in ~/.rinse/config.json.
@@ -110,7 +117,41 @@ func saveConfig(cfg config) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, "config.json"), data, 0o644)
+
+	configPath := filepath.Join(dir, "config.json")
+	tmpFile, err := os.CreateTemp(dir, "config.json.tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmpFile.Name()
+	success := false
+	defer func() {
+		if !success {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Chmod(0o644); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Sync(); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, configPath); err != nil {
+		return err
+	}
+
+	success = true
+	return nil
 }
 
 // IsOptedIn reports whether the user has opted in to stats collection.
@@ -174,18 +215,22 @@ func PromptOptIn() (bool, error) {
 // It silently skips saving if the user has not opted in, and prompts
 // on first interactive run when no preference is set.
 func Save(s Session) error {
-	optedIn, err := IsOptedIn()
+	cfg, err := loadConfig()
 	if err != nil {
 		return nil // non-fatal; skip saving on config read error
 	}
-	if !optedIn {
+	if cfg.StatsOptIn != nil && !*cfg.StatsOptIn {
+		// User explicitly opted out — never prompt again.
+		return nil
+	}
+	if cfg.StatsOptIn == nil {
 		// No preference set yet — prompt if interactive; silently skip in CI.
 		fi, statErr := os.Stdin.Stat()
 		if statErr != nil || (fi.Mode()&os.ModeCharDevice) == 0 {
 			return nil // CI/non-TTY: silently off
 		}
-		optedIn, err = PromptOptIn()
-		if err != nil || !optedIn {
+		optedIn, promptErr := PromptOptIn()
+		if promptErr != nil || !optedIn {
 			return nil
 		}
 	}
@@ -242,6 +287,14 @@ func Load() ([]Session, error) {
 		var s Session
 		if err := json.Unmarshal(data, &s); err != nil {
 			continue
+		}
+		// Backward-compat: migrate legacy Approved bool to Outcome.
+		if s.Outcome == "" {
+			if s.LegacyApproved != nil && *s.LegacyApproved {
+				s.Outcome = OutcomeApproved
+			} else {
+				s.Outcome = OutcomeClean
+			}
 		}
 		sessions = append(sessions, s)
 	}
