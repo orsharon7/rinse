@@ -1,6 +1,8 @@
-# tools
+# RINSE
 
-PR reviews without the mess. RINSE drives Copilot through your review loop so you don't have to.
+**PR reviews without the mess.**
+
+RINSE drives Copilot through your review loop so you don't have to.
 
 ## pr-review
 
@@ -348,4 +350,4 @@ Contributions are welcome!
 
 ## License
 
-RINSE is licensed under the [MIT License](LICENSE).
+RINSE is licensed under the [Business Source License 1.1](LICENSE). © 2026 Or Sharon.
