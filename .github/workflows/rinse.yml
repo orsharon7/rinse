@@ -79,6 +79,14 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Exclude trusted checkout from PR git staging
+        run: |
+          set -euo pipefail
+          mkdir -p .git/info
+          if ! grep -Fxq '_rinse-base/' .git/info/exclude 2>/dev/null; then
+            printf '\n_rinse-base/\n' >> .git/info/exclude
+          fi
+
       - name: Configure git identity
         run: |
           git config user.name  "rinse[bot]"
