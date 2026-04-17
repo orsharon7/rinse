@@ -26,15 +26,15 @@ const (
 	IconDiag     = "╱"
 )
 
-// ── Palette (Catppuccin Macchiato) ────────────────────────────────────────────
+// ── Palette (RINSE brand) ─────────────────────────────────────────────────────
 
 var (
-	Mauve    = lipgloss.Color("#C6A0F6")
+	Mauve    = lipgloss.Color("#8B5CF6") // brand Primary/Purple
 	Lavender = lipgloss.Color("#B7BDF8")
 	Teal     = lipgloss.Color("#8BD5CA")
-	Green    = lipgloss.Color("#A6DA95")
-	Red      = lipgloss.Color("#ED8796")
-	Yellow   = lipgloss.Color("#EED49F")
+	Green    = lipgloss.Color("#10B981") // brand Success/Green
+	Red      = lipgloss.Color("#EF4444") // brand Error/Red
+	Yellow   = lipgloss.Color("#F59E0B") // brand Warning/Yellow
 	Peach    = lipgloss.Color("#F5A97F")
 	Sky      = lipgloss.Color("#91D7E3")
 	Text     = lipgloss.Color("#CAD3F5")
