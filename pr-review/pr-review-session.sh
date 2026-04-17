@@ -427,7 +427,10 @@ gh_lock_release() {
 
   body=$(echo "$comment" | jq -r '.body // ""')
   meta=$(_gh_lock_parse_metadata "$body")
-  lid=$(echo "$meta" | jq -r '.lock_id // ""')
+  lid=""
+  if [[ -n "$meta" ]]; then
+    lid=$(echo "$meta" | jq -r '.lock_id // ""' 2>/dev/null || echo "")
+  fi
 
   # Only the lock owner may clear the visible running label or delete the lock comment.
   if [[ "$lid" != "$_RINSE_LOCK_ID" ]]; then
