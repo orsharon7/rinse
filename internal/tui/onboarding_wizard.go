@@ -243,7 +243,11 @@ func (m wizModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case wizConfigWrittenMsg:
 		m.configErr = ""
 		m.writingConfig = false
-		m.view = wizStepD
+		// Only advance to Step D if we are still on Step C (the user may have
+		// navigated away while the write was in-flight).
+		if m.view == wizStepC {
+			m.view = wizStepD
+		}
 		return m, nil
 
 	case wizConfigErrMsg:
@@ -523,6 +527,16 @@ const (
 )
 
 func (m wizModel) handleStepCKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
+	// Block all navigation and toggles while config write is in-flight.
+	// Show a "Saving…" state in the view; only allow force-quit.
+	if m.writingConfig {
+		if key.Matches(msg, Keys.ForceQuit) {
+			m.outcome = WizardAborted
+			return m, tea.Quit
+		}
+		return m, nil
+	}
+
 	switch {
 	case key.Matches(msg, Keys.Back):
 		m.view = wizStepB
@@ -1018,10 +1032,10 @@ func renderWizChoice(selected bool, label string) string {
 
 // ── Save helpers ──────────────────────────────────────────────────────────────
 
-// saveStepCmd returns a tea.Cmd that writes onboarding state synchronously
-// inside the bubbletea runtime (best-effort; errors are logged to stderr).
-// Using a tea.Cmd instead of a raw goroutine ensures writes are serialized
-// by the runtime and avoids step-regression from out-of-order goroutines.
+// saveStepCmd returns a tea.Cmd that writes onboarding state in the background
+// (best-effort; errors are logged to stderr). Note: Bubble Tea commands can
+// run concurrently, so callers that need strict ordering should write state
+// synchronously before advancing the view (as done in wizCycleCreatedMsg).
 func saveStepCmd(s onboarding.State) tea.Cmd {
 	return func() tea.Msg {
 		if err := onboarding.SaveState(s); err != nil {

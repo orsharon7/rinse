@@ -146,14 +146,14 @@ func runStatusCmd(args []string) {
 			fatalf(asJSON, "could not detect current PR — pass a PR number as the first argument")
 		}
 	}
-	if _, err := strconv.Atoi(prNum); err != nil {
+	if n, err := strconv.Atoi(prNum); err != nil || n <= 0 {
 		fatalf(asJSON, "PR number must be a positive integer, got: %s", prNum)
 	}
 
 	status, err := queryPRStatus(repo, prNum)
 	if err != nil {
 		if asJSON {
-			emitJSON(StatusResult{OK: false, PR: prNum, Repo: repo, Error: err.Error()})
+			emitJSON(StatusResult{OK: false, PR: prNum, Repo: repo, Status: "error", Error: err.Error()})
 		} else {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		}
@@ -278,7 +278,7 @@ func runStartCmd(args []string) {
 		fatalf(asJSON, "usage: rinse start <pr_number> [options]\nRun 'rinse help' for full usage.")
 	}
 	prNum = args[0]
-	if _, err := strconv.Atoi(prNum); err != nil {
+	if n, err := strconv.Atoi(prNum); err != nil || n <= 0 {
 		fatalf(asJSON, "PR number must be a positive integer, got: %s", prNum)
 	}
 
