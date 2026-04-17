@@ -36,10 +36,9 @@ func (s *stubAgent) Run(_ engine.RunOpts) (engine.Result, error) {
 
 func tempStateDir(t *testing.T) {
 	t.Helper()
-	// We reach into runner state via the exported stateDir var through
-	// the state_test_hook (see state_test_hook.go).
-	SetStateDir(t.TempDir())
-	t.Cleanup(func() { SetStateDir(filepath.Join(os.Getenv("HOME"), ".pr-review", "state")) })
+	// runner.SetStateDir is exported via state_test_hook.go for test isolation.
+	runner.SetStateDir(t.TempDir())
+	t.Cleanup(func() { runner.SetStateDir(filepath.Join(os.Getenv("HOME"), ".pr-review", "state")) })
 }
 
 func tempLockDir(t *testing.T) {
