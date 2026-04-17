@@ -289,10 +289,14 @@ func TestSummarize_CutoffBoundaryExact30Days(t *testing.T) {
 	base := time.Now().UTC()
 
 	atCutoff := makeSess(stats.OutcomeClean, 0, 1, 1)
+	atCutoffDuration := atCutoff.EndedAt.Sub(atCutoff.StartedAt)
 	atCutoff.StartedAt = base.AddDate(0, 0, -30)
+	atCutoff.EndedAt = atCutoff.StartedAt.Add(atCutoffDuration)
 
 	withinWindow := makeSess(stats.OutcomeClean, 0, 1, 1)
+	withinWindowDuration := withinWindow.EndedAt.Sub(withinWindow.StartedAt)
 	withinWindow.StartedAt = base.AddDate(0, 0, -29)
+	withinWindow.EndedAt = withinWindow.StartedAt.Add(withinWindowDuration)
 
 	sessions := []stats.Session{
 		withinWindow, // included
