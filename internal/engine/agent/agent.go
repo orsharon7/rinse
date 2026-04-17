@@ -26,7 +26,8 @@ type ReviewState struct {
 	// ReviewID is the GitHub review ID string (empty if no review exists yet).
 	ReviewID string `json:"review_id,omitempty"`
 
-	// CommentCount is the number of unresolved top-level Copilot comments.
+	// CommentCount is the raw comment_count reported by pr-review.sh status.
+	// It reflects the total review comments returned by that command's JSON.
 	CommentCount int `json:"comment_count,omitempty"`
 }
 
@@ -137,8 +138,7 @@ func BuildPrompt(ctx PRContext) (string, error) {
 	b.WriteString("   (Skip commit/push if there are genuinely no code changes needed.)\n\n")
 	b.WriteString("3. Request a new Copilot review:\n")
 	b.WriteString("   ```bash\n")
-	b.WriteString("   gh api repos/" + ctx.Repo + "/pulls/" + ctx.PR + "/requested_reviewers")
-	b.WriteString(` -X POST --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}'` + "\n")
+	b.WriteString("   gh api repos/" + ctx.Repo + "/pulls/" + ctx.PR + `/requested_reviewers -X POST --input - <<< '{"reviewers":["copilot-pull-request-reviewer[bot]"]}'` + "\n")
 	b.WriteString("   ```\n\n")
 	b.WriteString("4. Reply to every top-level comment:\n")
 	b.WriteString("   ```bash\n")

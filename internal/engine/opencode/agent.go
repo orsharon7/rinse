@@ -105,7 +105,7 @@ func (a *Agent) Run(opts engine.RunOpts) (engine.Result, error) {
 		_, _ = fmt.Fprintf(os.Stderr, "opencode: push warning: %v\n", err)
 	}
 
-	return engine.Result{Comments: rs.CommentCount}, nil
+	return engine.Result{Comments: len(comments)}, nil
 }
 
 // runOpencode invokes the opencode CLI.
