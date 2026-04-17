@@ -42,8 +42,8 @@ conn.commit()
 
 sessions_inserted = 0
 
-for log_path in sorted(LOG_DIR.glob("rinse-pr*.log")):
-    pr_match = re.search(r"rinse-pr(\d+)", log_path.name)
+for log_path in sorted(LOG_DIR.glob("*-pr-*.log")):
+    pr_match = re.search(r"-pr-(\d+)", log_path.name)
     if not pr_match:
         continue
     pr_num = int(pr_match.group(1))
@@ -156,6 +156,6 @@ print(f"  Comments fixed:    {comments or 0}")
 print(
     f"  Avg iterations:    {(iters / total):.1f}" if total else "  Avg iterations:   —"
 )
-print(f"  Est. time saved:   ~{(saved or 0) // 3600:.1f} hours")
+print(f"  Est. time saved:   ~{(saved or 0) / 3600:.1f} hours")
 print(f"\n  DB: {DB_PATH}")
 conn.close()

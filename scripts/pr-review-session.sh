@@ -344,8 +344,6 @@ gh_lock_acquire() {
   local comment_body
   comment_body="$(printf '%s\n%s\n%s' "$_RINSE_LOCK_MARKER" "$meta_json" "-->")"
 
-  _gh_lock_add_label
-
   local created_comment
   created_comment=$(gh api "repos/${_SESSION_REPO}/issues/${_SESSION_PR}/comments" \
     -X POST \
@@ -354,6 +352,8 @@ gh_lock_acquire() {
     >&2 echo "[rinse-lock] Failed to post lock comment — degrading to local-only dedup"
     return 0
   }
+
+  _gh_lock_add_label
 
   _LOCK_COMMENT_ID=$(echo "$created_comment" | jq -r '.id')
 
