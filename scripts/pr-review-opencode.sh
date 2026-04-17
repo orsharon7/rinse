@@ -152,6 +152,12 @@ write_session_json() {
   # status or abort cleanup under set -e.
   set +e
 
+  # Skip persistence in dry-run mode to avoid filesystem side-effects.
+  if [[ "$DRY_RUN" == true ]]; then
+    set -e
+    return
+  fi
+
   umask 077
 
   local sessions_dir="${HOME}/.rinse/sessions"
