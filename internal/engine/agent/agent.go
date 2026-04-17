@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -53,7 +54,7 @@ type PRContext struct {
 func GetReviewState(scriptDir, repo, pr, cwd string) (ReviewState, error) {
 	// pr-review.sh <pr> status --repo <repo> outputs JSON to stdout.
 	cmd := exec.Command("bash",
-		scriptDir+"/pr-review.sh",
+		filepath.Join(scriptDir, "pr-review.sh"),
 		pr, "status",
 		"--repo", repo,
 	)
@@ -80,7 +81,7 @@ func GetReviewState(scriptDir, repo, pr, cwd string) (ReviewState, error) {
 // GetComments fetches the unresolved Copilot review comments for the PR.
 func GetComments(scriptDir, repo, pr, cwd string) ([]Comment, error) {
 	cmd := exec.Command("bash",
-		scriptDir+"/pr-review.sh",
+		filepath.Join(scriptDir, "pr-review.sh"),
 		pr, "comments",
 		"--repo", repo,
 	)
@@ -156,7 +157,7 @@ func BuildPrompt(ctx PRContext) (string, error) {
 // Copilot review. This matches the `pr-review.sh push` subcommand flow.
 func PushAndRequestReview(scriptDir, repo, pr, cwd string) error {
 	cmd := exec.Command("bash",
-		scriptDir+"/pr-review.sh",
+		filepath.Join(scriptDir, "pr-review.sh"),
 		pr, "push",
 		"--repo", repo,
 	)
@@ -175,21 +176,12 @@ func PushAndRequestReview(scriptDir, repo, pr, cwd string) error {
 func ScriptDir(cwd string) (string, error) {
 	dir := cwd
 	for {
-		candidate := dir + "/scripts"
-		if _, err := os.Stat(candidate + "/pr-review.sh"); err == nil {
+		candidate := filepath.Join(dir, "scripts")
+		if _, err := os.Stat(filepath.Join(candidate, "pr-review.sh")); err == nil {
 			return candidate, nil
 		}
-		parent := dir + "/.."
-		// Resolve to detect when we've reached the root.
-		resolved, err := os.Stat(parent)
-		if err != nil {
-			break
-		}
-		resolvedDir, err2 := os.Stat(dir)
-		if err2 != nil {
-			break
-		}
-		if os.SameFile(resolved, resolvedDir) {
+		parent := filepath.Dir(dir)
+		if parent == dir {
 			break // reached filesystem root
 		}
 		dir = parent

@@ -38,7 +38,13 @@ func tempStateDir(t *testing.T) {
 	t.Helper()
 	// runner.SetStateDir is exported via state_test_hook.go for test isolation.
 	runner.SetStateDir(t.TempDir())
-	t.Cleanup(func() { runner.SetStateDir(filepath.Join(os.Getenv("HOME"), ".pr-review", "state")) })
+	t.Cleanup(func() {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return
+		}
+		runner.SetStateDir(filepath.Join(home, ".pr-review", "state"))
+	})
 }
 
 func tempLockDir(t *testing.T) {
