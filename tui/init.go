@@ -140,6 +140,16 @@ func RunInit() {
 		fmt.Fprintf(os.Stderr, "error: failed to close temp file: %v\n", cerr)
 		os.Exit(1)
 	}
+	// Remove the existing target before renaming; os.Rename on Windows will not
+	// overwrite an existing file, so we must remove it first (after the user has
+	// already confirmed the overwrite prompt above).
+	if _, serr := os.Stat(rinseConfigFile); serr == nil {
+		if rerr := os.Remove(rinseConfigFile); rerr != nil {
+			os.Remove(tmpName)
+			fmt.Fprintf(os.Stderr, "error: failed to remove existing %s: %v\n", rinseConfigFile, rerr)
+			os.Exit(1)
+		}
+	}
 	if rerr := os.Rename(tmpName, rinseConfigFile); rerr != nil {
 		os.Remove(tmpName)
 		fmt.Fprintf(os.Stderr, "error: failed to write %s: %v\n", rinseConfigFile, rerr)
