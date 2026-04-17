@@ -208,6 +208,14 @@ var (
 	StyleElapsedFrozen = lipgloss.NewStyle().Foreground(Subtext)          // --text-secondary (paused/frozen)
 	StyleElapsedDimmed = lipgloss.NewStyle().Foreground(Overlay)          // --text-dimmed (cancelled)
 
+	// Status badge styles — used by renderStatusBadge in the monitor.
+	StyleBadgeQueued    = StyleBadge.Background(Sky)
+	StyleBadgeRunning   = StyleBadge.Background(Mauve)
+	StyleBadgeStalled   = StyleBadge.Background(Yellow)
+	StyleBadgeCancelled = StyleBadge.Background(Overlay)
+	StyleBadgeCompleted = StyleBadge.Background(Green)
+	StyleBadgeFailed    = StyleBadge.Background(Red)
+
 	StyleReflectPanel = lipgloss.NewStyle().
 				BorderStyle(lipgloss.NormalBorder()).
 				BorderLeft(true).
