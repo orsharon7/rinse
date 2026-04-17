@@ -141,7 +141,7 @@ if [[ "$USE_WORKTREE" == true ]]; then
     session_clear
     gh_lock_release
   }
-  trap cleanup_pr_worktree EXIT
+  # Trap will be set after _insights_exit_trap is defined (below) to chain both.
 
   # Prune stale worktree references from previous crashed runs
   git -C "$REPO_ROOT" worktree prune 2>/dev/null || true
@@ -389,7 +389,15 @@ _insights_exit_trap() {
     insights_print
   fi
 }
-trap '_insights_exit_trap $?' EXIT
+if [[ "$USE_WORKTREE" == true ]]; then
+  trap '_exit_code=$?; cleanup_pr_worktree; _insights_exit_trap "$_exit_code"' EXIT
+else
+  _cleanup_session_lock() {
+    session_clear
+    gh_lock_release
+  }
+  trap '_exit_code=$?; _cleanup_session_lock; _insights_exit_trap "$_exit_code"' EXIT
+fi
 
 if session_recover; then
   log "⚠️  Previous session crashed (iter ${RECOVER_ITER}, last review: ${RECOVER_REVIEW_ID:-none})"
@@ -398,14 +406,6 @@ if session_recover; then
     echo "$RECOVER_REVIEW_ID" > "$STATE_FILE"
     log "   Restored last-known review ID: ${RECOVER_REVIEW_ID}"
   fi
-fi
-
-if [[ "$USE_WORKTREE" == false ]]; then
-  _cleanup_session_lock() {
-    session_clear
-    gh_lock_release
-  }
-  trap '_exit_code=$?; _cleanup_session_lock; _insights_exit_trap "$_exit_code"' EXIT
 fi
 
 if [[ "$DRY_RUN" != true ]]; then
