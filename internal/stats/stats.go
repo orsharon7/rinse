@@ -68,7 +68,7 @@ type Session struct {
 	// Outcomes
 	Outcome                    Outcome  `json:"outcome"`
 	Iterations                 int      `json:"iterations"`
-	CopilotCommentsByIteration []int    `json:"copilot_comments_by_iteration,omitempty"`
+	CopilotCommentsByIteration []int    `json:"copilot_comments_by_iteration"`
 	TotalComments              int      `json:"total_comments"`
 	EstimatedTimeSavedSeconds  int      `json:"estimated_time_saved_seconds"`
 	Approved                   bool     `json:"approved"`
@@ -384,9 +384,10 @@ func (s *Summary) AvgIterations() float64 {
 }
 
 // EstTimeSavedHours returns a rough estimate of hours saved.
-// Assumes each comment would take a developer ~3 minutes to address manually.
+// Uses TotalTimeSavedSeconds (populated by Summarize from per-session
+// EstimatedTimeSavedSeconds, which assumes 240 s/comment, matching Finish).
 func (s *Summary) EstTimeSavedHours() float64 {
-	return math.Round(float64(s.TotalComments)*3/60*10) / 10
+	return math.Round(float64(s.TotalTimeSavedSeconds)/3600*10) / 10
 }
 
 // TopPatterns returns up to n patterns ordered by frequency (descending).

@@ -8,6 +8,7 @@ import (
 
 	"github.com/orsharon7/rinse/internal/engine"
 	"github.com/orsharon7/rinse/internal/engine/lock"
+	"github.com/orsharon7/rinse/internal/stats"
 )
 
 // stubAgent is a configurable test double for engine.Agent.
@@ -53,6 +54,11 @@ func tempLockDir(t *testing.T) {
 	lock.Dir = t.TempDir()
 }
 
+func tempSessionsDir(t *testing.T) {
+	t.Helper()
+	t.Setenv("RINSE_SESSIONS_DIR", t.TempDir())
+}
+
 func baseOpts(agent engine.Agent) Opts {
 	return Opts{
 		Repo:          "owner/repo",
@@ -72,6 +78,7 @@ func t_tempDir() string { return os.TempDir() }
 func TestRun_ApprovedFirstIteration(t *testing.T) {
 	tempStateDir(t)
 	tempLockDir(t)
+	tempSessionsDir(t)
 
 	agent := &stubAgent{
 		name:    "stub",
@@ -87,11 +94,25 @@ func TestRun_ApprovedFirstIteration(t *testing.T) {
 	if res.Iterations != 1 {
 		t.Fatalf("expected 1 iteration, got %d", res.Iterations)
 	}
+	// Session field assertions (3101623170)
+	if res.Session.Outcome != "approved" {
+		t.Fatalf("expected session Outcome=approved, got %q", res.Session.Outcome)
+	}
+	if res.Session.TotalComments != 2 {
+		t.Fatalf("expected session TotalComments=2, got %d", res.Session.TotalComments)
+	}
+	if len(res.Session.CopilotCommentsByIteration) != 1 {
+		t.Fatalf("expected 1 entry in CopilotCommentsByIteration, got %d", len(res.Session.CopilotCommentsByIteration))
+	}
+	if res.Session.CopilotCommentsByIteration[0] != 2 {
+		t.Fatalf("expected CopilotCommentsByIteration[0]=2, got %d", res.Session.CopilotCommentsByIteration[0])
+	}
 }
 
 func TestRun_MaxIterationsReached(t *testing.T) {
 	tempStateDir(t)
 	tempLockDir(t)
+	tempSessionsDir(t)
 
 	// Agent never approves.
 	agent := &stubAgent{name: "stub"}
@@ -108,11 +129,15 @@ func TestRun_MaxIterationsReached(t *testing.T) {
 	if res.Iterations != 3 {
 		t.Fatalf("expected 3 iterations, got %d", res.Iterations)
 	}
+	if res.Session.Outcome != stats.OutcomeMaxIter {
+		t.Fatalf("expected session Outcome=%q, got %q", stats.OutcomeMaxIter, res.Session.Outcome)
+	}
 }
 
 func TestRun_AgentError_PropagatesWithContext(t *testing.T) {
 	tempStateDir(t)
 	tempLockDir(t)
+	tempSessionsDir(t)
 
 	sentinel := errors.New("copilot API timeout")
 	agent := &stubAgent{
@@ -131,6 +156,7 @@ func TestRun_AgentError_PropagatesWithContext(t *testing.T) {
 func TestRun_AlreadyRunning(t *testing.T) {
 	tempStateDir(t)
 	tempLockDir(t)
+	tempSessionsDir(t)
 
 	// Acquire the lock manually to simulate another process.
 	l, err := lock.Acquire("owner/repo", "1")
@@ -172,6 +198,7 @@ func TestRun_MissingRequiredOpts(t *testing.T) {
 func TestRun_WaitingDoesNotCountAsIteration(t *testing.T) {
 	tempStateDir(t)
 	tempLockDir(t)
+	tempSessionsDir(t)
 
 	// First two calls return Waiting, third call approves.
 	agent := &stubAgent{
@@ -204,6 +231,7 @@ func TestRun_WaitingDoesNotCountAsIteration(t *testing.T) {
 func TestRun_ReviewIDPassedOnSubsequentCall(t *testing.T) {
 	tempStateDir(t)
 	tempLockDir(t)
+	tempSessionsDir(t)
 
 	const wantReviewID = "review-abc-123"
 
@@ -240,6 +268,7 @@ func TestRun_ReviewIDPassedOnSubsequentCall(t *testing.T) {
 func TestRun_MaxWaitPollsReached(t *testing.T) {
 	tempStateDir(t)
 	tempLockDir(t)
+	tempSessionsDir(t)
 
 	// Agent always returns Waiting.
 	agent := &stubAgent{
