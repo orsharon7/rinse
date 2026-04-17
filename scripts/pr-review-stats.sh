@@ -127,18 +127,22 @@ _stats_check_optin() {
     echo "    pr-review-stats.sh opt-out"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     local _answer=""
-    read -r -p "  Enable local stats? [y/N] " _answer </dev/tty
+    read -r -p "  Enable local stats? [y/N] " _answer </dev/tty || true
     echo ""
 
     case "${_answer,,}" in
       y|yes)
-        _rinse_config_set "stats_enabled" "true"
         export RINSE_STATS_ENABLED="true"
+        if ! _rinse_config_set "stats_enabled" "true"; then
+          echo "  Warning: could not save stats preference to ${RINSE_CONFIG_FILE}; stats remain enabled for this run." >&2
+        fi
         echo "  Stats enabled. Saved to ${RINSE_STATS_FILE}"
         ;;
       *)
-        _rinse_config_set "stats_enabled" "false"
         export RINSE_STATS_ENABLED="false"
+        if ! _rinse_config_set "stats_enabled" "false"; then
+          echo "  Warning: could not save stats preference to ${RINSE_CONFIG_FILE}; stats remain disabled for this run." >&2
+        fi
         echo "  Stats disabled. Run 'pr-review-stats.sh opt-in' to enable later."
         ;;
     esac

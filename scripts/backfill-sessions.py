@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Backfill RINSE cycles from log files into ~/.rinse/rinse.db"""
 
-import re, sqlite3, uuid
+import re, sqlite3, uuid, hashlib
 from datetime import datetime
 from pathlib import Path
 
@@ -103,7 +103,9 @@ for log_path in sorted(LOG_DIR.glob("*-pr-*.log")):
         title_match = re.search(r"PR #\d+[:\s]+(.+?)[\n\r]", content)
         pr_title = title_match.group(1).strip()[:200] if title_match else None
 
-        session_id = str(uuid.uuid4())
+        session_id = str(
+            uuid.UUID(hashlib.md5(str(log_path.resolve()).encode()).hexdigest())
+        )
         estimated_saved = comments_fixed * 240  # 4 min per comment
 
         # Insert session
