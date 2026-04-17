@@ -63,7 +63,7 @@ type Session struct {
 	EndedAt   time.Time `json:"ended_at"`
 	Repo      string    `json:"repo"`
 	PR        string    `json:"pr"`
-	PRTitle   string    `json:"pr_title,omitempty"`
+	PRTitle   string    `json:"pr_title"`
 	Runner    string    `json:"runner"`
 	Model     string    `json:"model"`
 
