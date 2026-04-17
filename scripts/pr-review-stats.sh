@@ -102,6 +102,12 @@ _rinse_config_set() {
 # Called during stats_init. If the user hasn't answered yet, asks interactively.
 # Sets and exports RINSE_STATS_ENABLED=true|false.
 _stats_check_optin() {
+  # jq is required to read/write the config; without it stats cannot be persisted.
+  if ! command -v jq >/dev/null 2>&1; then
+    export RINSE_STATS_ENABLED="false"
+    return
+  fi
+
   local saved
   saved=$(_rinse_config_get "stats_enabled")
 
