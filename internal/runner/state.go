@@ -51,7 +51,7 @@ func statePath(repo, pr string) string {
 func loadState(repo, pr string) (PRState, error) {
 	path := statePath(repo, pr)
 	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
+	if errors.Is(err, os.ErrNotExist) {
 		return PRState{Repo: repo, PR: pr}, nil
 	}
 	if err != nil {
