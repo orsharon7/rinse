@@ -125,6 +125,7 @@ jobs:
           echo "  Commit : ${{ github.event.pull_request.head.sha }}"
 
           bash _rinse-base/pr-review/pr-review-claude-v2.sh "${PR_NUMBER}" \
-            --repo   "${REPO}"    \
-            --cwd    "${CWD}"     \
-            --model  "claude-sonnet-4-6"
+            --repo            "${REPO}"              \
+            --cwd             "${CWD}"               \
+            --model           "claude-sonnet-4-6"   \
+            --no-interactive
