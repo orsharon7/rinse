@@ -411,7 +411,7 @@ img, svg { display: block; }
 }
 
 /* ─── RESPONSIVE TWEAKS ──────────────────────────────────── */
-@media (max-width: 640px) {
+@media (max-width: 639px) {
   .stats-grid { grid-template-columns: 1fr; text-align: left; }
   .install-pill { flex-wrap: wrap; }
   .terminal { font-size: 0.8rem; }
