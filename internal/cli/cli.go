@@ -24,7 +24,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 )
 
 // ── Runner registry ───────────────────────────────────────────────────────────
@@ -90,12 +89,26 @@ func TryDispatch() bool {
 
 // ── status ────────────────────────────────────────────────────────────────────
 
+// prescanJSON returns true if --json appears anywhere in args.
+// Used to honour JSON mode even when it follows a flag-parsing error.
+func prescanJSON(args []string) bool {
+	for _, a := range args {
+		if a == "--json" {
+			return true
+		}
+	}
+	return false
+}
+
 func runStatusCmd(args []string) {
 	var (
 		prNum  string
 		repo   string
 		asJSON bool
 	)
+
+	// Pre-detect --json so error output is correct regardless of flag order.
+	asJSON = prescanJSON(args)
 
 	rest := args
 	// Optional positional PR number.
@@ -263,16 +276,16 @@ func runStartCmd(args []string) {
 		asJSON      bool
 	)
 
+	// Pre-detect --json so all error paths below emit the correct format.
+	asJSON = prescanJSON(args)
+
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		fmt.Fprintln(os.Stderr, "usage: rinse start <pr_number> [options]")
-		fmt.Fprintln(os.Stderr, "Run 'rinse help' for full usage.")
-		os.Exit(1)
+		fatalf(asJSON, "usage: rinse start <pr_number> [options]\nRun 'rinse help' for full usage.")
 	}
 	prNum = args[0]
 	pr, err := strconv.Atoi(prNum)
 	if err != nil || pr <= 0 {
-		fmt.Fprintf(os.Stderr, "error: PR number must be a positive integer, got: %s\n", prNum)
-		os.Exit(1)
+		fatalf(asJSON, "PR number must be a positive integer, got: %s", prNum)
 	}
 
 	for i := 1; i < len(args); i++ {
@@ -280,39 +293,32 @@ func runStartCmd(args []string) {
 		case "--repo":
 			i++
 			if i >= len(args) || strings.HasPrefix(args[i], "-") {
-				fmt.Fprintln(os.Stderr, "error: --repo requires a value")
-				fmt.Fprintln(os.Stderr, "usage: rinse start <pr_number> [options]")
-				fmt.Fprintln(os.Stderr, "Run 'rinse help' for full usage.")
-				os.Exit(1)
+				fatalf(asJSON, "--repo requires a value")
 			}
 			repo = args[i]
 		case "--cwd":
 			i++
 			if i >= len(args) || strings.TrimSpace(args[i]) == "" || strings.HasPrefix(args[i], "-") {
-				fmt.Fprintln(os.Stderr, "error: --cwd requires a non-empty value")
-				os.Exit(1)
+				fatalf(asJSON, "--cwd requires a non-empty value")
 			}
 			cwd = args[i]
 		case "--model":
 			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
-				fmt.Fprintln(os.Stderr, "error: --model requires a value")
-				os.Exit(1)
+				fatalf(asJSON, "--model requires a value")
 			}
 			i++
 			model = args[i]
 		case "--runner":
 			i++
 			if i >= len(args) || strings.HasPrefix(args[i], "--") {
-				fmt.Fprintln(os.Stderr, "error: missing value for --runner")
-				os.Exit(1)
+				fatalf(asJSON, "missing value for --runner")
 			}
 			runnerName = args[i]
 		case "--reflect":
 			doReflect = true
 		case "--reflect-main-branch":
 			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
-				fmt.Fprintln(os.Stderr, "error: --reflect-main-branch requires a branch name")
-				os.Exit(1)
+				fatalf(asJSON, "--reflect-main-branch requires a branch name")
 			}
 			i++
 			reflectMain = args[i]
@@ -321,8 +327,7 @@ func runStartCmd(args []string) {
 		case "--json":
 			asJSON = true
 		default:
-			fmt.Fprintf(os.Stderr, "error: unknown flag: %s\n", args[i])
-			os.Exit(1)
+			fatalf(asJSON, "unknown flag: %s", args[i])
 		}
 	}
 
@@ -472,20 +477,6 @@ func execInherited(args []string) int {
 		return 1
 	}
 	return 0
-}
-
-// execReplace replaces the current process with args via syscall.Exec (Unix).
-// Falls back to execInherited+exit on error.
-func execReplace(args []string) {
-	path, err := exec.LookPath(args[0])
-	if err != nil {
-		path = args[0]
-	}
-	// syscall.Exec replaces the process image; env is inherited.
-	if err := syscall.Exec(path, args, os.Environ()); err != nil {
-		// Fallback: run with inherited stdio.
-		os.Exit(execInherited(args))
-	}
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
