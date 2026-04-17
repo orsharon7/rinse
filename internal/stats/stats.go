@@ -292,6 +292,147 @@ func Summarize(sessions []Session) Summary {
 	return sum
 }
 
+// LoadToday reads session files from SessionsDir filtered to today (UTC).
+func LoadToday() ([]Session, error) {
+	all, err := Load()
+	if err != nil {
+		return nil, err
+	}
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	var out []Session
+	for _, s := range all {
+		if !s.StartedAt.UTC().Before(today) {
+			out = append(out, s)
+		}
+	}
+	return out, nil
+}
+
+// ReportSummary extends Summary with per-session extremes for the report command.
+type ReportSummary struct {
+	Summary
+	FastestSec float64
+	FastestPR  string
+	LongestSec float64
+	LongestPR  string
+	MergedCount int
+}
+
+// SummarizeReport builds a ReportSummary from a session slice.
+func SummarizeReport(sessions []Session) ReportSummary {
+	r := ReportSummary{
+		Summary: Summary{PatternCounts: make(map[string]int)},
+	}
+	r.FastestSec = -1
+	for _, s := range sessions {
+		r.TotalSessions++
+		r.TotalComments += s.TotalComments
+		r.TotalIterations += s.Iterations
+		dur := s.DurationSeconds()
+		r.TotalDurationSec += dur
+		if s.Approved {
+			r.ApprovedSessions++
+			r.MergedCount++
+		}
+		for _, p := range s.Patterns {
+			r.PatternCounts[p]++
+		}
+		if dur > 0 && (r.FastestSec < 0 || dur < r.FastestSec) {
+			r.FastestSec = dur
+			r.FastestPR = s.PR
+		}
+		if dur > r.LongestSec {
+			r.LongestSec = dur
+			r.LongestPR = s.PR
+		}
+	}
+	return r
+}
+
+// PrintReport writes the `rinse report` dashboard to stdout.
+// It prints a today-focused summary (or all-time if today has no data).
+func PrintReport(sessions []Session) {
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	var todaySessions []Session
+	for _, s := range sessions {
+		if !s.StartedAt.UTC().Before(today) {
+			todaySessions = append(todaySessions, s)
+		}
+	}
+
+	target := todaySessions
+	dateLabel := "Today's Report (" + time.Now().Format("January 2, 2006") + ")"
+	if len(target) == 0 {
+		target = sessions
+		dateLabel = "All-Time Report"
+	}
+
+	if len(target) == 0 {
+		fmt.Println("\n  No sessions recorded yet. Run rinse on a PR to start tracking.\n")
+		return
+	}
+
+	r := SummarizeReport(target)
+	bar := strings.Repeat("━", 42)
+
+	fmt.Println()
+	fmt.Printf("RINSE — %s\n", dateLabel)
+	fmt.Println(bar)
+	fmt.Println()
+
+	row := func(label, value string) {
+		fmt.Printf("  %-22s %s\n", label+":", value)
+	}
+
+	row("Cycles run", fmt.Sprintf("%d", r.TotalSessions))
+	row("PRs reviewed", fmt.Sprintf("%d", r.TotalSessions))
+	if r.MergedCount > 0 {
+		pct := int(math.Round(float64(r.MergedCount) / float64(r.TotalSessions) * 100))
+		row("PRs approved", fmt.Sprintf("%d (%d%%)", r.MergedCount, pct))
+	}
+	fmt.Println()
+
+	avgComments := 0.0
+	if r.TotalSessions > 0 {
+		avgComments = float64(r.TotalComments) / float64(r.TotalSessions)
+	}
+	timeSaved := math.Round(float64(r.TotalComments)*4/60*10) / 10
+	row("Time saved", fmt.Sprintf("~%.1f hours (est.)", timeSaved))
+	row("Comments fixed", fmt.Sprintf("%d", r.TotalComments))
+	row("Avg per PR", fmt.Sprintf("%.0f comments, %.1f iterations", avgComments, r.AvgIterations()))
+	fmt.Println()
+
+	if r.FastestSec > 0 {
+		fastStr := fmt.Sprintf("%d min", int(r.FastestSec)/60)
+		if r.FastestPR != "" {
+			fastStr += fmt.Sprintf("  (PR #%s)", r.FastestPR)
+		}
+		row("Fastest cycle", fastStr)
+	}
+	if r.LongestSec > 0 {
+		longStr := fmt.Sprintf("%d min", int(r.LongestSec)/60)
+		if r.LongestPR != "" {
+			longStr += fmt.Sprintf(" (PR #%s)", r.LongestPR)
+		}
+		row("Longest cycle", longStr)
+	}
+
+	top := r.TopPatterns(3)
+	if len(top) > 0 {
+		fmt.Println()
+		fmt.Println("  Top patterns:")
+		for i, p := range top {
+			fmt.Printf("    %d. %-32s (%dx)\n", i+1, p.Pattern, p.Count)
+		}
+	}
+
+	fmt.Println()
+	fmt.Println(bar)
+	dir, _ := SessionsDir()
+	fmt.Printf("  Sessions: %s\n", dir)
+	fmt.Println()
+}
+
 // Print writes a formatted stats report to stdout.
 func Print(sessions []Session) {
 	sum := Summarize(sessions)
