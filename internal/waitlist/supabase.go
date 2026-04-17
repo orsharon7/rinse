@@ -87,6 +87,12 @@ func (c *SupabaseClient) List(ctx context.Context) ([]Entry, error) {
 	return all, nil
 }
 
+// ListPage fetches a single page of waitlist entries ordered by created_at ascending.
+// limit and offset control pagination.
+func (c *SupabaseClient) ListPage(ctx context.Context, limit, offset int) ([]Entry, error) {
+	return c.listPage(ctx, limit, offset)
+}
+
 // listPage fetches a single page of waitlist entries.
 func (c *SupabaseClient) listPage(ctx context.Context, limit, offset int) ([]Entry, error) {
 	url := fmt.Sprintf("%s/rest/v1/%s?order=created_at.asc&limit=%d&offset=%d",

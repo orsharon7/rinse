@@ -101,7 +101,8 @@ func (h *Handler) Join(w http.ResponseWriter, r *http.Request) {
 // Export handles GET /admin/export.
 //
 // It requires the Authorization header to be "Bearer <ADMIN_SECRET>".
-// It fetches all waitlist entries into memory and writes them as a CSV file.
+// It streams waitlist entries page-by-page directly to the csv.Writer to keep
+// memory usage bounded regardless of table size.
 func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 	if !h.checkAdminAuth(r) {
 		jsonError(w, "unauthorized", http.StatusUnauthorized)
@@ -111,13 +112,6 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 
-	entries, err := h.db.List(ctx)
-	if err != nil {
-		log.Printf("waitlist: list error: %v", err)
-		jsonError(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="rinse-pro-waitlist.csv"`)
 
@@ -126,20 +120,33 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 		log.Printf("waitlist: csv write header: %v", err)
 		return
 	}
-	for _, e := range entries {
-		if err := cw.Write([]string{
-			intStr(e.ID),
-			e.Email,
-			e.GitHubUsername,
-			e.CreatedAt.UTC().Format(time.RFC3339),
-		}); err != nil {
-			log.Printf("waitlist: csv write row: %v", err)
+
+	const pageSize = 1000
+	for offset := 0; ; offset += pageSize {
+		page, err := h.db.ListPage(ctx, pageSize, offset)
+		if err != nil {
+			log.Printf("waitlist: list error: %v", err)
 			return
 		}
-	}
-	cw.Flush()
-	if err := cw.Error(); err != nil {
-		log.Printf("waitlist: csv flush: %v", err)
+		for _, e := range page {
+			if err := cw.Write([]string{
+				intStr(e.ID),
+				e.Email,
+				e.GitHubUsername,
+				e.CreatedAt.UTC().Format(time.RFC3339),
+			}); err != nil {
+				log.Printf("waitlist: csv write row: %v", err)
+				return
+			}
+		}
+		cw.Flush()
+		if err := cw.Error(); err != nil {
+			log.Printf("waitlist: csv flush: %v", err)
+			return
+		}
+		if len(page) < pageSize {
+			break
+		}
 	}
 }
 
