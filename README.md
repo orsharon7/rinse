@@ -1,15 +1,127 @@
-# tools
-
-CLI automation tools for GitHub Copilot PR review workflows.
-
-## pr-review
+# RINSE
 
 Automated GitHub Copilot PR review lifecycle manager. Drives an AI coding
 agent in a loop to fix Copilot review comments until the PR is approved.
 
+---
+
+## Install
+
+```bash
+git clone https://github.com/luliluli/rinse  # or your fork
+cd rinse
+bash install.sh
+```
+
+This installs the `rinse` binary to `~/.local/bin/rinse` and copies the
+runner scripts alongside it. Make sure `~/.local/bin` is in your `PATH`.
+
+---
+
+## Quick start
+
+```bash
+rinse
+```
+
+The interactive TUI wizard walks you through every option — repository, PR
+number, runner, model, reflection — shows a confirmation summary, then
+drives the review loop to completion.
+
+You can also pass the PR number directly:
+
+```bash
+rinse 42
+rinse 42 --repo owner/repo --cwd ~/dev/my-repo
+```
+
+---
+
+## How it works
+
+1. `rinse` opens a wizard to configure the run
+2. Requests a GitHub Copilot review on your PR
+3. When Copilot comments, the AI fix agent reads and resolves each comment
+4. Pushes the fix, requests another review
+5. Repeats until the PR is approved (or the iteration limit is reached)
+6. On success: merge menu with optional branch cleanup
+
+---
+
+## Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--repo <owner/repo>` | auto-detect | GitHub repo |
+| `--cwd <path>` | current dir | Local repo path |
+| `--model <provider/model>` | `github-copilot/claude-sonnet-4.6` | Model string |
+| `--wait-max <seconds>` | `300` | Max wait per Copilot review |
+| `--reflect` | — | Enable reflection agent after each fix iteration |
+| `--reflect-model <model>` | same as `--model` | Model for reflection agent |
+| `--reflect-main-branch <branch>` | `main` | Branch reflection rules are pushed to |
+| `--no-interactive` | — | Disable terminal UI (CI / piped output) |
+| `--dry-run` | — | Print startup state and exit |
+
+---
+
+## Reflection agent
+
+Pass `--reflect` to enable the reflection agent. After each fix cycle it
+reads Copilot's comments, extracts generalizable rules, and permanently
+updates `AGENTS.md` + `CLAUDE.md` in your repo. Rules are pushed directly
+to `main` (via `git worktree`) so they never appear in the PR diff and are
+loaded by AI agents on every future session — producing fewer comments over
+time.
+
+```bash
+rinse 42 --repo owner/repo --cwd ~/dev/my-repo --reflect
+```
+
+---
+
+## Requirements
+
+| Dependency | Purpose | Check |
+|------------|---------|-------|
+| `opencode` CLI | default runner | `opencode --version` |
+| `gh` CLI v2.88+ | all runners | `gh --version` |
+| `jq` | all runners | `jq --version` |
+| `git` | reflection agent | `git --version` |
+
+The `rinse` binary uses `opencode` as its default runner (GitHub Copilot
+OAuth — no separate API key required). A `claude` CLI runner is also
+available; see [Appendix: Shell runners](#appendix-shell-runners) below.
+
+---
+
+## Contributing
+
+1. **Fork** the repo and create a feature branch: `git checkout -b feat/my-change`
+2. Make your changes. The TUI source is in `tui/` (Go ≥ 1.24); run `make` inside `tui/` to build locally.
+3. **Test** with `rinse` or a direct runner invocation.
+4. Open a **Pull Request** — Copilot will review it automatically.
+5. Address Copilot comments (use `--reflect` to auto-update `AGENTS.md` / `CLAUDE.md`).
+
+---
+
+## License
+
+RINSE is source-available under the [Business Source License 1.1](LICENSE). Free for personal and dev use.
+
+---
+
+---
+
+## Appendix: Shell runners
+
+> **These are the underlying scripts that `rinse` drives internally.**
+> Most users do not need to call them directly. Use `rinse` instead.
+
+### Script tree
+
 ```
 pr-review/
-├── pr-review-launch.sh     # Interactive TUI launcher — start here
+├── pr-review-launch.sh     # Interactive TUI launcher (superseded by rinse binary)
 ├── pr-review.sh            # Core primitives (JSON API wrapper around gh + GitHub REST)
 ├── pr-review-daemon.sh     # Background daemon — polls watched PRs continuously
 ├── pr-review-cron.sh       # Cron-compatible poller
@@ -21,55 +133,6 @@ pr-review/
 └── .claude/
     └── settings.local.json # (user-created) pre-authorized tool permissions for Claude Code
 ```
-
----
-
-## Quick start
-
-### Interactive launcher (recommended)
-
-```bash
-cd pr-review
-./pr-review-launch.sh
-```
-
-A step-by-step wizard walks you through every option — repository, PR number,
-runner, model, reflection, wait timeout — shows a confirmation summary, then
-hands off to the selected runner. All log output flows in the same terminal.
-
-You can also pre-fill the PR number and skip straight to the wizard:
-
-```bash
-./pr-review-launch.sh 42
-./pr-review-launch.sh 42 --repo owner/repo --cwd ~/dev/my-repo
-```
-
-### Direct runner invocation
-
-```bash
-# opencode (GitHub Copilot — no API key required)
-./pr-review-opencode.sh <pr_number> --repo owner/repo --cwd /path/to/local/repo
-
-# Claude Code (direct Anthropic API key)
-./pr-review-claude-v2.sh <pr_number> --repo owner/repo --cwd /path/to/local/repo
-
-# With reflection agent (improves rules after each cycle)
-./pr-review-opencode.sh <pr_number> --repo owner/repo --cwd /path/to/local/repo --reflect
-```
-
----
-
-## Which runner should I use?
-
-| Runner | CLI | When to use |
-|--------|-----|-------------|
-| `pr-review-opencode.sh` | `opencode` | You have opencode authenticated with GitHub Copilot — no API key needed |
-| `pr-review-claude-v2.sh` | `claude` | You have Claude Code CLI with an Anthropic API key — recommended v2 |
-| `pr-review-claude.sh` | `claude` | Legacy v1 — use v2 instead |
-
----
-
-## Runners
 
 ### `pr-review-opencode.sh`
 
@@ -89,20 +152,14 @@ from `~/.local/share/opencode/auth.json`.
 | `--reflect` | — | Enable reflection agent after each fix iteration |
 | `--reflect-model <model>` | same as `--model` | Model for reflection agent |
 | `--reflect-main-branch <branch>` | `main` | Branch reflection rules are pushed to |
-| `--no-interactive` | — | Disable terminal UI (useful in CI or when piping output) |
+| `--no-interactive` | — | Disable terminal UI |
 | `--dry-run` | — | Print startup state and exit |
 
 Available GitHub Copilot models: `github-copilot/claude-sonnet-4`,
 `github-copilot/claude-sonnet-4.5`, `github-copilot/claude-sonnet-4.6`
 
-**Example:**
-
 ```bash
-./pr-review-opencode.sh 42 \
-  --repo owner/repo \
-  --cwd ~/dev/my-repo
-
-# Different model
+./pr-review-opencode.sh 42 --repo owner/repo --cwd ~/dev/my-repo
 ./pr-review-opencode.sh 42 --model github-copilot/claude-sonnet-4.5 --cwd ~/dev/my-repo
 ```
 
@@ -140,21 +197,15 @@ model-agnostic. Uses `gh pr edit --add-reviewer @copilot` (requires gh v2.88+).
 | Already approved | Exits successfully |
 | Merged / closed | Exits |
 
-**Example:**
-
 ```bash
-./pr-review-claude-v2.sh 42 \
-  --repo owner/repo \
-  --cwd ~/dev/my-repo \
-  --model claude-sonnet-4-6
+./pr-review-claude-v2.sh 42 --repo owner/repo --cwd ~/dev/my-repo --model claude-sonnet-4-6
 ```
 
 ---
 
 ### `pr-review-claude.sh` (v1 — legacy)
 
-Relies on `pr-review.sh` for GitHub operations. Max iterations configurable.
-Use v2 for new setups.
+Relies on `pr-review.sh` for GitHub operations. Use v2 for new setups.
 
 ```bash
 ./pr-review-claude.sh <pr_number> [options]
@@ -169,37 +220,17 @@ Use v2 for new setups.
 
 ---
 
-## Reflection agent (`pr-review-reflect.sh`)
+### Reflection agent (`pr-review-reflect.sh`)
 
 Runs in parallel with each fix cycle. Reads Copilot review comments, extracts
 generalizable coding rules, and permanently updates `AGENTS.md` + `CLAUDE.md`
-in the project repo. Both files are loaded automatically by AI coding agents on
-every future session, so each cycle produces fewer comments.
-
-**Rules are pushed to `main`, not the PR branch** — using a `git worktree` so
-the reflection commit never appears in the PR diff. This prevents Copilot from
-re-reviewing the rule files and avoids an infinite review loop.
-
-Enable with `--reflect` on any runner:
+in the project repo. Rules are pushed to `main` via `git worktree` so the
+reflection commit never appears in the PR diff.
 
 ```bash
-./pr-review-opencode.sh 42 --repo owner/repo --cwd ~/dev/my-repo --reflect
-```
-
-Run standalone:
-
-```bash
+# Standalone
 ./pr-review-reflect.sh 42 --repo owner/repo --cwd ~/dev/my-repo --review-id <id>
 ```
-
-**How it works:**
-
-1. Runs in background while the fix agent works
-2. Creates a temporary `git worktree` checked out on `main`
-3. Analyzes Copilot comments → identifies patterns → writes rules into the worktree (not the PR branch)
-4. Commits and pushes updated `AGENTS.md` / `CLAUDE.md` directly to `main`
-5. Cleans up the worktree
-6. Next iteration: fix agent loads updated rules from `main` → fewer issues → fewer cycles
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -213,7 +244,7 @@ Run standalone:
 
 ---
 
-## Core tool (`pr-review.sh`)
+### Core tool (`pr-review.sh`)
 
 Primitives used internally by the v1 runner and background polling scripts.
 All output is JSON; logs go to stderr.
@@ -246,28 +277,10 @@ All output is JSON; logs go to stderr.
 
 ---
 
-## Terminal UI (`pr-review-ui.sh`)
+### Background runners
 
-Sourced automatically by `pr-review-opencode.sh` and `pr-review-claude-v2.sh`.
-Do not run it directly.
-
-When stdout is a TTY it provides:
-
-- Colored, severity-coded log lines
-- Animated progress bar while waiting for Copilot to finish reviewing
-- Bold section headers per iteration
-- Arrow-key merge menu on success: merge, branch cleanup, open PR in browser
-
-Disable with `NO_COLOR=1` or `--no-interactive` (useful in CI or when piping output).
-
----
-
-## Background runners
-
-### `pr-review-daemon.sh`
-
-Persistent background process. Polls watched PRs and fires a configurable
-callback when a review event occurs.
+**`pr-review-daemon.sh`** — persistent background process. Polls watched PRs
+and fires a configurable callback when a review event occurs.
 
 ```bash
 ./pr-review-daemon.sh          # Start
@@ -275,9 +288,7 @@ callback when a review event occurs.
 ./pr-review-daemon.sh --status # Status
 ```
 
-### `pr-review-cron.sh`
-
-Lightweight cron-compatible poller. Add to crontab:
+**`pr-review-cron.sh`** — lightweight cron-compatible poller.
 
 ```
 */2 * * * * /path/to/pr-review/pr-review-cron.sh
@@ -285,19 +296,18 @@ Lightweight cron-compatible poller. Add to crontab:
 
 ---
 
-## Requirements
+### Terminal UI (`pr-review-ui.sh`)
 
-| Dependency | Used by | Check |
-|------------|---------|-------|
-| `opencode` CLI | `pr-review-opencode.sh` | `opencode --version` |
-| `claude` CLI | `pr-review-claude-v2.sh`, `pr-review-claude.sh` | `claude --version` |
-| `gh` CLI v2.88+ | all runners | `gh --version` |
-| `jq` | all runners | `jq --version` |
-| `git` | `pr-review-reflect.sh` (worktree) | `git --version` |
+Sourced automatically by the runners. Do not run it directly.
+
+When stdout is a TTY it provides colored log lines, an animated progress bar
+while waiting for Copilot, and an arrow-key merge menu on success.
+
+Disable with `NO_COLOR=1` or `--no-interactive`.
 
 ---
 
-## Log files
+### Log files
 
 | File | Written by |
 |------|-----------|
@@ -307,14 +317,11 @@ Lightweight cron-compatible poller. Add to crontab:
 
 ---
 
-## `.claude/settings.local.json`
+### `.claude/settings.local.json`
 
-Not committed to this repo — create it yourself at `pr-review/.claude/settings.local.json`.
-Pre-configure tool permissions so Claude Code sessions running inside the review loop
-don't prompt for approval on every shell command. Claude Code picks it up automatically
-when invoked from the `pr-review/` directory.
-
-Example:
+Not committed — create at `pr-review/.claude/settings.local.json` to
+pre-authorize tool permissions so Claude Code sessions don't prompt on every
+shell command.
 
 ```json
 {
@@ -323,29 +330,3 @@ Example:
   }
 }
 ```
-
----
-
-## Contributing
-
-Contributions are welcome!
-
-1. **Fork** the repo and create a feature branch: `git checkout -b feat/my-change`
-2. Make your changes. Keep scripts POSIX-compatible where possible; bash-specific features are fine where already used.
-3. **Test** against a real PR with `./pr-review-launch.sh` or direct runner invocation.
-4. Open a **Pull Request** — Copilot will review it automatically via `pr-review-opencode.sh`.
-5. Address any Copilot comments (the `--reflect` flag will update `AGENTS.md` / `CLAUDE.md` automatically for future sessions).
-
-### Dev tips
-
-- All scripts are in `pr-review/`. The TUI source is in `tui/` (Go ≥ 1.24).
-- Run `make` inside `tui/` to build the binary locally.
-- Log output goes to `~/.pr-review-*.log` — check there first when debugging.
-- Use `--dry-run` on any runner to inspect startup state without making API calls.
-- `AGENTS.md` and `CLAUDE.md` at the repo root carry coding rules that AI agents load automatically. If you notice a pattern worth encoding, add a rule there.
-
----
-
-## License
-
-RINSE is source-available under the [Business Source License 1.1](LICENSE). Free for personal and dev use. [Commercial license →](COMMERCIAL_LICENSE.md)
