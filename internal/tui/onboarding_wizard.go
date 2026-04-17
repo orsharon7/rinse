@@ -232,7 +232,7 @@ func (m wizModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case wizCycleErrMsg:
 		m.creatingCycle = false
-		m.cycleErr = msg.err.Error()
+		m.cycleErr = friendlyCycleErr(msg.err)
 		return m, nil
 
 	case wizConfigWrittenMsg:
@@ -1008,6 +1008,28 @@ func saveStepAsync(s onboarding.State) {
 			fmt.Fprintf(os.Stderr, "rinse: state write: %v\n", err)
 		}
 	}()
+}
+
+// friendlyCycleErr converts a raw CreateCycle error into a short, user-facing
+// message that does not expose Go internals or internal URLs.
+func friendlyCycleErr(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "could not reach rinse backend"):
+		return "Could not connect to the RINSE backend. Is it running?"
+	case strings.Contains(msg, "context deadline exceeded"),
+		strings.Contains(msg, "i/o timeout"):
+		return "The request timed out. The backend may be slow or unreachable."
+	case strings.Contains(msg, "server returned"):
+		return "The server rejected the request. Try again or check your settings."
+	case strings.Contains(msg, "parse response"):
+		return "Got an unexpected response from the server. Try again."
+	default:
+		return "Something went wrong creating the cycle. Please try again."
+	}
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────

@@ -49,6 +49,11 @@ func APIBase() string {
 	return "http://localhost:7433"
 }
 
+// httpClient is a package-level client with a conservative timeout.
+// 10 s is long enough for a healthy local backend; short enough to surface
+// a hung server quickly in the TUI.
+var httpClient = &http.Client{Timeout: 10 * time.Second}
+
 // CreateCycle calls POST /cycles and returns the created cycle on success.
 func CreateCycle(name string, d Defaults) (*Cycle, error) {
 	req := CycleRequest{
@@ -62,11 +67,11 @@ func CreateCycle(name string, d Defaults) (*Cycle, error) {
 
 	body, err := json.Marshal(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("could not build request: %w", err)
 	}
 
 	url := APIBase() + "/cycles"
-	resp, err := http.Post(url, "application/json", bytes.NewReader(body)) //nolint:noctx
+	resp, err := httpClient.Post(url, "application/json", bytes.NewReader(body)) //nolint:noctx
 	if err != nil {
 		return nil, fmt.Errorf("could not reach rinse backend at %s: %w", url, err)
 	}
