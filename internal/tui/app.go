@@ -145,8 +145,8 @@ func Run(ver string) error {
 	version = ver
 
 	// First-run onboarding wizard: if onboarding is not complete, run the
-	// wizard before the main PR-picker TUI. Skipped or aborted outcomes both
-	// fall through to the main TUI so the app stays usable.
+	// wizard before the main PR-picker TUI. Skipped outcomes fall through to
+	// the main TUI; aborted (quit) exits cleanly.
 	if !onboarding.IsComplete() {
 		outcome, err := RunOnboardingWizard(ver)
 		if err != nil {

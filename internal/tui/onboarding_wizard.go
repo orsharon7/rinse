@@ -87,7 +87,6 @@ type wizModel struct {
 
 	// splash
 	sp        spinner.Model
-	spReady   bool
 	savedStep onboarding.Step // from loaded state (may be "")
 
 	// resume
@@ -209,7 +208,6 @@ func (m wizModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.view != wizSplash {
 			return m, nil
 		}
-		m.spReady = true
 		return m.advanceFromSplash()
 
 	case wizCycleCreatedMsg:
@@ -232,6 +230,7 @@ func (m wizModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			fmt.Fprintf(os.Stderr, "rinse: state write: %v\n", err)
 		}
 		m.view = wizStepE
+		if len(m.celebFrames) > 1 {
 			return m, tea.Tick(120*time.Millisecond, func(t time.Time) tea.Msg { return wizCelebFrameMsg{} })
 		}
 		return m, nil
@@ -316,9 +315,6 @@ func (m wizModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.view {
 	case wizSplash:
 		// Any non-quit key skips the splash immediately.
-		// Mark the splash as ready/consumed so a pending splash tick
-		// won't later re-handle this transition.
-		m.spReady = true
 		return m.advanceFromSplash()
 
 	case wizResume:
