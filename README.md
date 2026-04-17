@@ -9,7 +9,7 @@
 ```
 
 [![Go version](https://img.shields.io/github/go-mod/go-version/orsharon7/rinse)](https://go.dev/)
-[![License: BSL 1.1](LICENSE))
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/orsharon7/rinse)](https://github.com/orsharon7/rinse/releases)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/orsharon7/rinse/pulls)
 
@@ -23,16 +23,12 @@ Request review → wait → read comments → fix → repeat. Rinse handles ever
 
 ## ⚡ Install
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/orsharon7/rinse/main/install.sh | bash
-```
-
-Or build from source (requires Go ≥ 1.24):
+Clone the repo and run the installer (requires Go ≥ 1.24 or a pre-built binary in `dist/`):
 
 ```bash
 git clone https://github.com/orsharon7/rinse.git
 cd rinse
-make install
+bash install.sh
 ```
 
 ---
@@ -43,14 +39,14 @@ make install
 # Interactive TUI wizard — recommended first run
 rinse
 
-# Check the Copilot review status of a PR
-rinse status 42 --repo owner/repo
+# Show session history and time-saved metrics
+rinse stats
 
-# Start the fix loop non-interactively (no TTY required)
-rinse start 42 --repo owner/repo --cwd ~/dev/my-repo
+# Print version
+rinse --version
 ```
 
-The first-run wizard walks you through setup. After that, `rinse` remembers your preferences.
+The interactive TUI walks you through setup — pick a PR, configure the runner, and let Rinse handle the loop.
 
 ---
 
@@ -68,33 +64,23 @@ The first-run wizard walks you through setup. After that, `rinse` remembers your
 ## 🛠 Options
 
 ```
-rinse                                   # launch interactive TUI
-rinse status [<pr>] [--repo <owner/repo>] [--json]
-rinse start  <pr>  [options]            [--json]
-rinse help
+rinse              # launch interactive TUI
+rinse stats        # show session history and time-saved metrics
+rinse --version    # print installed version
+rinse --help       # show help
 ```
 
-### `rinse status`
+### Interactive TUI settings (press `s` inside the PR picker)
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `<pr>` (positional) | auto-detect | PR number to check |
-| `--repo <owner/repo>` | auto-detect | GitHub repo |
-| `--json` | — | Output status as JSON |
+| Setting | Options | Description |
+|---------|---------|-------------|
+| `runner` | `opencode` (default), `claude` | AI agent to drive |
+| `model` | any model string | AI model; leave blank for runner default |
+| `reflect` | on/off | Enable reflection agent to improve rules each cycle |
+| `branch` | branch name | Target branch for reflection commits (default: `main`) |
+| `auto-merge` | on/off | Auto-merge PR once Copilot approves |
 
-### `rinse start`
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `<pr>` (positional, required) | — | PR number to fix |
-| `--repo <owner/repo>` | auto-detect | GitHub repo |
-| `--cwd <path>` | current dir | Local repo path |
-| `--model <model>` | `github-copilot/claude-sonnet-4.6` | AI model for fix agent |
-| `--runner opencode\|claude` | `opencode` | Runner to use |
-| `--reflect` | — | Enable reflection agent (improves rules after each cycle) |
-| `--reflect-main-branch <br>` | `main` | Target branch for reflection commits |
-| `--auto-merge` | — | Auto-merge when Copilot approves |
-| `--json` | — | Emit a JSON result after the runner exits |
+Settings are saved per-repo under `~/.rinse/`.
 
 ### Available Copilot models
 
@@ -125,6 +111,7 @@ rinse start 42 --repo owner/repo --cwd ~/dev/my-repo --reflect
 | Dependency | Notes |
 |------------|-------|
 | `opencode` CLI | Authentication via GitHub Copilot OAuth |
+| `claude` CLI | Required when using the `claude` runner |
 | `gh` CLI ≥ v2.88 | `gh --version` to check |
 | `jq` | JSON processing |
 | `git` | Required for `--reflect` worktree |
