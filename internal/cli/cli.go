@@ -108,14 +108,16 @@ func runStatusCmd(args []string) {
 		switch rest[i] {
 		case "--repo":
 			i++
-			if i < len(rest) {
-				repo = rest[i]
+			if i >= len(rest) || strings.HasPrefix(rest[i], "-") {
+				fatalf(asJSON, "--repo requires a value")
 			}
+			repo = rest[i]
 		case "--pr":
-			i++
-			if i < len(rest) {
-				prNum = rest[i]
+			if i+1 >= len(rest) || strings.HasPrefix(rest[i+1], "-") {
+				fatalf(asJSON, "missing value for --pr")
 			}
+			i++
+			prNum = rest[i]
 		case "--json":
 			asJSON = true
 		default:
@@ -135,14 +137,15 @@ func runStatusCmd(args []string) {
 			fatalf(asJSON, "could not detect current PR — pass a PR number as the first argument")
 		}
 	}
-	if _, err := strconv.Atoi(prNum); err != nil {
+	pr, err := strconv.Atoi(prNum)
+	if err != nil || pr <= 0 {
 		fatalf(asJSON, "PR number must be a positive integer, got: %s", prNum)
 	}
 
 	status, err := queryPRStatus(repo, prNum)
 	if err != nil {
 		if asJSON {
-			emitJSON(StatusResult{OK: false, PR: prNum, Repo: repo, Error: err.Error()})
+			emitJSON(StatusResult{OK: false, PR: prNum, Repo: repo, Status: "error", Error: err.Error()})
 		} else {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		}
@@ -178,6 +181,12 @@ func queryPRStatus(repo, prNum string) (string, error) {
 		"--json", "state,merged,reviewDecision,reviews",
 	).Output()
 	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			stderr := strings.TrimSpace(string(exitErr.Stderr))
+			if stderr != "" {
+				return "error", fmt.Errorf("gh pr view: %w: %s", err, stderr)
+			}
+		}
 		return "error", fmt.Errorf("gh pr view: %w", err)
 	}
 
@@ -260,7 +269,8 @@ func runStartCmd(args []string) {
 		os.Exit(1)
 	}
 	prNum = args[0]
-	if _, err := strconv.Atoi(prNum); err != nil {
+	pr, err := strconv.Atoi(prNum)
+	if err != nil || pr <= 0 {
 		fmt.Fprintf(os.Stderr, "error: PR number must be a positive integer, got: %s\n", prNum)
 		os.Exit(1)
 	}
@@ -269,31 +279,43 @@ func runStartCmd(args []string) {
 		switch args[i] {
 		case "--repo":
 			i++
-			if i < len(args) {
-				repo = args[i]
+			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+				fmt.Fprintln(os.Stderr, "error: --repo requires a value")
+				fmt.Fprintln(os.Stderr, "usage: rinse start <pr_number> [options]")
+				fmt.Fprintln(os.Stderr, "Run 'rinse help' for full usage.")
+				os.Exit(1)
 			}
+			repo = args[i]
 		case "--cwd":
 			i++
-			if i < len(args) {
-				cwd = args[i]
+			if i >= len(args) || strings.TrimSpace(args[i]) == "" || strings.HasPrefix(args[i], "-") {
+				fmt.Fprintln(os.Stderr, "error: --cwd requires a non-empty value")
+				os.Exit(1)
 			}
+			cwd = args[i]
 		case "--model":
-			i++
-			if i < len(args) {
-				model = args[i]
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
+				fmt.Fprintln(os.Stderr, "error: --model requires a value")
+				os.Exit(1)
 			}
+			i++
+			model = args[i]
 		case "--runner":
 			i++
-			if i < len(args) {
-				runnerName = args[i]
+			if i >= len(args) || strings.HasPrefix(args[i], "--") {
+				fmt.Fprintln(os.Stderr, "error: missing value for --runner")
+				os.Exit(1)
 			}
+			runnerName = args[i]
 		case "--reflect":
 			doReflect = true
 		case "--reflect-main-branch":
-			i++
-			if i < len(args) {
-				reflectMain = args[i]
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
+				fmt.Fprintln(os.Stderr, "error: --reflect-main-branch requires a branch name")
+				os.Exit(1)
 			}
+			i++
+			reflectMain = args[i]
 		case "--auto-merge":
 			autoMerge = true
 		case "--json":
@@ -340,7 +362,7 @@ func runStartCmd(args []string) {
 		model = r.defaultModel
 	}
 	if reflectMain == "" {
-		reflectMain = "main"
+		reflectMain = detectDefaultBranch(repo)
 	}
 
 	// Locate runner script.
@@ -411,6 +433,8 @@ func resolveScript(scriptName string) (string, error) {
 		candidates := []string{
 			filepath.Join(binDir, "scripts"),
 			filepath.Join(binDir, "..", "scripts"),
+			filepath.Join(binDir, "pr-review"),
+			filepath.Join(binDir, "..", "pr-review"),
 			binDir,
 		}
 		for _, c := range candidates {
@@ -444,6 +468,7 @@ func execInherited(args []string) int {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			return exitErr.ExitCode()
 		}
+		fmt.Fprintf(os.Stderr, "error: failed to start runner: %v\n", err)
 		return 1
 	}
 	return 0
@@ -464,6 +489,17 @@ func execReplace(args []string) {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+func detectDefaultBranch(repo string) string {
+	out, err := exec.Command("gh", "repo", "view", repo,
+		"--json", "defaultBranchRef",
+		"--jq", ".defaultBranchRef.name",
+	).Output()
+	if err != nil || strings.TrimSpace(string(out)) == "" {
+		return "main"
+	}
+	return strings.TrimSpace(string(out))
+}
 
 func detectRepo() string {
 	out, err := exec.Command("gh", "repo", "view",
