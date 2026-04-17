@@ -59,7 +59,6 @@ const (
 	etaFutureDay                  // ETA tomorrow or later
 	etaOverdue                    // past estimated end
 	etaCompleted                  // cycle done
-	etaCancelled                  // cycle cancelled
 	etaError                      // cycle error
 )
 
@@ -1011,23 +1010,25 @@ func (m monitorModel) View() string {
 		badges = append(badges, elapsedBadge)
 	}
 
-	// ETA badge: state-driven per UX spec.
-	etaSt, etaTime := resolveETA(m.phase, m.estimatedEndAt, m.nowAdjusted())
-	switch etaSt {
-	case etaUnknown:
-		badges = append(badges, theme.StyleBadgeETA.Render(" ETA — "))
-	case etaComputable:
-		badges = append(badges, theme.StyleBadgeETA.Render(" ETA "+etaTime.Local().Format("15:04")+" "))
-	case etaFutureDay:
-		badges = append(badges, theme.StyleBadgeETA.Render(" ETA "+etaTime.Local().Format("Mon 15:04")+" "))
-	case etaOverdue:
-		overdueDur := m.nowAdjusted().Sub(etaTime).Round(time.Second)
-		badges = append(badges, theme.StyleBadgeOverdue.Render(" +"+formatElapsed(overdueDur)+" "))
-	case etaCompleted:
-		badges = append(badges, theme.StyleBadgeETA.Render(" Completed "))
-	case etaError:
-		badges = append(badges, theme.StyleBadgeETA.Render(" ETA — "))
-	// etaHidden and etaCancelled: nothing added
+	// ETA badge: only render when we have a real ETA source of truth.
+	if m.estimatedEndAt != nil {
+		etaSt, etaTime := resolveETA(m.phase, m.estimatedEndAt, m.nowAdjusted())
+		switch etaSt {
+		case etaUnknown:
+			badges = append(badges, theme.StyleBadgeETA.Render(" ETA — "))
+		case etaComputable:
+			badges = append(badges, theme.StyleBadgeETA.Render(" ETA "+etaTime.Local().Format("15:04")+" "))
+		case etaFutureDay:
+			badges = append(badges, theme.StyleBadgeETA.Render(" ETA "+etaTime.Local().Format("Mon 15:04")+" "))
+		case etaOverdue:
+			overdueDur := m.nowAdjusted().Sub(etaTime).Round(time.Second)
+			badges = append(badges, theme.StyleBadgeOverdue.Render(" +"+formatElapsed(overdueDur)+" "))
+		case etaCompleted:
+			badges = append(badges, theme.StyleBadgeETA.Render(" Completed "))
+		case etaError:
+			badges = append(badges, theme.StyleBadgeETA.Render(" ETA — "))
+		// etaHidden: nothing added
+		}
 	}
 	if m.totalComments > 0 {
 		badges = append(badges,
