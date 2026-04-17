@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# backfill-sessions.sh — Extract metrics from /tmp/rinse-pr*.log files
+# backfill-sessions.sh — Extract metrics from runner log files
 # and write session JSON files to ~/.rinse/sessions/
 #
 # Usage: ./scripts/backfill-sessions.sh [--dry-run] [--overwrite]
@@ -7,7 +7,7 @@
 set -euo pipefail
 
 SESSIONS_DIR="${HOME}/.rinse/sessions"
-LOG_GLOB="/tmp/rinse-pr*.log"
+LOG_GLOB="${HOME}/.pr-review/logs/*-pr-*.log"
 DRY_RUN=false
 OVERWRITE=false
 
@@ -37,8 +37,9 @@ failed=0
 for log_file in "${log_files[@]}"; do
   filename="$(basename "$log_file")"
 
-  # Extract PR number from filename: rinse-pr45.log or rinse-pr45-cycle.log
-  pr_num="$(echo "$filename" | grep -oE 'pr[0-9]+' | grep -oE '[0-9]+' || true)"
+  # Extract PR number from filename: support both legacy rinse-pr45.log
+  # and current rinse-pr-45.log / rinse-pr-45-cycle.log formats.
+  pr_num="$(echo "$filename" | grep -oE 'pr-?[0-9]+' | grep -oE '[0-9]+' || true)"
   if [[ -z "$pr_num" ]]; then
     echo "  [SKIP] Cannot parse PR number from: $filename"
     ((failed++)) || true

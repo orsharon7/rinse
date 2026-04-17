@@ -427,8 +427,12 @@ func PrintReport(sessions []Session) {
 
 	fmt.Println()
 	fmt.Println(bar)
-	dir, _ := SessionsDir()
-	fmt.Printf("  Sessions: %s\n", dir)
+	dir, err := SessionsDir()
+	if err != nil {
+		fmt.Println("  Sessions: (unknown)")
+	} else {
+		fmt.Printf("  Sessions: %s\n", dir)
+	}
 	fmt.Println()
 }
 
