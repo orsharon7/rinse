@@ -60,7 +60,6 @@ const (
 	etaFutureDay                  // ETA tomorrow or later
 	etaOverdue                    // past estimated end
 	etaCompleted                  // cycle done
-	etaCancelled                  // cycle cancelled
 	etaError                      // cycle error
 )
 
