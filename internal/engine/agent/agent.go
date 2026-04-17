@@ -153,19 +153,31 @@ func BuildPrompt(ctx PRContext) (string, error) {
 	return b.String(), nil
 }
 
-// PushAndRequestReview commits staged changes (if any), pushes, and re-requests
-// Copilot review. This matches the `pr-review.sh push` subcommand flow.
+// PushAndRequestReview commits staged changes (if any), pushes, and then
+// explicitly re-requests Copilot review.
 func PushAndRequestReview(scriptDir, repo, pr, cwd string) error {
-	cmd := exec.Command("bash",
+	pushCmd := exec.Command("bash",
 		filepath.Join(scriptDir, "pr-review.sh"),
 		pr, "push",
 		"--repo", repo,
 	)
-	cmd.Dir = cwd
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	pushCmd.Dir = cwd
+	pushCmd.Stdout = os.Stdout
+	pushCmd.Stderr = os.Stderr
+	if err := pushCmd.Run(); err != nil {
 		return fmt.Errorf("agent: pr-review.sh push: %w", err)
+	}
+
+	requestCmd := exec.Command("bash",
+		filepath.Join(scriptDir, "pr-review.sh"),
+		pr, "request",
+		"--repo", repo,
+	)
+	requestCmd.Dir = cwd
+	requestCmd.Stdout = os.Stdout
+	requestCmd.Stderr = os.Stderr
+	if err := requestCmd.Run(); err != nil {
+		return fmt.Errorf("agent: pr-review.sh request: %w", err)
 	}
 	return nil
 }
