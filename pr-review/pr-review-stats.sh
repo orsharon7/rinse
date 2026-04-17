@@ -93,6 +93,12 @@ _rinse_config_set() {
 # Called during stats_init. If the user hasn't answered yet, asks interactively.
 # Sets and exports RINSE_STATS_ENABLED=true|false.
 _stats_check_optin() {
+  # jq is required to read/write the config; without it stats cannot be persisted.
+  if ! command -v jq >/dev/null 2>&1; then
+    export RINSE_STATS_ENABLED="false"
+    return
+  fi
+
   local saved
   saved=$(_rinse_config_get "stats_enabled")
 
@@ -123,14 +129,22 @@ _stats_check_optin() {
 
     case "${_answer,,}" in
       y|yes)
-        _rinse_config_set "stats_enabled" "true"
-        export RINSE_STATS_ENABLED="true"
-        echo "  Stats enabled. Saved to ${RINSE_STATS_FILE}"
+        if _rinse_config_set "stats_enabled" "true"; then
+          export RINSE_STATS_ENABLED="true"
+          echo "  Stats enabled. Saved to ${RINSE_STATS_FILE}"
+        else
+          >&2 echo "  Warning: could not save stats preference; stats disabled for this run."
+          export RINSE_STATS_ENABLED="false"
+        fi
         ;;
       *)
-        _rinse_config_set "stats_enabled" "false"
-        export RINSE_STATS_ENABLED="false"
-        echo "  Stats disabled. Run 'pr-review-stats.sh opt-in' to enable later."
+        if _rinse_config_set "stats_enabled" "false"; then
+          export RINSE_STATS_ENABLED="false"
+          echo "  Stats disabled. Run 'pr-review-stats.sh opt-in' to enable later."
+        else
+          >&2 echo "  Warning: could not save stats preference; stats disabled for this run."
+          export RINSE_STATS_ENABLED="false"
+        fi
         ;;
     esac
     echo ""
