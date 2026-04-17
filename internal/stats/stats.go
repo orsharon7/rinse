@@ -368,7 +368,7 @@ type Summary struct {
 	PatternCounts    map[string]int
 	OutcomeCounts    map[Outcome]int
 	// Last30Days is a filtered summary over the last 30 days.
-	// It is always populated by Summarize (non-nil).
+	// It is always populated by Summarize and is the zero value when no sessions match.
 	Last30Days Summary
 }
 
