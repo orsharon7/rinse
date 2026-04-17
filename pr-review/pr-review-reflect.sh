@@ -284,7 +284,7 @@ if [[ ! -f "$WORKTREE_DIR/AGENTS.md" ]]; then
   exit 1
 fi
 
-# Re-enforce the symlink invariant immediately before staging so any agent
+# Reinforce the symlink invariant immediately before staging so any agent
 # damage to CLAUDE.md is repaired at commit time (not just at script startup).
 ensure_claude_symlink "$WORKTREE_DIR"
 log "Committing updated rules to ${MAIN_BRANCH}..."
