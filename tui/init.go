@@ -15,9 +15,9 @@ import (
 type RepoRinseConfig struct {
 	Engine       string `json:"engine"`        // "opencode" or "claude"
 	Model        string `json:"model"`         // model override (empty = engine default)
-	Reflect      bool   `json:"reflect"`       // enable reflection agent
+	Reflect       *bool  `json:"reflect,omitempty"`        // enable reflection agent; nil = unset
 	ReflectBranch string `json:"reflect_branch,omitempty"` // branch to push rules to (empty = default)
-	AutoMerge    bool   `json:"auto_merge"`    // auto-merge after approval
+	AutoMerge     *bool  `json:"auto_merge,omitempty"`     // auto-merge after approval; nil = unset
 }
 
 const rinseConfigFile = ".rinse.json"
@@ -131,9 +131,9 @@ func RunInit() {
 	cfg := RepoRinseConfig{
 		Engine:        selectedRunner.name,
 		Model:         modelOverride,
-		Reflect:       reflect,
+		Reflect:       &reflect,
 		ReflectBranch: reflectBranch,
-		AutoMerge:     autoMerge,
+		AutoMerge:     &autoMerge,
 	}
 
 	data, err := json.MarshalIndent(cfg, "", "  ")

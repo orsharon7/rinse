@@ -405,7 +405,7 @@ if [[ "$USE_WORKTREE" == false ]]; then
     session_clear
     gh_lock_release
   }
-  trap _cleanup_session_lock EXIT
+  trap '_exit_code=$?; _cleanup_session_lock; _insights_exit_trap "$_exit_code"' EXIT
 fi
 
 if [[ "$DRY_RUN" != true ]]; then

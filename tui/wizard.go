@@ -128,7 +128,7 @@ func initialModel() model {
 				rc.Model = repoCfg.Model
 				appliedRepoDefaults = true
 			}
-			if repoCfg.Reflect {
+			if repoCfg.Reflect != nil && *repoCfg.Reflect {
 				rc.Reflect = true
 				appliedRepoDefaults = true
 			}
@@ -136,7 +136,7 @@ func initialModel() model {
 				rc.Branch = repoCfg.ReflectBranch
 				appliedRepoDefaults = true
 			}
-			if repoCfg.AutoMerge {
+			if repoCfg.AutoMerge != nil && *repoCfg.AutoMerge {
 				rc.AutoMerge = true
 				appliedRepoDefaults = true
 			}
