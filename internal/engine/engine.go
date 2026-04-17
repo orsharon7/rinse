@@ -16,10 +16,11 @@ type Agent interface {
 
 // RunOpts carries all parameters for a single review-cycle iteration.
 type RunOpts struct {
-	PR    string // PR number as string
-	Repo  string // owner/repo
-	CWD   string // local working directory
-	Model string // model override (empty = use runner default)
+	PR                 string // PR number as string
+	Repo               string // owner/repo
+	CWD                string // local working directory
+	Model              string // model override (empty = use runner default)
+	LastKnownReviewID  string // last processed review ID; passed to GetReviewState for no_change detection
 }
 
 // Result captures the outcome of one fix iteration.
@@ -29,4 +30,8 @@ type Result struct {
 
 	// Approved reports whether Copilot approved the PR in this iteration.
 	Approved bool
+
+	// Waiting reports that the review is not yet actionable (pending/no_reviews/no_change).
+	// Callers should not count this iteration against MaxIterations.
+	Waiting bool
 }

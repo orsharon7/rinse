@@ -30,6 +30,10 @@ type ReviewState struct {
 	// CommentCount is the raw comment_count reported by pr-review.sh status.
 	// It reflects the total review comments returned by that command's JSON.
 	CommentCount int `json:"comment_count,omitempty"`
+
+	// Message carries the human-readable error message emitted by pr-review.sh
+	// when Status == "error", so callers can surface actionable diagnostics.
+	Message string `json:"message,omitempty"`
 }
 
 // Comment is a single Copilot review comment.
@@ -241,8 +245,11 @@ func ScriptDir(cwd string) (string, error) {
 	dir := cwd
 	for {
 		candidate := filepath.Join(dir, "scripts")
-		if _, err := os.Stat(filepath.Join(candidate, "pr-review.sh")); err == nil {
+		scriptPath := filepath.Join(candidate, "pr-review.sh")
+		if _, err := os.Stat(scriptPath); err == nil {
 			return candidate, nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("agent: stat %s: %w", scriptPath, err)
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {

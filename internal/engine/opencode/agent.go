@@ -46,7 +46,7 @@ func (a *Agent) Run(opts engine.RunOpts) (engine.Result, error) {
 	}
 
 	// 1. Review state.
-	rs, err := agent.GetReviewState(scriptDir, opts.Repo, opts.PR, opts.CWD, "")
+	rs, err := agent.GetReviewState(scriptDir, opts.Repo, opts.PR, opts.CWD, opts.LastKnownReviewID)
 	if err != nil {
 		return engine.Result{}, fmt.Errorf("opencode: get review state: %w", err)
 	}
@@ -58,8 +58,8 @@ func (a *Agent) Run(opts engine.RunOpts) (engine.Result, error) {
 		// PR is done — treat as approved for loop exit purposes.
 		return engine.Result{Approved: true}, nil
 	case "pending", "no_reviews", "no_change":
-		// Nothing actionable yet.
-		return engine.Result{Comments: 0}, nil
+		// Nothing actionable yet; signal Waiting so the runner doesn't count this iteration.
+		return engine.Result{Waiting: true}, nil
 	case "error":
 		return engine.Result{}, fmt.Errorf("opencode: review status error for PR %s", opts.PR)
 	case "new_review":
