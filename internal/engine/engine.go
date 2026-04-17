@@ -28,7 +28,9 @@ type Result struct {
 	// Comments is the number of Copilot comments addressed in this iteration.
 	Comments int
 
-	// Approved reports whether Copilot approved the PR in this iteration.
+	// Approved reports that the PR reached a terminal successful state in this
+	// iteration, such as an explicit Copilot approval or another terminal state
+	// (for example merged/closed) that should stop the runner loop.
 	Approved bool
 
 	// Waiting reports that the review is not yet actionable (pending/no_reviews/no_change).

@@ -234,3 +234,31 @@ func TestRun_ReviewIDPassedOnSubsequentCall(t *testing.T) {
 		t.Fatalf("expected LastKnownReviewID=%q on second call, got %q", wantReviewID, got)
 	}
 }
+
+// TestRun_MaxWaitPollsReached verifies that when the agent returns
+// Result{Waiting:true} more than MaxWaitPolls times, Run returns
+// ErrMaxWaitPolls and does not advance Iterations.
+func TestRun_MaxWaitPollsReached(t *testing.T) {
+	tempStateDir(t)
+	tempLockDir(t)
+
+	// Agent always returns Waiting.
+	agent := &stubAgent{
+		name: "stub",
+		results: []engine.Result{
+			{Waiting: true},
+			{Waiting: true},
+			{Waiting: true},
+		},
+	}
+	opts := baseOpts(agent)
+	opts.MaxWaitPolls = 2 // exceeded after 3 Waiting results
+
+	res, err := runner.Run(opts)
+	if !errors.Is(err, runner.ErrMaxWaitPolls) {
+		t.Fatalf("expected ErrMaxWaitPolls, got %v", err)
+	}
+	if res.Iterations != 0 {
+		t.Fatalf("expected Iterations=0 (Waiting must not advance), got %d", res.Iterations)
+	}
+}

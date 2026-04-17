@@ -73,7 +73,7 @@ func (a *Agent) Run(opts engine.RunOpts) (engine.Result, error) {
 	}
 
 	// 2. Fetch comments.
-	comments, err := agent.GetComments(scriptDir, opts.Repo, opts.PR, opts.CWD)
+	comments, err := agent.GetComments(scriptDir, opts.Repo, opts.PR, opts.CWD, rs.ReviewID)
 	if err != nil {
 		return engine.Result{}, fmt.Errorf("claude: get comments: %w", err)
 	}

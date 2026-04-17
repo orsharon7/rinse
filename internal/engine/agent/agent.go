@@ -112,12 +112,20 @@ func GetReviewState(scriptDir, repo, pr, cwd, lastKnownReviewID string) (ReviewS
 }
 
 // GetComments fetches the unresolved Copilot review comments for the PR.
-func GetComments(scriptDir, repo, pr, cwd string) ([]Comment, error) {
-	cmd := exec.Command("bash",
+// If reviewID is non-empty, --review-id is passed to pr-review.sh so that
+// comments are fetched for the same review that GetReviewState returned,
+// avoiding a TOCTOU race where a newer review lands between the two calls.
+func GetComments(scriptDir, repo, pr, cwd, reviewID string) ([]Comment, error) {
+	args := []string{
 		filepath.Join(scriptDir, "pr-review.sh"),
 		pr, "comments",
 		"--repo", repo,
-	)
+	}
+	if reviewID != "" {
+		args = append(args, "--review-id", reviewID)
+	}
+
+	cmd := exec.Command("bash", args...)
 	cmd.Dir = cwd
 	var stderrBuf bytes.Buffer
 	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
