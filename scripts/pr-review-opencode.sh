@@ -717,7 +717,34 @@ while true; do
 
   ui_step 4 "Fix comments with opencode (${MODEL})"
 
-  comments_json=$(echo "$comments" | jq '.')
+  # Re-load .rinseignore each iteration in case it changed (e.g. committed mid-cycle).
+  load_rinseignore "$CWD"
+
+  # Apply .rinseignore filtering: split into active (to fix) and skipped (to acknowledge).
+  filter_output=$(filter_comments_by_rinseignore "$(echo "$comments" | jq '.')")
+  active_comments_json="${filter_output%%$'\0'*}"
+  skipped_comments_json="${filter_output#*$'\0'}"
+
+  skipped_count=$(echo "$skipped_comments_json" | jq 'length')
+  active_count=$(echo "$active_comments_json" | jq '[.[] | select(.in_reply_to_id == null)] | length')
+
+  if [[ "$skipped_count" -gt 0 ]]; then
+    log "🚫 Skipping ${skipped_count} comment(s) on .rinseignore paths — acknowledging..."
+    acknowledge_ignored_comments "$REPO" "$PR_NUMBER" "$skipped_comments_json"
+  fi
+
+  if [[ "$active_count" -eq 0 ]]; then
+    log "✅ All comments were on ignored paths — nothing to fix this iteration."
+    echo "$rid" > "$STATE_FILE"
+    log "💾 Saved last-known review ID: ${rid}"
+    log "✓ Iteration ${iter} complete (all comments ignored) — waiting for next Copilot review..."
+    echo ""
+    sleep 5
+    continue
+  fi
+
+  comments_json="$active_comments_json"
+  comment_count="$active_count"
 
   read -r -d '' PROMPT << PROMPT_EOF || true
 You are fixing GitHub Copilot code review comments on PR #${PR_NUMBER} in ${REPO}.

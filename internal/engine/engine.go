@@ -16,11 +16,16 @@ type Agent interface {
 
 // RunOpts carries all parameters for a single review-cycle iteration.
 type RunOpts struct {
-	PR                 string // PR number as string
-	Repo               string // owner/repo
-	CWD                string // local working directory
-	Model              string // model override (empty = use runner default)
-	LastKnownReviewID  string // last processed review ID; passed to GetReviewState for no_change detection
+	PR                string // PR number as string
+	Repo              string // owner/repo
+	CWD               string // local working directory
+	Model             string // model override (empty = use runner default)
+	LastKnownReviewID string // last processed review ID; passed to GetReviewState for no_change detection
+
+	// IgnorePatterns contains the parsed patterns from .rinseignore (if present).
+	// Comments whose file paths match any pattern are skipped rather than fixed.
+	// The slice is empty when no .rinseignore exists or all patterns were blank/comments.
+	IgnorePatterns []string
 }
 
 // Result captures the outcome of one fix iteration.

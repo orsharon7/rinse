@@ -16,6 +16,7 @@ import (
 
 	"github.com/orsharon7/rinse/internal/engine"
 	"github.com/orsharon7/rinse/internal/engine/agent"
+	"github.com/orsharon7/rinse/internal/ignore"
 )
 
 // Agent implements engine.Agent using the Claude Code CLI (`claude`).
@@ -76,6 +77,22 @@ func (a *Agent) Run(opts engine.RunOpts) (engine.Result, error) {
 	comments, err := agent.GetComments(scriptDir, opts.Repo, opts.PR, opts.CWD, rs.ReviewID)
 	if err != nil {
 		return engine.Result{}, fmt.Errorf("claude: get comments: %w", err)
+	}
+	if len(comments) == 0 {
+		return engine.Result{Comments: 0, ReviewID: rs.ReviewID}, nil
+	}
+
+	// 2a. Apply .rinseignore filtering when patterns are provided.
+	if len(opts.IgnorePatterns) > 0 {
+		matcher := ignore.ParsePatterns(opts.IgnorePatterns)
+		active, skipped := agent.SplitByIgnore(comments, matcher)
+		if len(skipped) > 0 {
+			_, _ = fmt.Fprintf(os.Stderr, "claude: skipping %d comment(s) on ignored paths\n", len(skipped))
+			agent.AcknowledgeIgnored(opts.Repo, opts.PR, skipped, func(format string, args ...any) {
+				_, _ = fmt.Fprintf(os.Stderr, format+"\n", args...)
+			})
+		}
+		comments = active
 	}
 	if len(comments) == 0 {
 		return engine.Result{Comments: 0, ReviewID: rs.ReviewID}, nil

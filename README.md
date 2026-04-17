@@ -290,8 +290,40 @@ Notifications are best-effort — a failure to notify never interrupts or fails 
 # Human-readable
 rinse status 42 --repo owner/repo
 
-# Machine-readable JSON (stdout)
-rinse status 42 --repo owner/repo --json
+---
+
+## Excluding files with .rinseignore
+
+Place a `.rinseignore` file at your repo root to tell RINSE which files and paths to skip during review cycles. Uses the same syntax as `.gitignore`.
+
+```
+# Generated files
+*.pb.go
+*.gen.go
+vendor/
+
+# Auto-generated mocks
+internal/mocks/
+
+# Database migrations (auto-generated)
+# internal/db/migrations/*.sql
+```
+
+When Copilot comments on an ignored path, RINSE:
+1. **Skips** the comment — does not pass it to the AI agent for fixing.
+2. **Replies** to the comment with `Skipped — file is excluded by .rinseignore`.
+
+`rinse init` creates a starter `.rinseignore` with common patterns. Commit it so the whole team benefits.
+
+---
+
+## Commands
+
+```
+rinse              Launch the interactive PR picker
+rinse stats        Show session history and time-saved metrics
+rinse --version    Print the installed version
+rinse --help       Show this help
 ```
 
 JSON schema:

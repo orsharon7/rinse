@@ -217,6 +217,7 @@ func Run(opts Opts) (Result, error) {
 			CWD:               opts.CWD,
 			Model:             opts.Model,
 			LastKnownReviewID: state.LastReviewID,
+			IgnorePatterns:    ignorePatterns,
 		})
 		if err != nil {
 			// Hard agent failure — persist state so we can resume, then surface.

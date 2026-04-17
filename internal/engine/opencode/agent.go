@@ -17,6 +17,7 @@ import (
 
 	"github.com/orsharon7/rinse/internal/engine"
 	"github.com/orsharon7/rinse/internal/engine/agent"
+	"github.com/orsharon7/rinse/internal/ignore"
 )
 
 // DefaultModel is the opencode model string used when RunOpts.Model is empty.
@@ -83,6 +84,23 @@ func (a *Agent) Run(opts engine.RunOpts) (engine.Result, error) {
 		return engine.Result{}, fmt.Errorf("opencode: get comments: %w", err)
 	}
 	if len(comments) == 0 {
+		return engine.Result{Comments: 0, ReviewID: rs.ReviewID}, nil
+	}
+
+	// 2a. Apply .rinseignore filtering when patterns are provided.
+	if len(opts.IgnorePatterns) > 0 {
+		matcher := ignore.ParsePatterns(opts.IgnorePatterns)
+		active, skipped := agent.SplitByIgnore(comments, matcher)
+		if len(skipped) > 0 {
+			_, _ = fmt.Fprintf(os.Stderr, "opencode: skipping %d comment(s) on ignored paths\n", len(skipped))
+			agent.AcknowledgeIgnored(opts.Repo, opts.PR, skipped, func(format string, args ...any) {
+				_, _ = fmt.Fprintf(os.Stderr, format+"\n", args...)
+			})
+		}
+		comments = active
+	}
+	if len(comments) == 0 {
+		// All comments were on ignored paths — nothing actionable.
 		return engine.Result{Comments: 0, ReviewID: rs.ReviewID}, nil
 	}
 

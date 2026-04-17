@@ -16,6 +16,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/orsharon7/rinse/internal/ignore"
 )
 
 // ReviewState is the parsed outcome of `pr-review.sh status` (which uses `gh api`) for a Copilot review.
@@ -266,6 +268,61 @@ func ScriptDir(cwd string) (string, error) {
 		dir = parent
 	}
 	return "", fmt.Errorf("agent: cannot locate scripts/pr-review.sh relative to %s", cwd)
+}
+
+// SplitByIgnore partitions comments into two groups using the provided Matcher:
+//   - active: comments whose file paths are NOT ignored (should be fixed)
+//   - skipped: comments whose file paths match an ignore pattern (should be acknowledged)
+//
+// Only top-level comments (InReplyToID == nil) are ever placed in skipped;
+// replies to ignored comments are dropped entirely because the parent thread
+// will be acknowledged and closed by AcknowledgeIgnored.
+func SplitByIgnore(comments []Comment, m ignore.Matcher) (active, skipped []Comment) {
+	// Build a set of top-level ignored IDs so we can drop their replies too.
+	ignoredIDs := map[int64]bool{}
+	for _, c := range comments {
+		if c.InReplyToID == nil && m.Matches(c.Path) {
+			ignoredIDs[c.ID] = true
+		}
+	}
+
+	for _, c := range comments {
+		switch {
+		case c.InReplyToID == nil && ignoredIDs[c.ID]:
+			skipped = append(skipped, c)
+		case c.InReplyToID != nil && ignoredIDs[*c.InReplyToID]:
+			// Drop replies to ignored top-level comments.
+		default:
+			active = append(active, c)
+		}
+	}
+	return active, skipped
+}
+
+// AcknowledgeIgnored posts a reply to each skipped comment explaining that
+// the file is excluded by .rinseignore. Errors are logged but non-fatal so
+// that a transient gh CLI failure does not abort the entire review cycle.
+func AcknowledgeIgnored(repo, pr string, skipped []Comment, logger func(format string, args ...any)) {
+	const replyBody = "Skipped — file is excluded by `.rinseignore`. RINSE will not auto-fix comments on this path."
+	for _, c := range skipped {
+		if c.InReplyToID != nil {
+			continue // only reply to top-level comments
+		}
+		args := []string{
+			"api",
+			fmt.Sprintf("repos/%s/pulls/%s/comments/%d/replies", repo, pr, c.ID),
+			"-X", "POST",
+			"-f", "body=" + replyBody,
+		}
+		cmd := exec.Command("gh", args...)
+		cmd.Stdout = os.Stderr // route to stderr so it doesn't pollute structured output
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			if logger != nil {
+				logger("agent: acknowledge ignored comment %d on %s: %v", c.ID, c.Path, err)
+			}
+		}
+	}
 }
 
 // countTopLevel returns the number of comments with InReplyToID == nil.
