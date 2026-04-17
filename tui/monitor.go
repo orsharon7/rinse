@@ -407,39 +407,6 @@ func (m monitorModel) renderPhaseBreadcrumb() string {
 	return "  " + strings.Join(parts, sep)
 }
 
-// ── Word wrap ─────────────────────────────────────────────────────────────────
-
-// wrapLine splits s into lines of at most w visible runes, breaking at spaces
-// where possible.
-func wrapLine(s string, w int) []string {
-	if w <= 0 {
-		return []string{s}
-	}
-	runes := []rune(s)
-	var lines []string
-	for len(runes) > 0 {
-		if len(runes) <= w {
-			lines = append(lines, string(runes))
-			break
-		}
-		// Try to break at a space within the last 12 chars of the window.
-		cut := w
-		for cut > w-12 && cut > 0 && runes[cut-1] != ' ' {
-			cut--
-		}
-		if cut <= 0 {
-			cut = w // no space found — hard break
-		}
-		lines = append(lines, strings.TrimRight(string(runes[:cut]), " "))
-		runes = runes[cut:]
-		// Skip leading spaces on continuation lines.
-		for len(runes) > 0 && runes[0] == ' ' {
-			runes = runes[1:]
-		}
-	}
-	return lines
-}
-
 // ── Help overlay ──────────────────────────────────────────────────────────────
 
 func (m monitorModel) renderHelp() string {
@@ -1345,12 +1312,13 @@ func fireWebhook(webhookURL, pr, repo string, exitCode int, p phase) {
 // cwd is the local checkout path used for post-cycle git operations.
 // autoMerge signals that the runner will handle merge/cleanup automatically;
 // the TUI post-cycle menu is suppressed in that case.
+// notify enables a native desktop notification when the cycle completes.
 //
 // Exit codes:
 //
 //	0 — cycle completed successfully
 //	1 — runner exited with an error
-func RunMonitor(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge bool, runnerArgs []string) (int, error) {
+func RunMonitor(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge, notify bool, runnerArgs []string) (int, error) {
 	cmd := exec.Command(runnerArgs[0], runnerArgs[1:]...)
 	cmd.Stdin = os.Stdin
 
@@ -1432,6 +1400,9 @@ func RunMonitor(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge 
 	if webhookURL := os.Getenv("RINSE_WEBHOOK_URL"); webhookURL != "" {
 		fireWebhook(webhookURL, pr, repo, exitCode, fm.phase)
 	}
+
+	// Send desktop notification if enabled (best-effort, non-blocking).
+	CycleNotification(notify, pr, repo, exitCode, time.Since(cm.started))
 
 	return exitCode, nil
 }

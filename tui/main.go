@@ -63,7 +63,7 @@ func main() {
 	runnerCmd := append(fm.finalCmd, "--no-interactive")
 
 	// RunMonitor returns the runner's exit code (0=ok, 1=error).
-	exitCode, err := RunMonitor(fm.prNum, fm.repo, strings.TrimSpace(rName), fm.modelOverride, fm.prTitle, fm.path, fm.autoMerge, runnerCmd)
+	exitCode, err := RunMonitor(fm.prNum, fm.repo, strings.TrimSpace(rName), fm.modelOverride, fm.prTitle, fm.path, fm.autoMerge, fm.notify, runnerCmd)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "monitor error:", err)
 		os.Exit(1)

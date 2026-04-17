@@ -239,6 +239,7 @@ func runStartCmd(args []string) {
 		reflect     bool
 		reflectMain string
 		autoMerge   bool
+		notify      bool
 		asJSON      bool
 	)
 
@@ -285,6 +286,8 @@ func runStartCmd(args []string) {
 			}
 		case "--auto-merge":
 			autoMerge = true
+		case "--notify":
+			notify = true
 		case "--json":
 			asJSON = true
 		default:
@@ -482,6 +485,7 @@ SUBCOMMANDS
       --reflect                   Enable reflection agent to update AGENTS.md
       --reflect-main-branch <br>  Branch for reflection commits (default: main)
       --auto-merge                Auto-merge when Copilot approves
+      --notify                    Send desktop notification when cycle completes
       --json                      Emit a JSON result line after the runner exits
 
   help | --help

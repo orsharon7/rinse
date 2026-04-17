@@ -120,6 +120,7 @@ const (
 	sfReflect
 	sfReflectBranch
 	sfAutoMerge
+	sfNotify
 	sfSave
 	sfCancel
 )
