@@ -26,7 +26,7 @@ const (
 	IconDiag     = "╱"
 )
 
-// ── Palette (RINSE brand) ─────────────────────────────────────────────────────
+// ── Palette (RINSE brand accents + Catppuccin Macchiato base) ────────────────
 
 var (
 	Mauve    = lipgloss.Color("#8B5CF6") // brand Primary/Purple
