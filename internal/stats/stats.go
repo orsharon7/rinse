@@ -368,7 +368,8 @@ type Summary struct {
 	PatternCounts    map[string]int
 	OutcomeCounts    map[Outcome]int
 	// Last30Days is a filtered summary over the last 30 days.
-	Last30Days *Summary
+	// It is always populated by Summarize (non-nil).
+	Last30Days Summary
 }
 
 // AvgIterations returns the average iterations per session (0 if no sessions).
@@ -447,8 +448,7 @@ func Summarize(sessions []Session) Summary {
 	}
 
 	sum := build(all)
-	r := build(recent)
-	sum.Last30Days = &r
+	sum.Last30Days = build(recent)
 	return sum
 }
 
@@ -626,12 +626,8 @@ func formatMinutes(mins int) string {
 func Print(sessions []Session) {
 	sum := Summarize(sessions)
 
-	display := sum
-	label := "all time"
-	if sum.Last30Days != nil {
-		display = *sum.Last30Days
-		label = "last 30 days"
-	}
+	display := sum.Last30Days
+	label := "last 30 days"
 
 	fmt.Printf("\n  RINSE Stats (%s)\n", label)
 	fmt.Printf("  PRs reviewed:     %d\n", display.TotalSessions)

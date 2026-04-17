@@ -1771,19 +1771,23 @@ func sessionOutcome(m monitorModel) stats.Outcome {
 	if !m.done {
 		return stats.OutcomeAborted
 	}
-	if m.exitCode != 0 {
-		return stats.OutcomeError
-	}
-	// Scan final log lines for merged/closed signals before falling back to
-	// iterHistory, because runner scripts exit 0 on these outcomes too.
+	// Scan final log lines for terminal signals before falling back to exit code
+	// or iterHistory, because some runner outcomes are communicated via logs.
 	for i := len(m.lines) - 1; i >= 0 && i >= len(m.lines)-10; i-- {
 		plain := stripANSI(m.lines[i])
+		lower := strings.ToLower(plain)
 		if strings.Contains(plain, "PR merged") || strings.Contains(plain, "🎉") {
 			return stats.OutcomeMerged
 		}
 		if strings.Contains(plain, "PR closed") || strings.Contains(plain, "📕") {
 			return stats.OutcomeClosed
 		}
+		if strings.Contains(lower, "max iterations") || strings.Contains(lower, "max iteration") {
+			return stats.OutcomeMaxIter
+		}
+	}
+	if m.exitCode != 0 {
+		return stats.OutcomeError
 	}
 	if len(m.iterHistory) == 0 {
 		return stats.OutcomeClean
