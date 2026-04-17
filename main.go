@@ -25,9 +25,24 @@ func main() {
 			}
 			if len(sessions) == 0 {
 				fmt.Println("\n  No sessions recorded yet. Run rinse on a PR to start tracking stats.\n")
+				fmt.Println("  Stats collection requires opt-in. Run: rinse opt-in\n")
 				os.Exit(0)
 			}
 			stats.Print(sessions)
+			os.Exit(0)
+		case "opt-in":
+			if err := stats.SetOptIn(true); err != nil {
+				fmt.Fprintln(os.Stderr, "error saving preference:", err)
+				os.Exit(1)
+			}
+			fmt.Println("  Stats collection enabled. Sessions will be saved to ~/.rinse/sessions/")
+			os.Exit(0)
+		case "opt-out":
+			if err := stats.SetOptIn(false); err != nil {
+				fmt.Fprintln(os.Stderr, "error saving preference:", err)
+				os.Exit(1)
+			}
+			fmt.Println("  Stats collection disabled. No new sessions will be saved.")
 			os.Exit(0)
 		}
 	}

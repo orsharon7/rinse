@@ -16,20 +16,38 @@ import (
 	"time"
 )
 
+// SchemaVersion is the current on-disk schema version. Increment when making
+// backward-incompatible changes to Session.
+const SchemaVersion = 1
+
+// Outcome describes the result of a single rinse run.
+type Outcome string
+
+const (
+	OutcomeApproved Outcome = "approved"
+	OutcomeClean    Outcome = "clean"
+	OutcomeMerged   Outcome = "merged"
+	OutcomeClosed   Outcome = "closed"
+	OutcomeMaxIter  Outcome = "max_iter"
+	OutcomeError    Outcome = "error"
+	OutcomeAborted  Outcome = "aborted"
+	OutcomeDryRun   Outcome = "dry_run"
+)
+
 // Session records the outcome of a single rinse PR-review run.
 type Session struct {
-	// Metadata
-	StartedAt time.Time `json:"started_at"`
-	EndedAt   time.Time `json:"ended_at"`
-	Repo      string    `json:"repo"`
-	PR        string    `json:"pr"`
-	Runner    string    `json:"runner"`
-	Model     string    `json:"model"`
+	SchemaVersion int     `json:"schema_version"`
+	StartedAt     time.Time `json:"started_at"`
+	EndedAt       time.Time `json:"ended_at"`
+	Repo          string    `json:"repo"`
+	PR            string    `json:"pr"`
+	Runner        string    `json:"runner"`
+	Model         string    `json:"model"`
 
 	// Outcomes
 	TotalComments int      `json:"total_comments"`
 	Iterations    int      `json:"iterations"`
-	Approved      bool     `json:"approved"`
+	Outcome       Outcome  `json:"outcome"`
 	Patterns      []string `json:"patterns,omitempty"`
 }
 
@@ -47,8 +65,133 @@ func SessionsDir() (string, error) {
 	return filepath.Join(home, ".rinse", "sessions"), nil
 }
 
+// configDir returns the directory for rinse config files.
+func configDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".rinse"), nil
+}
+
+// config holds user preferences persisted in ~/.rinse/config.json.
+type config struct {
+	StatsOptIn *bool `json:"stats_opt_in,omitempty"`
+}
+
+func loadConfig() (config, error) {
+	dir, err := configDir()
+	if err != nil {
+		return config{}, err
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "config.json"))
+	if os.IsNotExist(err) {
+		return config{}, nil
+	}
+	if err != nil {
+		return config{}, err
+	}
+	var cfg config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return config{}, err
+	}
+	return cfg, nil
+}
+
+func saveConfig(cfg config) error {
+	dir, err := configDir()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "config.json"), data, 0o644)
+}
+
+// IsOptedIn reports whether the user has opted in to stats collection.
+// Returns (false, nil) when no preference has been set yet.
+func IsOptedIn() (bool, error) {
+	cfg, err := loadConfig()
+	if err != nil {
+		return false, err
+	}
+	if cfg.StatsOptIn == nil {
+		return false, nil
+	}
+	return *cfg.StatsOptIn, nil
+}
+
+// SetOptIn persists the user's stats opt-in preference.
+func SetOptIn(optIn bool) error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	cfg.StatsOptIn = &optIn
+	return saveConfig(cfg)
+}
+
+// PromptOptIn prints a privacy notice and asks the user to opt in.
+// It is a no-op in non-interactive (CI/non-TTY) environments.
+// Returns true if the user opted in.
+func PromptOptIn() (bool, error) {
+	// Only prompt in interactive terminals.
+	fi, err := os.Stdin.Stat()
+	if err != nil || (fi.Mode()&os.ModeCharDevice) == 0 {
+		return false, nil
+	}
+
+	fmt.Println(`
+  RINSE Stats — Privacy Notice
+  ─────────────────────────────────────────────────────
+  Rinse can record per-run telemetry locally to power
+  the Pro dashboard (PRs reviewed, comments fixed,
+  time saved, top patterns).
+
+  Data is stored ONLY on this machine at:
+    ~/.rinse/sessions/
+
+  Nothing is sent to any server.
+  You can opt out at any time with: rinse opt-out
+  ─────────────────────────────────────────────────────`)
+	fmt.Print("  Enable local stats? [y/N]: ")
+
+	var resp string
+	fmt.Scanln(&resp)
+	optIn := strings.ToLower(strings.TrimSpace(resp)) == "y"
+	if err := SetOptIn(optIn); err != nil {
+		return false, err
+	}
+	return optIn, nil
+}
+
 // Save writes the session as a JSON file in SessionsDir.
+// It silently skips saving if the user has not opted in, and prompts
+// on first interactive run when no preference is set.
 func Save(s Session) error {
+	optedIn, err := IsOptedIn()
+	if err != nil {
+		return nil // non-fatal; skip saving on config read error
+	}
+	if !optedIn {
+		// No preference set yet — prompt if interactive; silently skip in CI.
+		fi, statErr := os.Stdin.Stat()
+		if statErr != nil || (fi.Mode()&os.ModeCharDevice) == 0 {
+			return nil // CI/non-TTY: silently off
+		}
+		optedIn, err = PromptOptIn()
+		if err != nil || !optedIn {
+			return nil
+		}
+	}
+
+	s.SchemaVersion = SchemaVersion
+
 	dir, err := SessionsDir()
 	if err != nil {
 		return fmt.Errorf("stats: cannot determine sessions dir: %w", err)
@@ -116,6 +259,7 @@ type Summary struct {
 	ApprovedSessions int
 	TotalDurationSec float64
 	PatternCounts    map[string]int
+	OutcomeCounts    map[Outcome]int
 	// Last30Days is a filtered summary over the last 30 days.
 	Last30Days *Summary
 }
@@ -175,15 +319,19 @@ func Summarize(sessions []Session) Summary {
 	}
 
 	build := func(ss []Session) Summary {
-		sum := Summary{PatternCounts: make(map[string]int)}
+		sum := Summary{
+			PatternCounts: make(map[string]int),
+			OutcomeCounts: make(map[Outcome]int),
+		}
 		for _, s := range ss {
 			sum.TotalSessions++
 			sum.TotalComments += s.TotalComments
 			sum.TotalIterations += s.Iterations
 			sum.TotalDurationSec += s.DurationSeconds()
-			if s.Approved {
+			if s.Outcome == OutcomeApproved {
 				sum.ApprovedSessions++
 			}
+			sum.OutcomeCounts[s.Outcome]++
 			for _, p := range s.Patterns {
 				sum.PatternCounts[p]++
 			}
@@ -215,6 +363,9 @@ func Print(sessions []Session) {
 	fmt.Printf("  Comments fixed:   %d\n", display.TotalComments)
 	fmt.Printf("  Avg iterations:   %.1f\n", display.AvgIterations())
 	fmt.Printf("  Est. time saved:  ~%.1f hours\n", display.EstTimeSavedHours())
+	if n := display.ApprovedSessions; n > 0 {
+		fmt.Printf("  Approved:         %d\n", n)
+	}
 
 	top := display.TopPatterns(5)
 	if len(top) > 0 {

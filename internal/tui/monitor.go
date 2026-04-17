@@ -1319,9 +1319,7 @@ func RunMonitor(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge 
 	// Persist session metrics for `rinse stats`.
 	if fm, ok := finalModel.(channelMonitor); ok {
 		m := fm.monitorModel
-		approved := m.done && m.exitCode == 0 &&
-			len(m.iterHistory) > 0 &&
-			m.iterHistory[len(m.iterHistory)-1].result == iterApproved
+		outcome := sessionOutcome(m)
 		session := stats.Session{
 			StartedAt:     m.started,
 			EndedAt:       time.Now(),
@@ -1331,7 +1329,7 @@ func RunMonitor(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge 
 			Model:         modelName,
 			TotalComments: m.totalComments,
 			Iterations:    m.iter,
-			Approved:      approved,
+			Outcome:       outcome,
 		}
 		_ = stats.Save(session)
 	}
@@ -1400,4 +1398,26 @@ func (m channelMonitor) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m channelMonitor) View() string {
 	return m.monitorModel.View()
+}
+
+// sessionOutcome maps the final monitor state to a stats.Outcome string.
+func sessionOutcome(m monitorModel) stats.Outcome {
+	if !m.done {
+		return stats.OutcomeAborted
+	}
+	if m.exitCode != 0 {
+		return stats.OutcomeError
+	}
+	if len(m.iterHistory) == 0 {
+		return stats.OutcomeClean
+	}
+	last := m.iterHistory[len(m.iterHistory)-1].result
+	switch last {
+	case iterApproved:
+		return stats.OutcomeApproved
+	case iterClean:
+		return stats.OutcomeClean
+	default:
+		return stats.OutcomeError
+	}
 }
