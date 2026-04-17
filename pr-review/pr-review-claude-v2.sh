@@ -142,13 +142,17 @@ if [[ "$USE_WORKTREE" == true ]]; then
     fi
     session_clear
     gh_lock_release
+    local should_print_insights=false
+    if [[ "${DRY_RUN:-false}" != true && -z "${_INS_OUTCOME:-}" ]]; then
+      should_print_insights=true
+    fi
     # Best-effort insights finalization (mirrors non-worktree _cleanup_on_exit)
     if [[ -z "${_INS_OUTCOME:-}" ]]; then
       local outcome="error"
       [[ $rc -eq 0 ]] && outcome="clean"
       insights_finalize "$outcome"
     fi
-    if [[ "${DRY_RUN:-false}" != true && -z "${_INS_OUTCOME:-}" ]]; then
+    if [[ "$should_print_insights" == true ]]; then
       insights_print $( [[ "${JSON_INSIGHTS:-false}" == true ]] && echo "--json" )
     fi
   }

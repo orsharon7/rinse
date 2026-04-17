@@ -161,13 +161,17 @@ if [[ "$USE_WORKTREE" == true ]]; then
     fi
     session_clear
     gh_lock_release
-    # Best-effort insights finalization
+    local should_print_insights=false
+    if [[ "${DRY_RUN:-false}" != true && -z "${_INS_OUTCOME:-}" ]]; then
+      should_print_insights=true
+    fi
+    # Best-effort insights finalization (mirrors non-worktree _cleanup_on_exit)
     if [[ -z "${_INS_OUTCOME:-}" ]]; then
       local outcome="error"
       [[ $rc -eq 0 ]] && outcome="clean"
       insights_finalize "$outcome"
     fi
-    if [[ "${DRY_RUN:-false}" != true && -z "${_INS_OUTCOME:-}" ]]; then
+    if [[ "$should_print_insights" == true ]]; then
       insights_print $( [[ "${JSON_INSIGHTS:-false}" == true ]] && echo "--json" )
     fi
   }
@@ -411,6 +415,8 @@ fi
 if [[ "$DRY_RUN" != true ]]; then
   if ! gh_lock_acquire; then
     log "🔒 Another RINSE runner already holds the lock for PR #${PR_NUMBER} — exiting to avoid duplicate run"
+    _INS_OUTCOME="skipped"
+    insights_finalize "skipped"
     exit 2
   fi
   log "🔑 Acquired distributed lock for PR #${PR_NUMBER}"
@@ -604,6 +610,9 @@ while true; do
 
   ui_outcome "💬" "${comment_count} comment(s) in review ${rid}" "$GUM_WARN"
   log "💬 ${comment_count} comment(s) in review ${rid} — invoking opencode (${MODEL})..."
+
+  # Record insights for this iteration (classify comments by category)
+  insights_record_iteration "$comment_count" "$comments_json"
 
   # ── Step 4: Build prompt and invoke opencode ──────────────────────────────
 
