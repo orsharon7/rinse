@@ -629,6 +629,11 @@ func Print(sessions []Session) {
 	display := sum.Last30Days
 	label := "last 30 days"
 
+	if sum.TotalSessions > 0 && sum.Last30Days.TotalSessions == 0 {
+		display = sum
+		label = "all time (no sessions in last 30 days)"
+	}
+
 	fmt.Printf("\n  RINSE Stats (%s)\n", label)
 	fmt.Printf("  PRs reviewed:     %d\n", display.TotalSessions)
 	fmt.Printf("  Comments fixed:   %d\n", display.TotalComments)

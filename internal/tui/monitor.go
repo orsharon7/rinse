@@ -449,8 +449,9 @@ func (m monitorModel) renderHelp() string {
 		{"t", "timing tooltip"},
 		{"S", "save full session log"},
 		{"s", "save reflect log"},
+		{"esc / q", "close this help"},
 		{"?", "toggle this help"},
-		{"q / ^C", "quit rinse"},
+		{"ctrl+c", "quit rinse"},
 	}
 
 	var lines []string
