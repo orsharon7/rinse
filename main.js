@@ -1,10 +1,15 @@
+/* ─── JS PROGRESSIVE ENHANCEMENT ────────────────────────── */
+document.documentElement.classList.add('js');
+
 /* ─── NAV SCROLL BORDER ──────────────────────────────────── */
 (function () {
   const nav = document.getElementById('nav');
+  if (!nav) return;
   const onScroll = () => {
     nav.classList.toggle('scrolled', window.scrollY > 8);
   };
   window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll(); // set initial state in case page loads already scrolled
 })();
 
 /* ─── SCROLL FADE-IN ─────────────────────────────────────── */
@@ -42,6 +47,9 @@
         label.textContent = 'Copy';
         btn.classList.remove('copied');
       }, 2000);
+    }).catch(() => {
+      label.textContent = 'Failed';
+      setTimeout(() => { label.textContent = 'Copy'; }, 2000);
     });
   });
 })();
@@ -51,7 +59,7 @@
   const typedCmd  = document.getElementById('typedCmd');
   const cursor    = document.getElementById('cursor');
   const termOut   = document.getElementById('termOutput');
-  if (!typedCmd || !termOut) return;
+  if (!typedCmd || !termOut || !cursor) return;
 
   const CMD = 'rinse .';
   const OUTPUT_LINES = [
@@ -129,6 +137,8 @@
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = form.querySelector('.waitlist-btn');
+    const input = form.querySelector('.waitlist-input');
+    if (!btn) return;
     const originalText = btn.textContent;
     try {
       const res = await fetch(form.action, {
@@ -139,7 +149,7 @@
       if (res.ok) {
         btn.textContent = 'You\'re on the list ✓';
         btn.disabled = true;
-        form.querySelector('.waitlist-input').disabled = true;
+        if (input) input.disabled = true;
       } else {
         btn.textContent = 'Try again';
         setTimeout(() => { btn.textContent = originalText; }, 2500);
