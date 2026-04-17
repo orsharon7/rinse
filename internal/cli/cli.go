@@ -12,7 +12,8 @@
 //	rinse start  <pr>  [options]              [--json]
 //	rinse help
 //
-// RINSE targets Linux and macOS only (matching the cross-build Makefile targets).
+// RINSE primarily targets Linux and macOS (matching the cross-build Makefile targets),
+// but these subcommands also compile and run on Windows.
 
 package cli
 

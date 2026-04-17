@@ -515,9 +515,10 @@ func (m wizModel) handleStepBKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 
 	// Forward remaining keys to the text input.
 	var cmd tea.Cmd
+	prevVal := m.cycleInput.Value()
 	m.cycleInput, cmd = m.cycleInput.Update(msg)
-	// Clear error on any text change.
-	if m.cycleInputErr != "" {
+	// Clear the error only when the input value actually changes.
+	if m.cycleInputErr != "" && m.cycleInput.Value() != prevVal {
 		m.cycleInputErr = ""
 	}
 	return m, cmd
@@ -535,12 +536,9 @@ const (
 
 func (m wizModel) handleStepCKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 	// Block all navigation and toggles while config write is in-flight.
-	// Show a "Saving…" state in the view; only allow force-quit.
+	// Show a "Saving…" state in the view. ForceQuit is already handled by
+	// handleKey() before this function is called.
 	if m.writingConfig {
-		if key.Matches(msg, Keys.ForceQuit) {
-			m.outcome = WizardAborted
-			return m, tea.Quit
-		}
 		return m, nil
 	}
 
@@ -620,11 +618,9 @@ func (m wizModel) handleStepCKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 // ── Step D keys ───────────────────────────────────────────────────────────────
 
 func (m wizModel) handleStepDKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
+	// Block navigation while cycle creation is in-flight. ForceQuit is already
+	// handled by handleKey() before this function is called.
 	if m.creatingCycle {
-		if key.Matches(msg, Keys.ForceQuit) {
-			m.outcome = WizardAborted
-			return m, tea.Quit
-		}
 		return m, nil
 	}
 
