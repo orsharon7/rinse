@@ -39,16 +39,30 @@ func LoadRepoRinseConfig(dir string) (RepoRinseConfig, bool) {
 	return cfg, true
 }
 
+// resolveInitRoot returns the directory RunInit should use for all config
+// file operations. It prefers the git repo root and falls back to the current
+// working directory when invoked outside a git repository.
+func resolveInitRoot() (string, error) {
+	if repoRoot := detectGitRoot(); repoRoot != "" {
+		return repoRoot, nil
+	}
+	return os.Getwd()
+}
+
 // RunInit implements the `rinse init` subcommand.
 // It scaffolds a .rinse.json config in the git repo root with sensible
 // defaults, prompting the user to choose engine and reflection settings.
 func RunInit() {
 	reader := bufio.NewReader(os.Stdin)
 
-	// Resolve the git repo root so the config is always written where the TUI
-	// will find it (detectGitRoot() in tui/wizard.go), regardless of the CWD
-	// from which `rinse init` is invoked.
-	repoRoot := detectGitRoot()
+	// Resolve a single base directory for all config file operations so that
+	// config writes and any temporary-file/rename flow use the same filesystem
+	// location even when invoked outside a git repository.
+	repoRoot, err := resolveInitRoot()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: cannot determine working directory: %v\n", err)
+		os.Exit(1)
+	}
 	configPath := filepath.Join(repoRoot, rinseConfigFile)
 
 	// Check if config already exists.
