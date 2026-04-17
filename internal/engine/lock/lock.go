@@ -116,7 +116,7 @@ func (l *Lock) writeMeta() error {
 func (l *Lock) isActive() (bool, error) {
 	path := filepath.Join(l.dir, "meta.json")
 	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
+	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
 	if err != nil {
@@ -149,7 +149,7 @@ func IsHeld(repo, pr string) bool {
 	key := keyFor(repo, pr)
 	dir := lockDir(key)
 
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
+	if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
 		return false
 	}
 
