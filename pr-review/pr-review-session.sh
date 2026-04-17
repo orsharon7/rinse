@@ -204,8 +204,8 @@ _gh_lock_ensure_label_created() {
   gh api "repos/${_SESSION_REPO}/labels" \
     -X POST \
     -f name="${RINSE_RUNNING_LABEL}" \
-    -f color="e4e669" \
-    -f description="RINSE is actively reviewing this PR" \
+    -f color="8B5CF6" \
+    -f description="RINSE is actively reviewing this PR — do not merge" \
     2>/dev/null || true
 }
 
