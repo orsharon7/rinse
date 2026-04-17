@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"unicode"
 )
 
 // TomlConfigPath returns ~/.config/rinse/config.toml
@@ -13,6 +15,40 @@ func TomlConfigPath() string {
 		dir = os.Getenv("HOME")
 	}
 	return filepath.Join(dir, "rinse", "config.toml")
+}
+
+// tomlQuoteString returns a TOML basic string literal (including surrounding
+// quotes) for s. Unlike Go's %q, it never emits \xNN escape sequences which
+// are not valid in TOML; instead it uses \uXXXX for control characters.
+func tomlQuoteString(s string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range s {
+		switch r {
+		case '"':
+			b.WriteString(`\"`)
+		case '\\':
+			b.WriteString(`\\`)
+		case '\b':
+			b.WriteString(`\b`)
+		case '\t':
+			b.WriteString(`\t`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\f':
+			b.WriteString(`\f`)
+		case '\r':
+			b.WriteString(`\r`)
+		default:
+			if unicode.IsControl(r) {
+				fmt.Fprintf(&b, `\u%04X`, r)
+			} else {
+				b.WriteRune(r)
+			}
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
 }
 
 // WriteTomlConfig writes the TOML config atomically.
@@ -33,11 +69,11 @@ func WriteTomlConfig(cycleName string, d Defaults) error {
 			"auto_advance       = %v   # Automatically move to next step. (Onboarding Step C toggle 2)\n"+
 			"save_history       = %v    # Persist cycle run history to disk. (Onboarding Step C toggle 3)\n\n"+
 			"[cycle]\n"+
-			"name = %q                    # Set during onboarding Step B. Editable at any time.\n",
+			"name = %s                    # Set during onboarding Step B. Editable at any time.\n",
 		d.RemindOnComplete,
 		d.AutoAdvance,
 		d.SaveHistory,
-		cycleName,
+		tomlQuoteString(cycleName),
 	)
 
 	tmp, err := os.CreateTemp(filepath.Dir(path), "config.toml.*.tmp")
