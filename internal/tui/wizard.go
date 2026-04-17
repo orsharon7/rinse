@@ -1,4 +1,4 @@
-package main
+package tui
 
 import (
 	"fmt"
@@ -13,6 +13,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/orsharon7/rinse/internal/config"
+	"github.com/orsharon7/rinse/internal/theme"
 )
 
 // ── Splash timer message ──────────────────────────────────────────────────────
@@ -85,53 +87,27 @@ type model struct {
 	itemCount     int // total PRs loaded
 }
 
-func initialModel() model {
-	repo := detectRepo()
-
-	cfg := LoadConfig()
-	var rc RepoConfig
-	hasRepoConfig := false
-	if repo != "" {
-		if loaded, ok := LoadRepoConfig(repo); ok {
-			rc = loaded
-			hasRepoConfig = true
-		}
-	}
-	if !hasRepoConfig && cfg.LastRunner > 0 && cfg.LastRunner < len(runners) {
-		rc.Runner = cfg.LastRunner
-	}
-	if rc.Model == "" {
-		rc.Model = cfg.LastModel
-	}
-
-	path := detectCWD()
-	if repo == "" {
-		path = rc.Path
-		if path == "" {
-			path = detectCWD()
-		}
-	}
-
+func newModel(repo, path string, rc config.RepoConfig, cfg config.Config, hasRepoConfig bool) model {
 	ti := textinput.New()
-	ti.Cursor.Style = lipgloss.NewStyle().Foreground(mauve)
-	ti.PromptStyle = lipgloss.NewStyle().Foreground(mauve)
-	ti.TextStyle = lipgloss.NewStyle().Foreground(text)
-	ti.Prompt = "  PR# " + IconArrow + " "
+	ti.Cursor.Style = lipgloss.NewStyle().Foreground(theme.Mauve)
+	ti.PromptStyle = lipgloss.NewStyle().Foreground(theme.Mauve)
+	ti.TextStyle = lipgloss.NewStyle().Foreground(theme.Text)
+	ti.Prompt = "  PR# " + theme.IconArrow + " "
 	ti.CharLimit = 10
 	ti.Placeholder = "e.g. 42"
 
 	mi := textinput.New()
-	mi.Cursor.Style = lipgloss.NewStyle().Foreground(mauve)
-	mi.PromptStyle = lipgloss.NewStyle().Foreground(mauve)
-	mi.TextStyle = lipgloss.NewStyle().Foreground(text)
-	mi.Prompt = "  " + IconArrow + " "
+	mi.Cursor.Style = lipgloss.NewStyle().Foreground(theme.Mauve)
+	mi.PromptStyle = lipgloss.NewStyle().Foreground(theme.Mauve)
+	mi.TextStyle = lipgloss.NewStyle().Foreground(theme.Text)
+	mi.Prompt = "  " + theme.IconArrow + " "
 	mi.CharLimit = 80
 
 	bi := textinput.New()
-	bi.Cursor.Style = lipgloss.NewStyle().Foreground(mauve)
-	bi.PromptStyle = lipgloss.NewStyle().Foreground(mauve)
-	bi.TextStyle = lipgloss.NewStyle().Foreground(text)
-	bi.Prompt = "  " + IconArrow + " "
+	bi.Cursor.Style = lipgloss.NewStyle().Foreground(theme.Mauve)
+	bi.PromptStyle = lipgloss.NewStyle().Foreground(theme.Mauve)
+	bi.TextStyle = lipgloss.NewStyle().Foreground(theme.Text)
+	bi.Prompt = "  " + theme.IconArrow + " "
 	bi.CharLimit = 80
 
 	reflectDefault := rc.Reflect
@@ -148,15 +124,15 @@ func initialModel() model {
 
 	reflectBranch := rc.Branch
 
-	// Splash spinner — MiniDot like Crush
+	// Splash spinner — MiniDot like Crush.
 	sp := spinner.New()
 	sp.Spinner = spinner.MiniDot
-	sp.Style = lipgloss.NewStyle().Foreground(mauve)
+	sp.Style = lipgloss.NewStyle().Foreground(theme.Mauve)
 
-	// PR list loading spinner
+	// PR list loading spinner.
 	ps := spinner.New()
 	ps.Spinner = spinner.Dot
-	ps.Style = lipgloss.NewStyle().Foreground(lavender)
+	ps.Style = lipgloss.NewStyle().Foreground(theme.Lavender)
 
 	return model{
 		view:          viewSplash,
@@ -285,7 +261,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 	}
 
-	// Forward to text inputs when active
+	// Forward to text inputs when active.
 	if m.view == viewManualPR {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
@@ -308,7 +284,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// ctrl+c always quits
+	// ctrl+c always quits.
 	if key.Matches(msg, Keys.ForceQuit) {
 		return m, tea.Quit
 	}
@@ -531,7 +507,7 @@ func (m model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.reflectBranch = branch
 			m.view = viewPRPicker
-			SaveConfig(Config{
+			saveConfig(config.Config{
 				LastRepo:      m.repo,
 				LastPath:      m.path,
 				LastRunner:    m.runnerIdx,
@@ -581,6 +557,8 @@ func (m model) buildCmd() ([]string, error) {
 		}
 		binDir := filepath.Dir(exe)
 		candidates := []string{
+			filepath.Join(binDir, "scripts"),
+			filepath.Join(binDir, "..", "scripts"),
 			filepath.Join(binDir, "pr-review"),
 			filepath.Join(binDir, "..", "pr-review"),
 			binDir,
@@ -623,7 +601,7 @@ func (m model) buildCmd() ([]string, error) {
 		cmd = append(cmd, "--auto-merge")
 	}
 
-	SaveConfig(Config{
+	saveConfig(config.Config{
 		LastRepo:      m.repo,
 		LastPath:      path,
 		LastRunner:    m.runnerIdx,
@@ -694,15 +672,13 @@ func (m model) View() string {
 }
 
 // renderHeader renders the persistent header bar.
-//
-//	rinse™ RINSE ╱╱╱╱╱╱ owner/repo • main ╱╱╱╱
 func (m model) renderHeader(w int) string {
-	innerW := w - styleAppHeader.GetHorizontalFrameSize()
+	innerW := w - theme.StyleAppHeader.GetHorizontalFrameSize()
 	if innerW < 0 {
 		innerW = 0
 	}
-	brand := renderCompactBrandWithDetails(innerW, m.headerDetails())
-	return styleAppHeader.Width(w).Render(brand)
+	brand := theme.RenderCompactBrandWithDetails(innerW, m.headerDetails())
+	return theme.StyleAppHeader.Width(w).Render(brand)
 }
 
 // headerDetails returns the contextual info shown right of the logo in the header.
@@ -763,23 +739,21 @@ func (m model) renderFooter(w int) string {
 		w = 80
 	}
 
-	// Derive the available content width from the footer style's horizontal
-	// frame so layout stays in sync with any padding/border theme changes.
-	frameW := styleAppFooter.GetHorizontalFrameSize()
+	frameW := theme.StyleAppFooter.GetHorizontalFrameSize()
 	contentW := w - frameW
 	if contentW <= 1 {
-		return styleAppFooter.Width(w).Render("")
+		return theme.StyleAppFooter.Width(w).Render("")
 	}
 
 	// Left: status message or idle indicator.
 	statusText := "ready"
-	statusStyle := styleFooterMuted
+	statusStyle := theme.StyleFooterMuted
 	if m.statusMsg != "" {
-		icon := IconCheck
-		statusStyle = styleFooterStatus
+		icon := theme.IconCheck
+		statusStyle = theme.StyleFooterStatus
 		if m.statusIsError {
-			icon = IconCross
-			statusStyle = styleFooterStatusErr
+			icon = theme.IconCross
+			statusStyle = theme.StyleFooterStatusErr
 		}
 		statusText = icon + " " + m.statusMsg
 	}
@@ -827,9 +801,9 @@ func (m model) renderFooter(w int) string {
 	var right string
 	if countText != "" && strings.HasPrefix(rightText, countText) {
 		hintOnly := strings.TrimPrefix(rightText, countText)
-		right = styleFooterMuted.Render(countText) + styleFooterHint.Render(hintOnly)
+		right = theme.StyleFooterMuted.Render(countText) + theme.StyleFooterHint.Render(hintOnly)
 	} else {
-		right = styleFooterHint.Render(rightText)
+		right = theme.StyleFooterHint.Render(rightText)
 	}
 
 	// Truncate the left side to fit beside the right side.
@@ -848,7 +822,7 @@ func (m model) renderFooter(w int) string {
 		gap = 1
 	}
 	bar := left + strings.Repeat(" ", gap) + right
-	return styleAppFooter.Width(w).Render(bar)
+	return theme.StyleAppFooter.Width(w).Render(bar)
 }
 
 // ── Splash screen ─────────────────────────────────────────────────────────────
@@ -861,30 +835,30 @@ func (m model) renderSplash() string {
 
 	var b strings.Builder
 
-	b.WriteString(renderWordmark(w))
+	b.WriteString(theme.RenderWordmark(w, version))
 	b.WriteString("\n\n")
 
-	// Tagline — centered under the logo
-	tagline := styleMuted.Render("       lather") +
-		styleTeal.Render(" "+IconSep+" ") +
-		styleMuted.Render("rinse") +
-		styleTeal.Render(" "+IconSep+" ") +
-		styleMuted.Render("repeat")
+	// Tagline — centered under the logo.
+	tagline := theme.StyleMuted.Render("       lather") +
+		theme.StyleTeal.Render(" "+theme.IconSep+" ") +
+		theme.StyleMuted.Render("rinse") +
+		theme.StyleTeal.Render(" "+theme.IconSep+" ") +
+		theme.StyleMuted.Render("repeat")
 	b.WriteString(tagline)
 	b.WriteString("\n\n")
 
-	// Loading status with animated spinner
+	// Loading status with animated spinner.
 	status := "       " + m.splashSpinner.View() + " "
 	if m.repo != "" {
-		status += styleSplashStatus.Render(m.repo)
+		status += theme.StyleSplashStatus.Render(m.repo)
 	} else {
-		status += styleSplashStatus.Render("detecting repository…")
+		status += theme.StyleSplashStatus.Render("detecting repository…")
 	}
 	b.WriteString(status)
 	b.WriteString("\n\n")
 
-	// Skip hint
-	b.WriteString(styleMuted.Render("       press any key to skip"))
+	// Skip hint.
+	b.WriteString(theme.StyleMuted.Render("       press any key to skip"))
 
 	return b.String()
 }
@@ -896,26 +870,23 @@ func (m model) renderPRPicker(w int) string {
 
 	// ── PR list ───────────────────────────────────────────────────────────────
 	if m.prLoading {
-		b.WriteString("  " + m.prSpinner.View() + " " + styleMuted.Render("Fetching open PRs…") + "\n")
+		b.WriteString("  " + m.prSpinner.View() + " " + theme.StyleMuted.Render("Fetching open PRs…") + "\n")
 	} else if m.prLoadErr != "" {
-		b.WriteString(styleErr.Render("  "+IconCross+" "+m.prLoadErr) + "\n")
-		b.WriteString(styleMuted.Render("  Press # to enter a PR number manually") + "\n")
+		b.WriteString(theme.StyleErr.Render("  "+theme.IconCross+" "+m.prLoadErr) + "\n")
+		b.WriteString(theme.StyleMuted.Render("  Press # to enter a PR number manually") + "\n")
 	} else if len(m.prs) == 0 {
 		if m.repo == "" {
-			b.WriteString(styleMuted.Render("  No repo detected. Run from inside a git checkout.") + "\n")
+			b.WriteString(theme.StyleMuted.Render("  No repo detected. Run from inside a git checkout.") + "\n")
 		} else {
-			b.WriteString(styleMuted.Render("  No open PRs found.") + "\n")
+			b.WriteString(theme.StyleMuted.Render("  No open PRs found.") + "\n")
 		}
-		b.WriteString(styleMuted.Render("  Press # to enter a PR number manually") + "\n")
+		b.WriteString(theme.StyleMuted.Render("  Press # to enter a PR number manually") + "\n")
 	} else {
-		// Section title with count
-		count := styleMuted.Render(fmt.Sprintf("  %d open", len(m.prs)))
+		// Section title with count.
+		count := theme.StyleMuted.Render(fmt.Sprintf("  %d open", len(m.prs)))
 		b.WriteString(count + "\n")
 
 		// Make branchW dynamic so the row never exceeds w on narrow terminals.
-		// Reserve ~18 chars for the PR number + separators, then split the
-		// remaining space 30/70 between branch and title. Only enforce the
-		// normal minimum widths when there is enough room for both columns.
 		available := max(0, w-18)
 		branchW := available * 30 / 100
 		if branchW > 28 {
@@ -935,33 +906,33 @@ func (m model) renderPRPicker(w int) string {
 
 		for i, p := range m.prs {
 			num := fmtPRNumber(p.Number)
-			branch := truncate(p.HeadRefName, branchW)
-			title := truncate(p.Title, titleW)
+			branch := theme.Truncate(p.HeadRefName, branchW)
+			title := theme.Truncate(p.Title, titleW)
 			isCurrent := p.HeadRefName == m.currentBranch
 
 			if i == m.prCursor {
-				bar := styleSelectedBar.Render(IconThickBar)
-				sNum := stylePRNum.Render(fmt.Sprintf("%-6s", num))
-				sBranch := styleSelected.Render(fmt.Sprintf("%-*s", branchW, branch))
+				bar := theme.StyleSelectedBar.Render(theme.IconThickBar)
+				sNum := theme.StylePRNum.Render(fmt.Sprintf("%-6s", num))
+				sBranch := theme.StyleSelected.Render(fmt.Sprintf("%-*s", branchW, branch))
 				if isCurrent {
-					sBranch = styleTeal.Render(fmt.Sprintf("%-*s", branchW, branch))
+					sBranch = theme.StyleTeal.Render(fmt.Sprintf("%-*s", branchW, branch))
 				}
-				sTitle := lipgloss.NewStyle().Foreground(text).Render(title)
+				sTitle := lipgloss.NewStyle().Foreground(theme.Text).Render(title)
 				marker := ""
 				if isCurrent {
-					marker = " " + styleTeal.Render(IconArrow)
+					marker = " " + theme.StyleTeal.Render(theme.IconArrow)
 				}
 				b.WriteString(" " + bar + " " + sNum + " " + sBranch + "  " + sTitle + marker)
 			} else {
-				uNum := stylePRNumMuted.Render(fmt.Sprintf("%-6s", num))
-				uBranch := styleUnselected.Render(fmt.Sprintf("%-*s", branchW, branch))
+				uNum := theme.StylePRNumMuted.Render(fmt.Sprintf("%-6s", num))
+				uBranch := theme.StyleUnselected.Render(fmt.Sprintf("%-*s", branchW, branch))
 				if isCurrent {
-					uBranch = styleTeal.Render(fmt.Sprintf("%-*s", branchW, branch))
+					uBranch = theme.StyleTeal.Render(fmt.Sprintf("%-*s", branchW, branch))
 				}
-				uTitle := styleMuted.Render(title)
+				uTitle := theme.StyleMuted.Render(title)
 				marker := ""
 				if isCurrent {
-					marker = " " + styleTeal.Render(IconArrow)
+					marker = " " + theme.StyleTeal.Render(theme.IconArrow)
 				}
 				b.WriteString("    " + uNum + " " + uBranch + "  " + uTitle + marker)
 			}
@@ -971,7 +942,7 @@ func (m model) renderPRPicker(w int) string {
 
 	// ── Error ─────────────────────────────────────────────────────────────────
 	if m.errMsg != "" {
-		b.WriteString("\n" + styleErr.Render("  "+IconCross+" "+m.errMsg) + "\n")
+		b.WriteString("\n" + theme.StyleErr.Render("  "+theme.IconCross+" "+m.errMsg) + "\n")
 	}
 
 	// ── Settings ribbon ───────────────────────────────────────────────────────
@@ -991,29 +962,29 @@ func (m model) renderRibbon(w int) string {
 		modelStr = runners[m.runnerIdx].defaultModel
 	}
 
-	dot := styleMuted.Render(" " + IconSep + " ")
+	dot := theme.StyleMuted.Render(" " + theme.IconSep + " ")
 
 	parts := []string{
-		styleVal.Render(rName),
-		styleMuted.Render(truncate(modelStr, 30)),
+		theme.StyleVal.Render(rName),
+		theme.StyleMuted.Render(theme.Truncate(modelStr, 30)),
 	}
 	if m.reflect {
 		branch := m.reflectBranch
 		if branch == "" {
 			branch = m.defaultBranch
 		}
-		parts = append(parts, styleTeal.Render("reflect "+IconArrow+" "+branch))
+		parts = append(parts, theme.StyleTeal.Render("reflect "+theme.IconArrow+" "+branch))
 	} else {
-		parts = append(parts, styleMuted.Render("reflect off"))
+		parts = append(parts, theme.StyleMuted.Render("reflect off"))
 	}
 	if m.autoMerge {
-		parts = append(parts, styleTeal.Render("auto-merge on"))
+		parts = append(parts, theme.StyleTeal.Render("auto-merge on"))
 	} else {
-		parts = append(parts, styleMuted.Render("auto-merge off"))
+		parts = append(parts, theme.StyleMuted.Render("auto-merge off"))
 	}
 
-	ribbonW := clamp(w-2, 0, 200)
-	return "\n" + styleRibbon.Width(ribbonW).Render(strings.Join(parts, dot))
+	ribbonW := theme.Clamp(w-2, 0, 200)
+	return "\n" + theme.StyleRibbon.Width(ribbonW).Render(strings.Join(parts, dot))
 }
 
 // ── Manual PR ─────────────────────────────────────────────────────────────────
@@ -1021,17 +992,17 @@ func (m model) renderRibbon(w int) string {
 func (m model) renderManualPR(w, h int) string {
 	var b strings.Builder
 
-	b.WriteString(styleStep.Render("  Enter PR number"))
+	b.WriteString(theme.StyleStep.Render("  Enter PR number"))
 	b.WriteString("\n\n")
 	b.WriteString(m.input.View())
 	b.WriteString("\n")
 
 	if m.errMsg != "" {
-		b.WriteString("\n" + styleErr.Render("  "+IconCross+" "+m.errMsg) + "\n")
+		b.WriteString("\n" + theme.StyleErr.Render("  "+theme.IconCross+" "+m.errMsg) + "\n")
 	}
 
-	dot := styleMuted.Render(" " + IconSep + " ")
-	hints := renderKeyHint("enter", "launch") + dot + renderKeyHint("esc", "back")
+	dot := theme.StyleMuted.Render(" " + theme.IconSep + " ")
+	hints := theme.RenderKeyHint("enter", "launch") + dot + theme.RenderKeyHint("esc", "back")
 	b.WriteString("\n  " + hints)
 
 	return lipgloss.Place(w, h, lipgloss.Left, lipgloss.Top, b.String())
@@ -1040,37 +1011,37 @@ func (m model) renderManualPR(w, h int) string {
 // ── Settings overlay ──────────────────────────────────────────────────────────
 
 func (m model) renderSettings() string {
-	title := gradientString("SETTINGS", mauve, lavender, true)
+	title := theme.GradientString("SETTINGS", theme.Mauve, theme.Lavender, true)
 
-	// Runner — show name + description
+	// Runner — show name + description.
 	r := runners[m.settingsRunnerIdx]
-	runnerVal := styleMuted.Render("◂ ") +
-		styleVal.Render(r.name) +
-		styleMuted.Render("  "+r.desc) +
-		styleMuted.Render(" ▸")
+	runnerVal := theme.StyleMuted.Render("◂ ") +
+		theme.StyleVal.Render(r.name) +
+		theme.StyleMuted.Render("  "+r.desc) +
+		theme.StyleMuted.Render(" ▸")
 
-	// Model
+	// Model.
 	var modelVal string
 	if m.settingsEditingModel {
 		modelVal = m.settingsModelInput.View()
 	} else {
 		v := m.settingsModelInput.Value()
 		if v == "" {
-			modelVal = styleMuted.Render(runners[m.settingsRunnerIdx].defaultModel) +
-				styleMuted.Render("  (default)")
+			modelVal = theme.StyleMuted.Render(runners[m.settingsRunnerIdx].defaultModel) +
+				theme.StyleMuted.Render("  (default)")
 		} else {
-			modelVal = styleVal.Render(v)
+			modelVal = theme.StyleVal.Render(v)
 		}
 	}
 
-	// Reflect toggle
-	reflectVal := styleMuted.Render(IconRadioOff + " off")
+	// Reflect toggle.
+	reflectVal := theme.StyleMuted.Render(theme.IconRadioOff + " off")
 	if m.settingsReflect {
-		reflectVal = styleTeal.Render(IconRadioOn+" on") +
-			styleMuted.Render("  extract coding rules after each cycle")
+		reflectVal = theme.StyleTeal.Render(theme.IconRadioOn+" on") +
+			theme.StyleMuted.Render("  extract coding rules after each cycle")
 	}
 
-	// Branch
+	// Branch.
 	var branchVal string
 	if m.settingsEditingBranch {
 		branchVal = m.settingsBranchInput.View()
@@ -1079,14 +1050,14 @@ func (m model) renderSettings() string {
 		if v == "" {
 			v = m.defaultBranch
 		}
-		branchVal = styleVal.Render(v)
+		branchVal = theme.StyleVal.Render(v)
 	}
 
-	// Auto-merge toggle
-	amVal := styleMuted.Render(IconRadioOff + " off")
+	// Auto-merge toggle.
+	amVal := theme.StyleMuted.Render(theme.IconRadioOff + " off")
 	if m.settingsAutoMerge {
-		amVal = styleTeal.Render(IconRadioOn+" on") +
-			styleMuted.Render("  merge PR automatically when approved")
+		amVal = theme.StyleTeal.Render(theme.IconRadioOn+" on") +
+			theme.StyleMuted.Render("  merge PR automatically when approved")
 	}
 
 	type srow struct {
@@ -1109,34 +1080,34 @@ func (m model) renderSettings() string {
 	for _, r := range rows {
 		cursor := "  "
 		if r.field == m.settingsFocus {
-			cursor = styleSelected.Render(IconArrow + " ")
+			cursor = theme.StyleSelected.Render(theme.IconArrow + " ")
 		}
-		lines = append(lines, cursor+styleKey.Render(r.label)+"  "+r.value)
+		lines = append(lines, cursor+theme.StyleKey.Render(r.label)+"  "+r.value)
 	}
 
 	lines = append(lines, "")
 
 	saveCursor := "  "
 	if m.settingsFocus == sfSave {
-		saveCursor = styleSelected.Render(IconArrow + " ")
+		saveCursor = theme.StyleSelected.Render(theme.IconArrow + " ")
 	}
 	cancelCursor := "  "
 	if m.settingsFocus == sfCancel {
-		cancelCursor = styleSelected.Render(IconArrow + " ")
+		cancelCursor = theme.StyleSelected.Render(theme.IconArrow + " ")
 	}
-	lines = append(lines, saveCursor+styleTeal.Render(IconCheck+" save"))
-	lines = append(lines, cancelCursor+styleMuted.Render(IconCross+" cancel"))
+	lines = append(lines, saveCursor+theme.StyleTeal.Render(theme.IconCheck+" save"))
+	lines = append(lines, cancelCursor+theme.StyleMuted.Render(theme.IconCross+" cancel"))
 
-	dot := styleMuted.Render(" " + IconSep + " ")
+	dot := theme.StyleMuted.Render(" " + theme.IconSep + " ")
 	hints := "\n  " + strings.Join([]string{
-		renderKeyHint("↑↓", "move"),
-		renderKeyHint("←→", "cycle"),
-		renderKeyHint("space", "toggle"),
-		renderKeyHint("enter", "edit"),
-		renderKeyHint("esc", "back"),
+		theme.RenderKeyHint("↑↓", "move"),
+		theme.RenderKeyHint("←→", "cycle"),
+		theme.RenderKeyHint("space", "toggle"),
+		theme.RenderKeyHint("enter", "edit"),
+		theme.RenderKeyHint("esc", "back"),
 	}, dot)
 
-	return styleSettingsBox.Render(title + "\n\n" + strings.Join(lines, "\n") + hints)
+	return theme.StyleSettingsBox.Render(title + "\n\n" + strings.Join(lines, "\n") + hints)
 }
 
 // ── Help overlay ──────────────────────────────────────────────────────────────
@@ -1144,10 +1115,10 @@ func (m model) renderSettings() string {
 func (m model) renderHelp() string {
 	helpStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(surface).
+		BorderForeground(theme.Surface).
 		Padding(1, 4)
 
-	title := gradientString("KEYBOARD SHORTCUTS", mauve, lavender, true)
+	title := theme.GradientString("KEYBOARD SHORTCUTS", theme.Mauve, theme.Lavender, true)
 
 	type krow struct{ key, desc string }
 	rows := []krow{
@@ -1164,8 +1135,8 @@ func (m model) renderHelp() string {
 	var lines []string
 	for _, r := range rows {
 		lines = append(lines,
-			styleHintKey.Render(fmt.Sprintf("  %-10s", r.key))+"  "+
-				lipgloss.NewStyle().Foreground(subtext).Render(r.desc))
+			theme.StyleHintKey.Render(fmt.Sprintf("  %-10s", r.key))+"  "+
+				lipgloss.NewStyle().Foreground(theme.Subtext).Render(r.desc))
 	}
 
 	return helpStyle.Render(title + "\n\n" + strings.Join(lines, "\n"))
@@ -1175,14 +1146,14 @@ func (m model) renderHelp() string {
 func (m model) renderHelpOverlay(w, h int) string {
 	overlayStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(mauve).
-		Background(crust).
+		BorderForeground(theme.Mauve).
+		Background(theme.Crust).
 		Padding(1, 3)
 
-	title := gradientString("KEYBOARD SHORTCUTS", mauve, lavender, true)
+	title := theme.GradientString("KEYBOARD SHORTCUTS", theme.Mauve, theme.Lavender, true)
 	helpContent := m.help.View(Keys)
 	content := overlayStyle.Render(title + "\n\n" + helpContent + "\n\n" +
-		styleHintDesc.Render("press ?, q, or esc to close"))
+		theme.StyleHintDesc.Render("press ?, q, or esc to close"))
 
 	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, content)
 }

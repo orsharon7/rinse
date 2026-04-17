@@ -16,19 +16,18 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: tui/go.mod
-          cache-dependency-path: tui/go.sum
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          working-directory: tui
           version: latest
 
       - name: Lint shell scripts
         run: |
           sudo apt-get install -y shellcheck
-          shellcheck pr-review/*.sh install.sh
+          shellcheck scripts/*.sh install.sh
 
   test:
     name: Test
@@ -39,11 +38,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: tui/go.mod
-          cache-dependency-path: tui/go.sum
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
 
       - name: Run Go tests
-        working-directory: tui
         run: go test ./...
 
   build:
@@ -56,20 +54,18 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: tui/go.mod
-          cache-dependency-path: tui/go.sum
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
 
       - name: Build binary
-        working-directory: tui
         run: make build
 
       - name: Build cross-platform binaries
-        working-directory: tui
         run: make cross
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: binaries
-          path: tui/dist/
+          path: dist/
           retention-days: 7

@@ -1,4 +1,4 @@
-module rinse
+module github.com/orsharon7/rinse
 
 go 1.24.2
 

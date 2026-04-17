@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"encoding/json"
@@ -33,7 +33,9 @@ type FullConfig struct {
 	Repos    map[string]RepoConfig `json:"repos,omitempty"`
 }
 
-func configPath() string {
+// ConfigPath returns the path to the on-disk config file, migrating from the
+// legacy "pr-review" directory if necessary.
+func ConfigPath() string {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		dir = os.Getenv("HOME")
@@ -67,14 +69,22 @@ func configPath() string {
 }
 
 // LoadConfig reads the saved config. Returns a zero-value Config on any error.
+// numRunners is used to clamp the LastRunner index to a valid range.
 // Supports both the new per-repo format and the old flat format; SaveConfig writes the new format.
-func LoadConfig() Config {
-	data, err := os.ReadFile(configPath())
+func LoadConfig(numRunners int) Config {
+	data, err := os.ReadFile(ConfigPath())
 	if err != nil {
 		return Config{}
 	}
 
-	// Try new format first
+	clampRunner := func(idx int) int {
+		if numRunners > 0 && (idx < 0 || idx >= numRunners) {
+			return 0
+		}
+		return idx
+	}
+
+	// Try new format first.
 	var full FullConfig
 	if err := json.Unmarshal(data, &full); err == nil && full.Repos != nil {
 		cfg := Config{LastRepo: full.LastRepo}
@@ -86,27 +96,22 @@ func LoadConfig() Config {
 			cfg.LastBranch = rc.Branch
 			cfg.LastAutoMerge = rc.AutoMerge
 		}
-		// Guard against out-of-range runner index
-		if cfg.LastRunner < 0 || cfg.LastRunner >= len(runners) {
-			cfg.LastRunner = 0
-		}
+		cfg.LastRunner = clampRunner(cfg.LastRunner)
 		return cfg
 	}
 
-	// Fall back to old flat format (migration path)
+	// Fall back to old flat format (migration path).
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return Config{}
 	}
-	if cfg.LastRunner < 0 || cfg.LastRunner >= len(runners) {
-		cfg.LastRunner = 0
-	}
+	cfg.LastRunner = clampRunner(cfg.LastRunner)
 	return cfg
 }
 
 // LoadRepoConfig loads settings for a specific repo from the per-repo store.
 func LoadRepoConfig(repo string) (RepoConfig, bool) {
-	data, err := os.ReadFile(configPath())
+	data, err := os.ReadFile(ConfigPath())
 	if err != nil {
 		return RepoConfig{}, false
 	}
@@ -127,12 +132,12 @@ func SaveConfig(cfg Config) {
 	if cfg.LastRepo == "" {
 		return
 	}
-	path := configPath()
+	path := ConfigPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return
 	}
 
-	// Load existing full config to preserve other repos' settings
+	// Load existing full config to preserve other repos' settings.
 	var full FullConfig
 	if data, err := os.ReadFile(path); err == nil {
 		_ = json.Unmarshal(data, &full)

@@ -1,8 +1,9 @@
-package main
+package tui
 
 import (
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/orsharon7/rinse/internal/theme"
 )
 
 // ── KeyMap ────────────────────────────────────────────────────────────────────
@@ -10,22 +11,22 @@ import (
 // KeyMap holds all keybindings used across RINSE views. All key matching MUST
 // go through this struct — no raw string comparisons in Update handlers.
 type KeyMap struct {
-	Up         key.Binding
-	Down       key.Binding
-	Top        key.Binding
-	Bottom     key.Binding
-	Confirm    key.Binding
-	Back       key.Binding
-	CloseHelp  key.Binding
-	Quit       key.Binding
-	ForceQuit  key.Binding
-	Refresh    key.Binding
-	Help       key.Binding
-	Filter     key.Binding
-	// Wizard-specific
+	Up        key.Binding
+	Down      key.Binding
+	Top       key.Binding
+	Bottom    key.Binding
+	Confirm   key.Binding
+	Back      key.Binding
+	CloseHelp key.Binding
+	Quit      key.Binding
+	ForceQuit key.Binding
+	Refresh   key.Binding
+	Help      key.Binding
+	Filter    key.Binding
+	// Wizard-specific.
 	Settings key.Binding
 	ManualPR key.Binding
-	// Settings view navigation
+	// Settings view navigation.
 	Left   key.Binding
 	Right  key.Binding
 	Tab    key.Binding
@@ -130,11 +131,11 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 // newHelpModel returns a freshly configured bubbles/help model.
 func newHelpModel() help.Model {
 	h := help.New()
-	h.Styles.ShortKey = styleHintKey
-	h.Styles.ShortDesc = styleHintDesc
-	h.Styles.ShortSeparator = styleHintDesc
-	h.Styles.FullKey = styleHintKey
-	h.Styles.FullDesc = styleHintDesc
-	h.Styles.FullSeparator = styleHintDesc
+	h.Styles.ShortKey = theme.StyleHintKey
+	h.Styles.ShortDesc = theme.StyleHintDesc
+	h.Styles.ShortSeparator = theme.StyleHintDesc
+	h.Styles.FullKey = theme.StyleHintKey
+	h.Styles.FullDesc = theme.StyleHintDesc
+	h.Styles.FullSeparator = theme.StyleHintDesc
 	return h
 }
