@@ -32,8 +32,11 @@ make install
 Or build and install manually (requires Go ≥ 1.24):
 
 ```bash
-go build -o ~/.local/bin/rinse .
+mkdir -p ~/.local/bin
+go build -ldflags "-X main.version=$(git describe --tags --always)" -o ~/.local/bin/rinse .
 ```
+
+> **Note:** `make install` is the recommended path — it handles directory creation and version injection automatically. Without the `-ldflags` above, `rinse --version` will print `dev`.
 
 Pre-built binaries are also available on the [Releases](https://github.com/orsharon7/rinse/releases) page.
 
