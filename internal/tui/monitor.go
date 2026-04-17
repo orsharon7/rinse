@@ -309,7 +309,10 @@ func (m monitorModel) elapsedForDisplay() time.Duration {
 	if m.phase == phaseStarting {
 		return 0
 	}
-	return (time.Since(m.started) + m.clockOffset).Round(time.Second)
+	// Display elapsed runtime using the local/monotonic clock so clockOffset
+	// does not skew the duration.
+	elapsed := time.Since(m.started)
+	return elapsed.Round(time.Second)
 }
 
 // nowAdjusted returns the clock-offset-adjusted current time.
@@ -325,7 +328,7 @@ func (m monitorModel) applyPhaseChange(newPhase phase) monitorModel {
 	}
 	m.lastStateChangedAt = time.Now()
 	if newPhase == phaseDone || newPhase == phaseError {
-		d := (time.Since(m.started) + m.clockOffset).Round(time.Second)
+		d := time.Since(m.started).Round(time.Second)
 		m.frozenElapsed = &d
 	}
 	m.phase = newPhase
@@ -563,15 +566,6 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		cmds = append(cmds, tick())
-		// Check for overdue crossing once per tick while cycle is active.
-		if !m.overdueAnnounced && m.estimatedEndAt != nil && m.phase != phaseDone && m.phase != phaseError {
-			if m.nowAdjusted().After(*m.estimatedEndAt) {
-				m.overdueAnnounced = true
-				m.toastMsg = theme.StyleBadgeOverdue.Render(" OVERDUE ")
-				cmds = append(cmds, tea.Tick(5*time.Second,
-					func(t time.Time) tea.Msg { return clearToastMsg{} }))
-			}
-		}
 
 	case spinner.TickMsg:
 		var spcmd tea.Cmd
@@ -1008,27 +1002,9 @@ func (m monitorModel) View() string {
 		badges = append(badges, elapsedBadge)
 	}
 
-	// ETA badge: only render once the runner has supplied ETA timing data.
-	// Until then, hide the ETA UI instead of permanently showing "ETA —".
-	if m.estimatedEndAt != nil {
-		etaSt, etaTime := resolveETA(m.phase, m.estimatedEndAt, m.nowAdjusted())
-		switch etaSt {
-		case etaUnknown:
-			badges = append(badges, theme.StyleBadgeETA.Render(" ETA — "))
-		case etaComputable:
-			badges = append(badges, theme.StyleBadgeETA.Render(" ETA "+etaTime.Local().Format("15:04")+" "))
-		case etaFutureDay:
-			badges = append(badges, theme.StyleBadgeETA.Render(" ETA "+etaTime.Local().Format("Mon 15:04")+" "))
-		case etaOverdue:
-			overdueDur := m.nowAdjusted().Sub(etaTime).Round(time.Second)
-			badges = append(badges, theme.StyleBadgeOverdue.Render(" +"+formatElapsed(overdueDur)+" "))
-		case etaCompleted:
-			badges = append(badges, theme.StyleBadgeETA.Render(" Completed "))
-		case etaError:
-			badges = append(badges, theme.StyleBadgeETA.Render(" ETA — "))
-		// etaHidden: nothing added
-		}
-	}
+	// ETA badge: hidden because estimatedEndAt is not yet wired to the runner.
+	// When the runner emits ETA data and sets m.estimatedEndAt, this block can
+	// be re-enabled to show the ETA badge.
 	if m.totalComments > 0 {
 		badges = append(badges,
 			theme.StyleBadgeComment.Render(fmt.Sprintf(" %d comments ", m.totalComments)))
