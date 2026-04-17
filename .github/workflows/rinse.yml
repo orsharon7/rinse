@@ -1,0 +1,90 @@
+name: RINSE — Copilot PR Review Loop
+
+# Runs RINSE on every new or updated PR, driving Copilot review cycles until
+# the PR is approved or the max iteration limit is reached.
+#
+# Required secrets:
+#   ANTHROPIC_API_KEY  — Claude API key (for `claude` CLI)
+#
+# Required repo permissions (Settings → Actions → General → Workflow permissions):
+#   Read and write permissions
+#
+# Copilot code review must be enabled for the repository (Copilot → Code review).
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+# Only one RINSE run per PR at a time. If a new push arrives while a run is
+# in-flight, cancel the old run and start fresh on the new commit.
+concurrency:
+  group: rinse-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write        # push fix commits to the PR branch
+  pull-requests: write   # request Copilot reviews, post replies
+
+jobs:
+  rinse:
+    name: RINSE review loop
+    runs-on: ubuntu-latest
+
+    # Skip PRs from forks: they cannot access repository secrets.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          # Full history so git push works and worktrees can be created.
+          fetch-depth: 0
+          # Use the PR head ref so we operate on the correct branch.
+          ref: ${{ github.event.pull_request.head.ref }}
+          # Persist credentials so git push works inside the loop.
+          persist-credentials: true
+
+      - name: Configure git identity
+        run: |
+          git config user.name  "rinse[bot]"
+          git config user.email "rinse[bot]@users.noreply.github.com"
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          # jq and shellcheck are pre-installed on ubuntu-latest runners.
+          # Install the Claude Code CLI.
+          npm install -g @anthropic-ai/claude-code
+          claude --version
+
+      - name: Validate environment
+        run: |
+          set -euo pipefail
+          : "${ANTHROPIC_API_KEY:?Secret ANTHROPIC_API_KEY is not set. Add it under Settings → Secrets → Actions.}"
+          gh --version
+          jq --version
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Run RINSE
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # GH_TOKEN is automatically provided by GitHub Actions.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Tell claude CLI not to prompt for permissions interactively.
+          CLAUDE_DANGEROUSLY_SKIP_PERMISSIONS: "1"
+        run: |
+          set -euo pipefail
+
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          REPO="${{ github.repository }}"
+          CWD="${GITHUB_WORKSPACE}"
+
+          echo "▶ Starting RINSE on PR #${PR_NUMBER} in ${REPO}"
+          echo "  Branch : ${{ github.event.pull_request.head.ref }}"
+          echo "  Commit : ${{ github.event.pull_request.head.sha }}"
+
+          bash pr-review/pr-review-claude-v2.sh "${PR_NUMBER}" \
+            --repo   "${REPO}"    \
+            --cwd    "${CWD}"     \
+            --model  "claude-sonnet-4-5"
