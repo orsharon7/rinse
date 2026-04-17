@@ -27,18 +27,23 @@ Request review → wait → read comments → fix → repeat. Rinse handles ever
 
 ```bash
 git clone https://github.com/orsharon7/rinse.git
-cd rinse
+cd rinse/tui
 make install
 ```
+
+> **Note:** `make install` installs only the `rinse` binary. The runner scripts (`scripts/pr-review-*.sh`) are **not** installed automatically. To use `rinse` after installation, either:
+> - Copy the `scripts/` directory to a location next to the installed binary, **or**
+> - Set `RINSE_SCRIPT_DIR` (or the legacy alias `PR_REVIEW_SCRIPT_DIR`) to the path of your local `scripts/` directory.
 
 Or build and install manually (requires Go ≥ 1.24):
 
 ```bash
 mkdir -p ~/.local/bin
+cd tui
 go build -ldflags "-X main.version=$(git describe --tags --always)" -o ~/.local/bin/rinse .
 ```
 
-> **Note:** `make install` is the recommended path — it handles directory creation and version injection automatically. Without the `-ldflags` above, `rinse --version` will print `dev`.
+Without the `-ldflags` above, `rinse --version` will print `dev`.
 
 Pre-built binaries are also available on the [Releases](https://github.com/orsharon7/rinse/releases) page.
 
@@ -139,7 +144,7 @@ Enable reflection via the TUI settings (press `s` inside the PR picker and toggl
 2. Make your changes — keep code POSIX-compatible where possible
 3. Test against a real PR: `rinse` (launch the TUI and select the PR)
 4. Open a PR — Copilot reviews it automatically
-5. Use `--reflect` to update coding rules for future sessions
+5. To update coding rules for future sessions, enable the TUI `reflect` setting when reviewing the PR (press `s` in the PR picker and toggle `reflect` on)
 
 **Dev tips:**
 

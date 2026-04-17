@@ -1,12 +1,13 @@
 # RINSE Telemetry Architecture
 
-> Phase 1 (local SQLite) → Phase 2 (Supabase + multi-tenant). This doc is the spec.
+> **This document is a forward-looking specification, not a description of current behavior.**
+> Phase 1 (local SQLite) → Phase 2 (Supabase + multi-tenant). Paths, schemas, and commands below are proposals; none are implemented yet unless noted otherwise.
 
 ---
 
-## Phase 1: Local SQLite Schema
+## Phase 1: Local SQLite Schema (Proposed)
 
-All data stored in `~/.rinse/rinse.db` (SQLite). No auth, no network, single-user.
+> **Not yet implemented.** RINSE currently stores session history as JSON files under `~/.rinse/sessions/`. There is no SQLite database in the current codebase. The schema below is a proposal for future structured persistence.
 
 ```sql
 CREATE TABLE sessions (
@@ -14,14 +15,14 @@ CREATE TABLE sessions (
   started_at  DATETIME NOT NULL,
   ended_at    DATETIME,
   duration_s  INTEGER,
-  cycle_count INTEGER DEFAULT 0,
+  cycle_count INTEGER DEFAULT 0,     -- PR review iterations
   notes       TEXT
 );
 
 CREATE TABLE cycles (
   id          TEXT PRIMARY KEY,      -- UUID
   session_id  TEXT NOT NULL REFERENCES sessions(id),
-  type        TEXT NOT NULL,         -- 'work' | 'short_break' | 'long_break'
+  type        TEXT NOT NULL,         -- e.g. 'fix_iteration' | 'review_wait'
   started_at  DATETIME NOT NULL,
   ended_at    DATETIME,
   duration_s  INTEGER,
@@ -31,9 +32,8 @@ CREATE TABLE cycles (
 CREATE TABLE config_snapshots (
   id          TEXT PRIMARY KEY,
   session_id  TEXT NOT NULL REFERENCES sessions(id),
-  work_min    INTEGER,
-  short_min   INTEGER,
-  long_min    INTEGER,
+  runner      TEXT,                  -- e.g. 'opencode' | 'claude'
+  model       TEXT,
   captured_at DATETIME NOT NULL
 );
 ```
@@ -116,14 +116,16 @@ CREATE POLICY "team_members_visible" ON team_members
 
 ---
 
-## Auth Flow
+## Auth Flow (Proposed — Not Yet Implemented)
+
+> **Not yet implemented.** The `rinse login` command, JWT storage path, and refresh-token logic below are proposals for Phase 2 and do not exist in the current codebase.
 
 ```
-rinse login
+rinse login  [proposed]
   └─> opens browser → Supabase OAuth (GitHub / email)
   └─> Supabase issues JWT with claims:
         { "sub": "<user_id>", "team_id": "<team_uuid>", "role": "member" }
-  └─> JWT stored in ~/.rinse/token (file-mode 600)
+  └─> JWT stored in ~/.rinse/token (file-mode 600)  [proposed path]
 
 Every sync request:
   Authorization: Bearer <JWT>
@@ -131,23 +133,25 @@ Every sync request:
   → RLS policies enforce team_id isolation automatically
 ```
 
-JWT refresh: `rinse` checks `exp` before each sync. If within 5 min of expiry, refreshes silently using the stored refresh token.
+JWT refresh: `rinse` checks `exp` before each sync. If within 5 min of expiry, refreshes silently using the stored refresh token. (Proposed — not yet implemented.)
 
 ---
 
-## Sync Strategy
+## Sync Strategy (Proposed — Not Yet Implemented)
+
+> **Not yet implemented.** The `rinse sync` command and the sync strategy below are proposals for Phase 2.
 
 Local-first. Data is always written to SQLite first. Cloud sync is best-effort.
 
 ```
-rinse stop  (or auto-trigger on session end)
+rinse stop  (or auto-trigger on session end)  [proposed]
   └─> write session + cycles to local SQLite
-  └─> rinse sync
+  └─> rinse sync  [proposed command]
         └─> read unsynced rows (WHERE synced_at IS NULL)
         └─> upsert to Supabase via REST API (idempotent by primary key UUID)
         └─> mark rows synced_at = now() in local DB
 
-rinse sync --force  → re-upsert all rows regardless of synced_at
+rinse sync --force  → re-upsert all rows regardless of synced_at  [proposed]
 ```
 
 Conflict resolution: **last-write-wins by `id` (UUID)**. Because IDs are generated client-side as UUIDs, there are no key collisions across devices. If the same session is pushed twice, `ON CONFLICT (id) DO UPDATE` overwrites with the latest values — safe because a session is complete before sync.
@@ -169,7 +173,7 @@ Offline behaviour: `rinse sync` exits 0 with a warning if Supabase is unreachabl
 
 ```bash
 brew install supabase/tap/supabase
-cd /Users/luli/dev/rinse
+cd /path/to/rinse
 supabase init
 supabase start
 # Studio:    http://localhost:54323
@@ -178,9 +182,10 @@ supabase start
 # Anon key:  printed by supabase start
 ```
 
-Environment config for local dev (`~/.rinse/config.toml`):
+Environment config for local dev. RINSE currently stores config as JSON at `~/.config/rinse/config.json` (Linux/macOS XDG) or the platform equivalent. The TOML format below is a proposed future alternative:
 
 ```toml
+# Proposed future config format
 [supabase]
 url     = "http://localhost:54321"
 anon_key = "<local-anon-key>"
