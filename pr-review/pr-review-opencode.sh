@@ -47,6 +47,11 @@ source "${SCRIPT_DIR}/pr-review-ui.sh"
 # shellcheck source=pr-review-session.sh
 source "${SCRIPT_DIR}/pr-review-session.sh"
 
+# ─── Insights ─────────────────────────────────────────────────────────────────
+
+# shellcheck source=pr-review-insights.sh
+source "${SCRIPT_DIR}/pr-review-insights.sh"
+
 # ─── Args ─────────────────────────────────────────────────────────────────────
 
 if [[ $# -lt 1 || "$1" == "--help" || "$1" == "-h" ]]; then
@@ -69,6 +74,7 @@ REFLECT_OPTIMIZE=false  # auto-enabled when REFLECT=true
 AUTO_MERGE=false
 USE_WORKTREE=false
 REPO_ROOT=""
+JSON_INSIGHTS=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -85,6 +91,7 @@ while [[ $# -gt 0 ]]; do
     --worktree)            USE_WORKTREE=true;        shift ;;
     --repo-root)           REPO_ROOT="$2";           shift 2 ;;
     --dry-run)             DRY_RUN=true;             shift ;;
+    --json-insights)       JSON_INSIGHTS=true;       shift ;;
     *) >&2 echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -145,6 +152,8 @@ if [[ "$USE_WORKTREE" == true ]]; then
   mkdir -p "$(dirname "$WORKTREE_DIR")"
 
   cleanup_pr_worktree() {
+    local rc=$?
+    set +e
     if [[ -n "$WORKTREE_DIR" && -d "$WORKTREE_DIR" ]]; then
       log "Cleaning up worktree at ${WORKTREE_DIR}..."
       git -C "$REPO_ROOT" worktree remove --force "$WORKTREE_DIR" 2>/dev/null || true
@@ -152,6 +161,15 @@ if [[ "$USE_WORKTREE" == true ]]; then
     fi
     session_clear
     gh_lock_release
+    # Best-effort insights finalization
+    if [[ -z "${_INS_OUTCOME:-}" ]]; then
+      local outcome="error"
+      [[ $rc -eq 0 ]] && outcome="clean"
+      insights_finalize "$outcome"
+    fi
+    if [[ "${DRY_RUN:-false}" != true && -z "${_INS_OUTCOME:-}" ]]; then
+      insights_print $( [[ "${JSON_INSIGHTS:-false}" == true ]] && echo "--json" )
+    fi
   }
   trap cleanup_pr_worktree EXIT
 
@@ -352,6 +370,7 @@ log "   Log file:    ${LOGFILE}"
 # ── Session init & crash recovery ────────────────────────────────────────────
 
 session_init "$REPO" "$PR_NUMBER"
+insights_init "$PR_NUMBER" "$REPO" "$MODEL"
 
 if session_recover; then
   log "⚠️  Previous session crashed (iter ${RECOVER_ITER}, last review: ${RECOVER_REVIEW_ID:-none})"
@@ -367,11 +386,24 @@ fi
 # Register cleanup trap for the non-worktree path.
 # (The worktree path registered its own trap above, which also calls these.)
 if [[ "$USE_WORKTREE" == false ]]; then
-  _cleanup_session_lock() {
+  _cleanup_on_exit() {
+    local rc=$?
+    local should_print_insights=true
+    set +e
     session_clear
     gh_lock_release
+    if [[ -z "${_INS_OUTCOME:-}" ]]; then
+      local outcome="error"
+      [[ $rc -eq 0 ]] && outcome="clean"
+      insights_finalize "$outcome"
+    else
+      should_print_insights=false
+    fi
+    if [[ "${DRY_RUN:-false}" != true && "$should_print_insights" == true ]]; then
+      insights_print $( [[ "${JSON_INSIGHTS:-false}" == true ]] && echo "--json" )
+    fi
   }
-  trap _cleanup_session_lock EXIT
+  trap _cleanup_on_exit EXIT
 fi
 
 # ── Cross-machine deduplication ───────────────────────────────────────────────
@@ -467,6 +499,8 @@ while true; do
 
   if ! wait_for_review; then
     log "❌ Timed out waiting for Copilot — aborting"
+    insights_finalize "stalled"
+    insights_print $( [[ "$JSON_INSIGHTS" == true ]] && echo "--json" )
     exit 1
   fi
 
@@ -524,6 +558,8 @@ while true; do
     else
       ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
     fi
+    insights_finalize "approved"
+    insights_print $( [[ "$JSON_INSIGHTS" == true ]] && echo "--json" )
     exit 0
   fi
 
@@ -561,6 +597,8 @@ while true; do
     else
       ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
     fi
+    insights_finalize "clean"
+    insights_print $( [[ "$JSON_INSIGHTS" == true ]] && echo "--json" )
     exit 0
   fi
 
@@ -648,6 +686,8 @@ PROMPT_EOF
       kill "$reflect_pid" 2>/dev/null || true
       ui_reflect_log "killed (opencode failed)" false
     fi
+    insights_finalize "error"
+    insights_print $( [[ "$JSON_INSIGHTS" == true ]] && echo "--json" )
     exit 1
   fi
 

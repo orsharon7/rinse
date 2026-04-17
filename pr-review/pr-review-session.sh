@@ -348,9 +348,6 @@ gh_lock_acquire() {
 # Remove the running label and delete the lock comment, but only if this
 # process can verify that it owns the lock comment metadata.
 # Safe to call multiple times (idempotent).
-# Remove the running label and delete the lock comment, but only if this
-# process can verify that it owns the lock comment metadata.
-# Safe to call multiple times (idempotent).
 gh_lock_release() {
   [[ -z "$_SESSION_REPO" ]] && return 0
 

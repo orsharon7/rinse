@@ -49,18 +49,30 @@ func RunInit() {
 	for i, r := range runners {
 		fmt.Printf("  [%d] %s — %s\n", i+1, r.name, r.desc)
 	}
-	fmt.Printf("Engine (1-%d) [1]: ", len(runners))
-	engineLine, _ := reader.ReadString('\n')
-	engineLine = strings.TrimSpace(engineLine)
-
 	runnerIdx := 0
-	if engineLine != "" {
+	for {
+		fmt.Printf("Engine (1-%d) [1]: ", len(runners))
+		engineLine, _ := reader.ReadString('\n')
+		engineLine = strings.TrimSpace(engineLine)
+
+		if engineLine == "" {
+			break
+		}
+
+		matched := false
 		for i, r := range runners {
 			if engineLine == fmt.Sprintf("%d", i+1) || strings.EqualFold(engineLine, r.name) {
 				runnerIdx = i
+				matched = true
 				break
 			}
 		}
+
+		if matched {
+			break
+		}
+
+		fmt.Fprintf(os.Stderr, "error: invalid engine selection %q; enter a number between 1 and %d or a valid engine name\n", engineLine, len(runners))
 	}
 	selectedRunner := runners[runnerIdx]
 	fmt.Printf("→ Using: %s\n\n", selectedRunner.name)

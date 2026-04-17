@@ -133,6 +133,8 @@ if [[ "$USE_WORKTREE" == true ]]; then
 
   # Cleanup trap — remove the worktree on exit / signal
   cleanup_pr_worktree() {
+    local rc=$?
+    set +e
     if [[ -n "$WORKTREE_DIR" && -d "$WORKTREE_DIR" ]]; then
       log "Cleaning up worktree at ${WORKTREE_DIR}..."
       git -C "$REPO_ROOT" worktree remove --force "$WORKTREE_DIR" 2>/dev/null || true
@@ -140,6 +142,15 @@ if [[ "$USE_WORKTREE" == true ]]; then
     fi
     session_clear
     gh_lock_release
+    # Best-effort insights finalization (mirrors non-worktree _cleanup_on_exit)
+    if [[ -z "${_INS_OUTCOME:-}" ]]; then
+      local outcome="error"
+      [[ $rc -eq 0 ]] && outcome="clean"
+      insights_finalize "$outcome"
+    fi
+    if [[ "${DRY_RUN:-false}" != true && -z "${_INS_OUTCOME:-}" ]]; then
+      insights_print $( [[ "${JSON_INSIGHTS:-false}" == true ]] && echo "--json" )
+    fi
   }
   trap cleanup_pr_worktree EXIT
 
