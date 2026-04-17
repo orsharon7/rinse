@@ -130,7 +130,8 @@ if [[ "$USE_WORKTREE" == true ]]; then
   WORKTREE_DIR="/tmp/pr-review-worktrees/${REPO_SLUG}/pr-${PR_NUMBER}"
   mkdir -p "$(dirname "$WORKTREE_DIR")"
 
-  # Cleanup trap — remove the worktree on exit / signal
+  # Cleanup function — remove the worktree on exit / signal
+  # Called by _insights_exit_trap (the single unified EXIT trap).
   cleanup_pr_worktree() {
     local rc=$?
     set +e
@@ -158,7 +159,6 @@ if [[ "$USE_WORKTREE" == true ]]; then
       fi
     fi
   }
-  trap cleanup_pr_worktree EXIT
 
   # Prune stale worktree references from previous crashed runs
   git -C "$REPO_ROOT" worktree prune 2>/dev/null || true
@@ -392,6 +392,13 @@ _insights_exit_trap() {
   [[ "$_INSIGHTS_DONE" == true ]] && return
   _INSIGHTS_DONE=true
   local exit_code="${1:-$?}"
+  # Consolidated cleanup: always run worktree cleanup + session/lock release
+  if [[ "$USE_WORKTREE" == true ]]; then
+    cleanup_pr_worktree
+  else
+    session_clear
+    gh_lock_release
+  fi
   local outcome="${_INSIGHTS_OUTCOME:-}"
   if [[ -z "$outcome" ]]; then
     case "$exit_code" in
