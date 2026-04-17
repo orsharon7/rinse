@@ -34,4 +34,8 @@ type Result struct {
 	// Waiting reports that the review is not yet actionable (pending/no_reviews/no_change).
 	// Callers should not count this iteration against MaxIterations.
 	Waiting bool
+
+	// ReviewID is the GitHub review ID that was processed in this iteration.
+	// Callers should persist this as LastKnownReviewID for no_change detection.
+	ReviewID string
 }

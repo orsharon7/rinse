@@ -125,10 +125,11 @@ func Run(opts Opts) (Result, error) {
 		)
 
 		agentResult, err := opts.Agent.Run(engine.RunOpts{
-			PR:    opts.PR,
-			Repo:  opts.Repo,
-			CWD:   opts.CWD,
-			Model: opts.Model,
+			PR:                opts.PR,
+			Repo:              opts.Repo,
+			CWD:               opts.CWD,
+			Model:             opts.Model,
+			LastKnownReviewID: state.LastReviewID,
 		})
 		if err != nil {
 			// Hard agent failure — persist state so we can resume, then surface.
@@ -140,7 +141,22 @@ func Run(opts Opts) (Result, error) {
 			}, fmt.Errorf("runner: agent %s iteration %d: %w", opts.Agent.Name(), state.Iteration+1, err)
 		}
 
+		if agentResult.Waiting {
+			// Not actionable yet — do not count against MaxIterations.
+			log.Info("runner: waiting for actionable review",
+				"repo", opts.Repo,
+				"pr", opts.PR,
+			)
+			time.Sleep(opts.PollInterval)
+			continue
+		}
+
 		state.Iteration++
+
+		// Persist the review ID so the next iteration can detect no_change.
+		if agentResult.ReviewID != "" {
+			state.LastReviewID = agentResult.ReviewID
+		}
 
 		if agentResult.Approved {
 			state.LastAgentAction = "approved"

@@ -56,7 +56,16 @@ func (a *Agent) Run(opts engine.RunOpts) (engine.Result, error) {
 		// Nothing actionable yet; signal Waiting so the runner doesn't count this iteration.
 		return engine.Result{Waiting: true}, nil
 	case "error":
-		return engine.Result{}, fmt.Errorf("claude: review status error for PR %s", opts.PR)
+		switch {
+		case rs.ReviewID != "" && rs.Message != "":
+			return engine.Result{}, fmt.Errorf("claude: review status error for PR %s (review %s): %s", opts.PR, rs.ReviewID, rs.Message)
+		case rs.Message != "":
+			return engine.Result{}, fmt.Errorf("claude: review status error for PR %s: %s", opts.PR, rs.Message)
+		case rs.ReviewID != "":
+			return engine.Result{}, fmt.Errorf("claude: review status error for PR %s (review %s)", opts.PR, rs.ReviewID)
+		default:
+			return engine.Result{}, fmt.Errorf("claude: review status error for PR %s", opts.PR)
+		}
 	case "new_review":
 		// fall through to fix
 	default:
@@ -93,7 +102,7 @@ func (a *Agent) Run(opts engine.RunOpts) (engine.Result, error) {
 		_, _ = fmt.Fprintf(os.Stderr, "claude: push warning: %v\n", err)
 	}
 
-	return engine.Result{Comments: len(comments)}, nil
+	return engine.Result{Comments: len(comments), ReviewID: rs.ReviewID}, nil
 }
 
 // runClaude invokes the claude CLI.

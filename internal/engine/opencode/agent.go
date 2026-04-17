@@ -61,6 +61,15 @@ func (a *Agent) Run(opts engine.RunOpts) (engine.Result, error) {
 		// Nothing actionable yet; signal Waiting so the runner doesn't count this iteration.
 		return engine.Result{Waiting: true}, nil
 	case "error":
+		if rs.Message != "" && rs.ReviewID != "" {
+			return engine.Result{}, fmt.Errorf("opencode: review status error for PR %s (review %s): %s", opts.PR, rs.ReviewID, rs.Message)
+		}
+		if rs.Message != "" {
+			return engine.Result{}, fmt.Errorf("opencode: review status error for PR %s: %s", opts.PR, rs.Message)
+		}
+		if rs.ReviewID != "" {
+			return engine.Result{}, fmt.Errorf("opencode: review status error for PR %s (review %s)", opts.PR, rs.ReviewID)
+		}
 		return engine.Result{}, fmt.Errorf("opencode: review status error for PR %s", opts.PR)
 	case "new_review":
 		// fall through to fix
@@ -106,7 +115,7 @@ func (a *Agent) Run(opts engine.RunOpts) (engine.Result, error) {
 		_, _ = fmt.Fprintf(os.Stderr, "opencode: push warning: %v\n", err)
 	}
 
-	return engine.Result{Comments: len(comments)}, nil
+	return engine.Result{Comments: len(comments), ReviewID: rs.ReviewID}, nil
 }
 
 // runOpencode invokes the opencode CLI.
