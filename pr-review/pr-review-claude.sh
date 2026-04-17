@@ -297,7 +297,7 @@ PROMPT_EOF
   # pr-review.sh reads this file in load_last_known() and uses it to detect
   # whether Copilot has posted a *new* review since our last fix.
   mkdir -p "$STATE_DIR"
-  echo "$review_id" > "${STATE_DIR}/pr-${PR_NUMBER}-last-review"
+  echo "$review_id" > "$STATE_FILE"
   log "💾 Saved last-known review ID: ${review_id}"
 
   log "✓ Claude finished iteration ${iter} — cycling back for next Copilot review..."
