@@ -26,7 +26,7 @@
 #   # On startup:
 #   session_init     "$REPO" "$PR_NUMBER"   # set globals
 #   session_recover                          # returns 0 if crash-recovery detected
-#   gh_lock_acquire || exit 2               # returns 2 if another machine holds the lock
+#   gh_lock_acquire || exit 2               # returns 0 if acquired, 1 if lock held elsewhere; caller may exit 2
 #
 #   # During the loop (each iteration):
 #   session_update "$iter" "$last_review_id"
@@ -90,6 +90,8 @@ session_update() {
     started_at="$(jq -r '.started_at // ""' "$_SESSION_FILE" 2>/dev/null || echo "")"
   fi
 
+  local _tmp_file
+  _tmp_file="${_SESSION_FILE}.tmp.$$"
   jq -n \
     --arg hostname "$_SESSION_HOSTNAME" \
     --argjson pid "$_SESSION_PID" \
@@ -106,7 +108,7 @@ session_update() {
       iter:           $iter,
       last_review_id: $last_review_id,
       status:         $status
-    }' > "$_SESSION_FILE"
+    }' > "$_tmp_file" && mv "$_tmp_file" "$_SESSION_FILE"
 }
 
 # ─── Session: recover ─────────────────────────────────────────────────────────
@@ -166,12 +168,6 @@ session_clear() {
 }
 
 # ─── GH lock: helpers ─────────────────────────────────────────────────────────
-
-_gh_lock_label_exists() {
-  gh api "repos/${_SESSION_REPO}/issues/${_SESSION_PR}/labels" \
-    --jq "[.[] | select(.name == \"${RINSE_RUNNING_LABEL}\")] | length > 0" \
-    2>/dev/null || echo "false"
-}
 
 _gh_lock_ensure_label_created() {
   # Create the label in the repo if it doesn't exist yet (idempotent)

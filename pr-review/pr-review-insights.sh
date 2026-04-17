@@ -12,8 +12,8 @@
 #     comments_json: the raw JSON array from get_review_comments().
 #
 #   insights_finalize <outcome>
-#     Call at the end of the run (approval / clean / stall / error).
-#     outcome: "approved" | "clean" | "stalled" | "error"
+#     Call at the end of the run (approval / clean / stall / skip / error).
+#     outcome: "approved" | "clean" | "stalled" | "skipped" | "error"
 #
 #   insights_print [--json]
 #     Render the summary to stdout.
