@@ -16,6 +16,7 @@
 #   --worktree             Use a git worktree for isolation (used by orchestrator)
 #   --repo-root <path>     Original repo root when --worktree is active
 #   --dry-run              Print startup state and exit without running Claude
+#   --json-insights        Print machine-readable JSON summary after each cycle
 #
 # Requirements:
 #   - claude CLI in PATH
@@ -45,6 +46,11 @@ source "${SCRIPT_DIR}/pr-review-ui.sh"
 # shellcheck source=pr-review-session.sh
 source "${SCRIPT_DIR}/pr-review-session.sh"
 
+# ─── Insights ─────────────────────────────────────────────────────────────────
+
+# shellcheck source=pr-review-insights.sh
+source "${SCRIPT_DIR}/pr-review-insights.sh"
+
 # ─── Args ─────────────────────────────────────────────────────────────────────
 
 if [[ $# -lt 1 || "$1" == "--help" || "$1" == "-h" ]]; then
@@ -65,6 +71,7 @@ REFLECT_MODEL=""
 REFLECT_MAIN_BRANCH="main"
 USE_WORKTREE=false
 REPO_ROOT=""
+JSON_INSIGHTS=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -79,6 +86,7 @@ while [[ $# -gt 0 ]]; do
     --worktree)            USE_WORKTREE=true;        shift ;;
     --repo-root)           REPO_ROOT="$2";           shift 2 ;;
     --dry-run)             DRY_RUN=true;             shift ;;
+    --json-insights)       JSON_INSIGHTS=true;       shift ;;
     *) >&2 echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -353,6 +361,9 @@ log "   Log file:    ${LOGFILE}"
 
 session_init "$REPO" "$PR_NUMBER"
 
+# ── Insights init ─────────────────────────────────────────────────────────────
+insights_init "$PR_NUMBER" "$REPO" "$MODEL"
+
 if session_recover; then
   log "⚠️  Previous session crashed (iter ${RECOVER_ITER}, last review: ${RECOVER_REVIEW_ID:-none})"
   log "   Recovering — will resume from last known state"
@@ -472,6 +483,8 @@ while true; do
 
   if ! wait_for_review; then
     log "❌ Timed out waiting for Copilot — aborting"
+    insights_finalize "stalled"
+    insights_print $( [[ "$JSON_INSIGHTS" == true ]] && echo "--json" )
     exit 1
   fi
 
@@ -505,6 +518,8 @@ while true; do
     ui_outcome "✅" "Copilot APPROVED PR #${PR_NUMBER}! Ready to merge."
     log "✅ Copilot APPROVED PR #${PR_NUMBER}! Ready to merge."
     echo "$rid" > "$STATE_FILE"
+    insights_finalize "approved"
+    insights_print $( [[ "$JSON_INSIGHTS" == true ]] && echo "--json" )
     ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
     exit 0
   fi
@@ -516,12 +531,17 @@ while true; do
     ui_outcome "✅" "Clean review — 0 comments. PR #${PR_NUMBER} is ready to merge."
     log "✅ Clean review — 0 comments. PR #${PR_NUMBER} is ready to merge."
     echo "$rid" > "$STATE_FILE"
+    insights_finalize "clean"
+    insights_print $( [[ "$JSON_INSIGHTS" == true ]] && echo "--json" )
     ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
     exit 0
   fi
 
   ui_outcome "💬" "${comment_count} comment(s) in review ${rid}" "$GUM_WARN"
   log "💬 ${comment_count} comment(s) in review ${rid} — invoking Claude (${MODEL})..."
+
+  # Record insights for this iteration (classify comments by category)
+  insights_record_iteration "$comment_count" "$comments_json"
 
   # ── Step 4: Build prompt and invoke Claude ────────────────────────────
 
@@ -602,6 +622,8 @@ PROMPT_EOF
       kill "$reflect_pid" 2>/dev/null || true
       ui_reflect_log "killed (claude failed)" false
     fi
+    insights_finalize "error"
+    insights_print $( [[ "$JSON_INSIGHTS" == true ]] && echo "--json" )
     exit 1
   fi
 

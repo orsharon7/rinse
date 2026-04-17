@@ -486,3 +486,124 @@ _ui_do_open_browser() {
 # ui_reflect_log() directly for inline status instead.
 ui_reflect_start() { :; }
 ui_reflect_done()  { :; }
+
+# ─── Post-cycle insights summary ─────────────────────────────────────────────
+#
+# ui_insights_summary <pr> <repo> <model> <outcome> <elapsed_secs>
+#                     <iters> <total_comments>
+#                     <security> <error_handling> <performance> <type_safety>
+#                     <testing> <documentation> <naming> <style> <logic> <general>
+#
+# Called by insights_print() from pr-review-insights.sh.
+
+ui_insights_summary() {
+  local pr="$1"        repo="$2"     model="$3"   outcome="$4"
+  local elapsed="$5"   iters="$6"    total_comments="$7"
+  local cat_security="$8"       cat_error_handling="$9"   cat_performance="${10}"
+  local cat_type_safety="${11}"  cat_testing="${12}"       cat_documentation="${13}"
+  local cat_naming="${14}"       cat_style="${15}"          cat_logic="${16}"
+  local cat_general="${17}"
+
+  # Format elapsed time
+  local mins=$(( elapsed / 60 ))
+  local secs=$(( elapsed % 60 ))
+  local elapsed_fmt
+  if [[ $mins -gt 0 ]]; then
+    elapsed_fmt="${mins}m ${secs}s"
+  else
+    elapsed_fmt="${secs}s"
+  fi
+
+  # Outcome icon
+  local outcome_icon="✅"
+  case "$outcome" in
+    approved) outcome_icon="✅" ;;
+    clean)    outcome_icon="✅" ;;
+    stalled)  outcome_icon="⏳" ;;
+    error)    outcome_icon="❌" ;;
+    *)        outcome_icon="ℹ️" ;;
+  esac
+
+  local cat_names=(security error_handling performance type_safety testing documentation naming style logic general)
+  local cat_icons=("🔒" "🛡️" "⚡" "🏷️" "🧪" "📄" "🔤" "🎨" "🐛" "💬")
+  local cat_display=("Security" "Error Handling" "Performance" "Type Safety" "Testing" "Documentation" "Naming" "Style" "Logic" "General")
+  local cat_vals=("$cat_security" "$cat_error_handling" "$cat_performance" "$cat_type_safety" "$cat_testing" "$cat_documentation" "$cat_naming" "$cat_style" "$cat_logic" "$cat_general")
+
+  echo ""
+  if [[ "$_UI_GUM" == true && "$_UI_TTY" == true ]]; then
+    local w
+    w=$(tput cols 2>/dev/null || echo 80)
+
+    # Header box
+    gum style \
+      --bold \
+      --foreground "$GUM_ACCENT" \
+      --border-foreground "$GUM_ACCENT" \
+      --border double \
+      --padding "0 2" \
+      --width $(( w - 4 )) \
+      "  RINSE Cycle Summary — PR #${pr}  ·  ${repo}"
+    echo ""
+
+    # Key stats
+    local stats
+    stats="$(gum style --foreground "$GUM_MUTED" "Outcome") $(gum style --bold --foreground "$GUM_SUCCESS" "${outcome_icon} ${outcome}")   $(gum style --foreground "$GUM_MUTED" "Model") $(gum style --bold "${model}")   $(gum style --foreground "$GUM_MUTED" "Elapsed") $(gum style --bold "${elapsed_fmt}")   $(gum style --foreground "$GUM_MUTED" "Iterations") $(gum style --bold "${iters}")   $(gum style --foreground "$GUM_MUTED" "Comments") $(gum style --bold "${total_comments}")"
+    echo "$stats"
+
+    # Category breakdown — only when comments were addressed
+    if [[ "$total_comments" -gt 0 ]]; then
+      echo ""
+      gum style --bold --foreground "$GUM_MUTED" "  Issues by category"
+      echo ""
+      local i
+      for i in "${!cat_names[@]}"; do
+        local val="${cat_vals[$i]}"
+        [[ "${val:-0}" -le 0 ]] && continue
+        local icon="${cat_icons[$i]}"
+        local label="${cat_display[$i]}"
+        local bar_len=$(( val < 20 ? val : 20 ))
+        local bar
+        bar=$(printf '▪%.0s' $(seq 1 "$bar_len"))
+        printf "    %s  %-20s %s  %s\n" \
+          "$(gum style --foreground "$GUM_ACCENT" "${icon}")" \
+          "$(gum style --foreground "$GUM_MUTED" "${label}:")" \
+          "$(gum style --bold "${val}")" \
+          "$(gum style --foreground "$GUM_MUTED" "${bar}")"
+      done
+    fi
+
+    echo ""
+    gum style --foreground "$GUM_MUTED" "$(printf '─%.0s' $(seq 1 $(( w - 2 ))))"
+    echo ""
+
+  else
+    # ── Plain/ANSI fallback ──────────────────────────────────────────────────
+    local line
+    line=$(printf '═%.0s' $(seq 1 60))
+    _ui_print "${_B}${_BLUE}${line}${_R}"
+    _ui_print "${_B}${_BLUE}  RINSE Cycle Summary — PR #${pr}${_R}"
+    _ui_print "${_B}${_BLUE}  ${repo}${_R}"
+    _ui_print "${_B}${_BLUE}${line}${_R}"
+    _ui_print "  Outcome    ${_B}${_GREEN}${outcome_icon} ${outcome}${_R}"
+    _ui_print "  Model      ${_B}${model}${_R}"
+    _ui_print "  Elapsed    ${_B}${elapsed_fmt}${_R}"
+    _ui_print "  Iterations ${_B}${iters}${_R}"
+    _ui_print "  Comments   ${_B}${total_comments} addressed${_R}"
+
+    if [[ "$total_comments" -gt 0 ]]; then
+      echo ""
+      _ui_print "${_D}  Issues by category:${_R}"
+      local i
+      for i in "${!cat_names[@]}"; do
+        local val="${cat_vals[$i]}"
+        [[ "${val:-0}" -le 0 ]] && continue
+        local icon="${cat_icons[$i]}"
+        local label="${cat_display[$i]}"
+        printf "%b\n" "  ${icon}  ${_CYAN}$(printf '%-18s' "${label}:")${_R} ${_B}${val}${_R}"
+      done
+    fi
+
+    _ui_print "${_B}${_BLUE}${line}${_R}"
+    echo ""
+  fi
+}
