@@ -153,8 +153,9 @@ func BuildPrompt(ctx PRContext) (string, error) {
 	return b.String(), nil
 }
 
-// PushAndRequestReview commits staged changes (if any), pushes, and then
-// explicitly re-requests Copilot review.
+// PushAndRequestReview delegates to pr-review.sh push and then pr-review.sh
+// request; depending on repository state, the push step may stage, commit,
+// and push changes before re-requesting Copilot review.
 func PushAndRequestReview(scriptDir, repo, pr, cwd string) error {
 	pushCmd := exec.Command("bash",
 		filepath.Join(scriptDir, "pr-review.sh"),

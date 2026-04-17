@@ -5,7 +5,8 @@
 //	opencode run --model <model> --dangerously-skip-permissions <prompt>
 //
 // in the PR's working directory, then delegates push+re-review to the shared
-// agent.PushAndRequestReview helper (which shells out to pr-review.sh push).
+// agent.PushAndRequestReview helper (which shells out to pr-review.sh push
+// and pr-review.sh request).
 package opencode
 
 import (
