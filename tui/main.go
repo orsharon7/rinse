@@ -15,6 +15,18 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Handle subcommands.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "init":
+			if err := RunInit(); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+			os.Exit(0)
+		}
+	}
+
 	m := initialModel()
 
 	p := tea.NewProgram(m,
