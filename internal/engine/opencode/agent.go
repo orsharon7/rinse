@@ -83,7 +83,7 @@ func (a *Agent) Run(opts engine.RunOpts) (engine.Result, error) {
 		return engine.Result{}, fmt.Errorf("opencode: get comments: %w", err)
 	}
 	if len(comments) == 0 {
-		return engine.Result{Comments: 0}, nil
+		return engine.Result{Comments: 0, ReviewID: rs.ReviewID}, nil
 	}
 
 	// 3. Build prompt and invoke opencode.

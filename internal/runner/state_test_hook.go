@@ -7,3 +7,8 @@ package runner
 func SetStateDir(dir string) {
 	stateDir = dir
 }
+
+// GetStateDir returns the current stateDir value for test isolation/restore.
+func GetStateDir() string {
+	return stateDir
+}

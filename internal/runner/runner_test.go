@@ -3,7 +3,6 @@ package runner_test
 import (
 	"errors"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -14,15 +13,17 @@ import (
 
 // stubAgent is a configurable test double for engine.Agent.
 type stubAgent struct {
-	name    string
-	results []engine.Result
-	errs    []error
-	calls   int
+	name        string
+	results     []engine.Result
+	errs        []error
+	calls       int
+	capturedOpts []engine.RunOpts
 }
 
 func (s *stubAgent) Name() string { return s.name }
 
-func (s *stubAgent) Run(_ engine.RunOpts) (engine.Result, error) {
+func (s *stubAgent) Run(opts engine.RunOpts) (engine.Result, error) {
+	s.capturedOpts = append(s.capturedOpts, opts)
 	i := s.calls
 	s.calls++
 	if i < len(s.errs) && s.errs[i] != nil {
@@ -37,25 +38,13 @@ func (s *stubAgent) Run(_ engine.RunOpts) (engine.Result, error) {
 func tempStateDir(t *testing.T) {
 	t.Helper()
 
-	restoreDir := ""
-	home, err := os.UserHomeDir()
-	if err != nil {
-		// Fall back to $HOME so the restore target is determined before the
-		// state dir is overridden for this test.
-		home = os.Getenv("HOME")
-	}
-	if home != "" {
-		restoreDir = filepath.Join(home, ".pr-review", "state")
-	}
+	// Capture the current value before overriding so we always restore it,
+	// regardless of whether a home directory can be determined.
+	restoreDir := runner.GetStateDir()
 
 	// runner.SetStateDir is exported via state_test_hook.go for test isolation.
 	runner.SetStateDir(t.TempDir())
 	t.Cleanup(func() {
-		if restoreDir == "" {
-			// Avoid restoring stateDir to a relative path such as
-			// ".pr-review/state" when no home directory can be determined.
-			return
-		}
 		runner.SetStateDir(restoreDir)
 	})
 }
@@ -175,5 +164,73 @@ func TestRun_MissingRequiredOpts(t *testing.T) {
 				t.Fatal("expected validation error, got nil")
 			}
 		})
+	}
+}
+
+// TestRun_WaitingDoesNotCountAsIteration verifies that a Waiting result from
+// the agent is not counted toward MaxIterations, and that the loop eventually
+// exits via approval after waiting iterations.
+func TestRun_WaitingDoesNotCountAsIteration(t *testing.T) {
+	tempStateDir(t)
+	tempLockDir(t)
+
+	// First two calls return Waiting, third call approves.
+	agent := &stubAgent{
+		name: "stub",
+		results: []engine.Result{
+			{Waiting: true},
+			{Waiting: true},
+			{Approved: true},
+		},
+	}
+	opts := baseOpts(agent)
+	opts.MaxIterations = 1 // only 1 real iteration allowed
+
+	res, err := runner.Run(opts)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !res.Approved {
+		t.Fatal("expected Approved=true")
+	}
+	// Waiting results must not increment Iterations.
+	if res.Iterations != 1 {
+		t.Fatalf("expected 1 iteration (Waiting calls excluded), got %d", res.Iterations)
+	}
+}
+
+// TestRun_ReviewIDPassedOnSubsequentCall verifies that after a non-waiting
+// iteration sets Result.ReviewID, the runner passes it as LastKnownReviewID
+// on the next agent invocation.
+func TestRun_ReviewIDPassedOnSubsequentCall(t *testing.T) {
+	tempStateDir(t)
+	tempLockDir(t)
+
+	const wantReviewID = "review-abc-123"
+
+	// First call: returns a ReviewID but no approval, second call: approves.
+	agent := &stubAgent{
+		name: "stub",
+		results: []engine.Result{
+			{Comments: 1, ReviewID: wantReviewID},
+			{Approved: true},
+		},
+	}
+	opts := baseOpts(agent)
+	opts.MaxIterations = 5
+
+	res, err := runner.Run(opts)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !res.Approved {
+		t.Fatal("expected Approved=true")
+	}
+	if agent.calls != 2 {
+		t.Fatalf("expected 2 agent calls, got %d", agent.calls)
+	}
+	// The second call must have received the ReviewID from the first iteration.
+	if got := agent.capturedOpts[1].LastKnownReviewID; got != wantReviewID {
+		t.Fatalf("expected LastKnownReviewID=%q on second call, got %q", wantReviewID, got)
 	}
 }
