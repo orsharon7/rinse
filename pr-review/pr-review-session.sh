@@ -371,10 +371,10 @@ gh_lock_acquire() {
     if [[ "$verify_lid" != "$lock_id" ]]; then
       # Another runner's comment is now the canonical one — we lost the race
       >&2 echo "[rinse-lock] Lost the acquisition race (another runner's comment took precedence)"
-      # Clean up our own comment
+      # Clean up our own comment only. Do not remove the shared PR label here,
+      # because the winning runner may still be active and relying on it.
       gh api "repos/${_SESSION_REPO}/issues/comments/${_LOCK_COMMENT_ID}" -X DELETE >/dev/null 2>&1 || true
       _LOCK_COMMENT_ID=""
-      _gh_lock_remove_label
       return 1
     fi
   fi
@@ -384,11 +384,41 @@ gh_lock_acquire() {
 
 # ─── GH lock: release ────────────────────────────────────────────────────────
 
+# _gh_lock_is_current_holder
+# Return success only if the current lock comment still belongs to this runner.
+_gh_lock_is_current_holder() {
+  [[ -z "$_SESSION_REPO" || -z "$_RINSE_LOCK_ID" ]] && return 1
+
+  local comment body meta lid
+  comment=""
+
+  if [[ -n "$_LOCK_COMMENT_ID" ]]; then
+    comment=$(
+      gh api "repos/${_SESSION_REPO}/issues/comments/${_LOCK_COMMENT_ID}" 2>/dev/null || true
+    )
+  fi
+
+  if [[ -z "$comment" ]]; then
+    comment=$(_gh_lock_find_comment)
+  fi
+
+  [[ -z "$comment" ]] && return 1
+
+  body=$(echo "$comment" | jq -r '.body // ""')
+  meta=$(_gh_lock_parse_metadata "$body")
+  lid=$(echo "$meta" | jq -r '.lock_id // ""')
+
+  [[ -n "$lid" && "$lid" == "$_RINSE_LOCK_ID" ]]
+}
+
 # gh_lock_release
 # Remove the running label and delete the lock comment.
 # Safe to call multiple times (idempotent).
 gh_lock_release() {
   [[ -z "$_SESSION_REPO" ]] && return 0
+
+  # Only the current lock holder may clear shared lock state.
+  _gh_lock_is_current_holder || return 0
 
   _gh_lock_remove_label
 
