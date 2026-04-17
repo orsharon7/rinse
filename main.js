@@ -44,22 +44,27 @@ document.documentElement.classList.add('js');
     if (label) { label.textContent = text; } else { btn.setAttribute('aria-label', text); }
   }
 
+  let copyResetTimer = null;
+
   btn.addEventListener('click', () => {
     if (!navigator.clipboard || !navigator.clipboard.writeText) {
       setLabel('Failed');
-      setTimeout(() => { setLabel('Copy'); }, 2000);
+      clearTimeout(copyResetTimer);
+      copyResetTimer = setTimeout(() => { setLabel('Copy'); }, 2000);
       return;
     }
     navigator.clipboard.writeText('brew install rinse').then(() => {
       setLabel('Copied ✓');
       btn.classList.add('copied');
-      setTimeout(() => {
+      clearTimeout(copyResetTimer);
+      copyResetTimer = setTimeout(() => {
         setLabel('Copy');
         btn.classList.remove('copied');
       }, 2000);
     }).catch(() => {
       setLabel('Failed');
-      setTimeout(() => { setLabel('Copy'); }, 2000);
+      clearTimeout(copyResetTimer);
+      copyResetTimer = setTimeout(() => { setLabel('Copy'); }, 2000);
     });
   });
 })();
@@ -80,7 +85,7 @@ document.documentElement.classList.add('js');
   ];
 
   // Respect prefers-reduced-motion: render final static state immediately
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  if (typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     typedCmd.textContent = CMD;
     cursor.style.display = 'none';
     OUTPUT_LINES.forEach(line => {

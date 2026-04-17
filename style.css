@@ -65,10 +65,11 @@ img, svg { display: block; }
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   height: 56px;
-  transition: border-bottom 0.2s;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s;
 }
 .nav.scrolled {
-  border-bottom: 1px solid var(--border);
+  border-color: var(--border);
 }
 .nav-inner {
   display: flex;
