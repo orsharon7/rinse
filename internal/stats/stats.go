@@ -757,9 +757,7 @@ func PrintTrends(sessions []Session) {
 	for i := range weeks {
 		weeksAgo := 3 - i
 		start := now.AddDate(0, 0, -7*(weeksAgo+1))
-		end := now.AddDate(0, 0, -7*weeksAgo)
 		weeks[i].label = start.Format("Jan 02")
-		_ = end
 	}
 
 	for _, s := range sessions {
