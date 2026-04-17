@@ -104,6 +104,26 @@ func initialModel() model {
 		rc.Model = cfg.LastModel
 	}
 
+	// Apply per-repo .rinse.json overrides (created by `rinse init`) so the TUI
+	// honours team-shared defaults when the file is present in the repo root.
+	if repoCfg, ok := LoadRepoRinseConfig(detectCWD()); ok {
+		for i, r := range runners {
+			if strings.EqualFold(r.name, repoCfg.Engine) {
+				rc.Runner = i
+				break
+			}
+		}
+		if repoCfg.Model != "" {
+			rc.Model = repoCfg.Model
+		}
+		rc.Reflect = repoCfg.Reflect
+		if repoCfg.ReflectBranch != "" {
+			rc.Branch = repoCfg.ReflectBranch
+		}
+		rc.AutoMerge = repoCfg.AutoMerge
+		hasRepoConfig = true
+	}
+
 	path := detectCWD()
 	if repo == "" {
 		path = rc.Path

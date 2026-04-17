@@ -152,13 +152,15 @@ insights_record_iteration() {
   # Classify each comment
   local i n
   n=$(printf '%s' "$comments_json" | jq 'length' 2>/dev/null || echo 0)
-  for i in $(seq 0 $(( n - 1 ))); do
-    local body
-    body=$(printf '%s' "$comments_json" | jq -r ".[$i].body // \"\"" 2>/dev/null || echo "")
-    local cat
-    cat=$(_ins_classify_comment "$body")
-    _INS_CATS["$cat"]=$(( ${_INS_CATS["$cat"]:-0} + 1 ))
-  done
+  if (( n > 0 )); then
+    for ((i=0; i<n; i++)); do
+      local body
+      body=$(printf '%s' "$comments_json" | jq -r ".[$i].body // \"\"" 2>/dev/null || echo "")
+      local cat
+      cat=$(_ins_classify_comment "$body")
+      _INS_CATS["$cat"]=$(( ${_INS_CATS["$cat"]:-0} + 1 ))
+    done
+  fi
 
   # Snapshot category counts for this iteration
   local cats_snapshot
