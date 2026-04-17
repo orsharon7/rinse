@@ -17,7 +17,7 @@ import (
 	"strings"
 )
 
-// ReviewState is the parsed outcome of `gh pr review` for a Copilot review.
+// ReviewState is the parsed outcome of `pr-review.sh status` (which uses `gh api`) for a Copilot review.
 type ReviewState struct {
 	// Status is one of: pending, new_review, approved, clean, no_change,
 	// no_reviews, merged, closed, error — mirrors pr-review.sh status output.
@@ -66,6 +66,7 @@ func GetReviewState(scriptDir, repo, pr, cwd, lastKnownReviewID string) (ReviewS
 	}
 	cmd := exec.Command("bash", args...)
 	cmd.Dir = cwd
+	cmd.Stderr = os.Stderr
 	out, err := cmd.Output()
 	if err != nil {
 		var exitErr *exec.ExitError
@@ -112,6 +113,7 @@ func GetComments(scriptDir, repo, pr, cwd string) ([]Comment, error) {
 		"--repo", repo,
 	)
 	cmd.Dir = cwd
+	cmd.Stderr = os.Stderr
 	out, err := cmd.Output()
 	if err != nil {
 		var exitErr *exec.ExitError

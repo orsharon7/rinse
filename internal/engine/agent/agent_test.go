@@ -123,7 +123,9 @@ func TestParseReviewState_clean(t *testing.T) {
 }
 
 // TestParseReviewState_NULStripped verifies that NUL bytes in the raw output
-// are stripped before JSON parsing (mirrors GetReviewState behaviour).
+// are stripped before JSON parsing, matching the bytes.ReplaceAll logic in
+// GetReviewState. This test directly exercises the JSON-parsing step; the
+// NUL stripping itself is tested here inline to validate the expected input.
 func TestParseReviewState_NULStripped(t *testing.T) {
 	raw := "{\"status\":\"approved\",\"review_id\":\"R_2\"}\x00"
 	cleaned := strings.ReplaceAll(raw, "\x00", "")
