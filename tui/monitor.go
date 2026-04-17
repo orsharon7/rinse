@@ -14,94 +14,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-)
-
-// ── Additional palette ────────────────────────────────────────────────────────
-
-var (
-	green = lipgloss.Color("#A6DA95")
-	peach = lipgloss.Color("#F5A97F")
-	sky   = lipgloss.Color("#91D7E3")
-)
-
-// ── Monitor styles ────────────────────────────────────────────────────────────
-
-var (
-	// Header: borderBottom separates it from the log area cleanly.
-	styleHeader = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(text).
-			BorderStyle(lipgloss.NormalBorder()).
-			BorderBottom(true).
-			BorderForeground(overlay).
-			Padding(0, 1)
-
-	styleHeaderLabel = lipgloss.NewStyle().Foreground(overlay)
-	styleHeaderVal   = lipgloss.NewStyle().Foreground(lavender).Bold(true)
-
-	// Status bar: borderTop, no background.
-	styleStatusBar = lipgloss.NewStyle().
-			Foreground(subtext).
-			BorderStyle(lipgloss.NormalBorder()).
-			BorderTop(true).
-			BorderForeground(overlay).
-			Padding(0, 1)
-
-	stylePhaseWaiting = lipgloss.NewStyle().Foreground(yellow).Bold(true)
-	stylePhaseFixing  = lipgloss.NewStyle().Foreground(mauve).Bold(true)
-	stylePhaseReflect = lipgloss.NewStyle().Foreground(teal).Bold(true)
-	stylePhaseDone    = lipgloss.NewStyle().Foreground(green).Bold(true)
-	stylePhaseErr     = lipgloss.NewStyle().Foreground(red).Bold(true)
-
-	// Log line colours — semantic categories.
-	styleLogInfo    = lipgloss.NewStyle().Foreground(text)
-	styleLogDebug   = lipgloss.NewStyle().Foreground(subtext)
-	styleLogWarn    = lipgloss.NewStyle().Foreground(yellow)
-	styleLogErr     = lipgloss.NewStyle().Foreground(red).Bold(true)
-	styleLogIter    = lipgloss.NewStyle().Foreground(mauve).Bold(true)
-	styleLogAgent   = lipgloss.NewStyle().Foreground(text)
-	styleLogSuccess = lipgloss.NewStyle().Foreground(green).Bold(true)
-	styleLogGit     = lipgloss.NewStyle().Foreground(peach)
-	styleLogAPI     = lipgloss.NewStyle().Foreground(sky)
-
-	// Stat badge styles.
-	styleBadge = lipgloss.NewStyle().
-			Foreground(crust).
-			Padding(0, 1)
-	styleBadgeIter    = styleBadge.Background(mauve)
-	styleBadgeComment = styleBadge.Background(yellow)
-	styleBadgeRules   = styleBadge.Background(teal)
-	styleBadgeTime    = styleBadge.Background(lavender)
-
-	// Reflect panel styles.
-	styleReflectPanel = lipgloss.NewStyle().
-				BorderStyle(lipgloss.NormalBorder()).
-				BorderLeft(true).
-				BorderForeground(teal).
-				Padding(0, 1)
-	styleReflectTitle = lipgloss.NewStyle().Foreground(teal).Bold(true)
-	styleReflectLine  = lipgloss.NewStyle().Foreground(subtext)
-	styleReflectNew   = lipgloss.NewStyle().Foreground(text)
-	styleReflectOK    = lipgloss.NewStyle().Foreground(green)
-	styleReflectFail  = lipgloss.NewStyle().Foreground(red)
-
-	// Iteration timeline styles.
-	styleTimelineDot     = lipgloss.NewStyle().Foreground(mauve)
-	styleTimelineDone    = lipgloss.NewStyle().Foreground(green)
-	styleTimelineErr     = lipgloss.NewStyle().Foreground(red)
-	styleTimelineCurrent = lipgloss.NewStyle().Foreground(yellow).Bold(true)
-
-	// Toast notification style.
-	styleToast = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(green).
-			Padding(0, 2).
-			Foreground(text).
-			Bold(true)
 )
 
 // ansiRe strips ANSI escape sequences for pattern matching only.
@@ -489,9 +406,8 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
-		key := msg.String()
 		// Always handle quit.
-		if key == "ctrl+c" || key == "q" {
+		if key.Matches(msg, Keys.Quit) {
 			if m.cmd != nil && m.cmd.Process != nil {
 				_ = m.cmd.Process.Kill()
 			}
@@ -500,25 +416,25 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Post-cycle menu captures all other keys when visible.
 		if m.showPostCycleMenu {
-			return m.handlePostCycleKey(key)
+			return m.handlePostCycleKey(msg)
 		}
 
 		// Toggle help overlay.
-		if key == "?" {
+		if key.Matches(msg, Keys.Help) {
 			m.showHelp = !m.showHelp
 		} else if m.showHelp {
 			// Any other key dismisses the overlay.
 			m.showHelp = false
 		} else {
 			// Normal key handling when help is not shown.
-			switch key {
-			case "G":
+			switch {
+			case key.Matches(msg, Keys.Bottom):
 				m.atBottom = true
 				m.viewport.GotoBottom()
-			case "g":
+			case key.Matches(msg, Keys.Top):
 				m.atBottom = false
 				m.viewport.GotoTop()
-			case "s":
+			case msg.String() == "s":
 				if len(m.reflectLines) > 0 {
 					fname := fmt.Sprintf("pr-review-reflect-%s.txt",
 						time.Now().Format("20060102-150405"))
@@ -535,7 +451,7 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cmds = append(cmds, tea.Tick(2*time.Second,
 						func(t time.Time) tea.Msg { return clearStatusMsg{} }))
 				}
-			case "S":
+			case msg.String() == "S":
 				ts := time.Now().Format("20060102-150405")
 				// Save the rendered main log so the file matches what was shown
 				// in the viewport, including lines appended outside m.lines.
@@ -780,20 +696,20 @@ func isReadyToMerge(plain string) bool {
 }
 
 // handlePostCycleKey processes keyboard input when the post-cycle menu is shown.
-func (m monitorModel) handlePostCycleKey(key string) (tea.Model, tea.Cmd) {
+func (m monitorModel) handlePostCycleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	n := len(m.postCycleOptions)
-	switch key {
-	case "up", "k":
+	switch {
+	case key.Matches(msg, Keys.Up):
 		if m.postCycleCursor > 0 {
 			m.postCycleCursor--
 		}
-	case "down", "j":
+	case key.Matches(msg, Keys.Down):
 		if m.postCycleCursor < n-1 {
 			m.postCycleCursor++
 		}
-	case "enter":
+	case key.Matches(msg, Keys.Confirm):
 		return m.executePostCycleAction(m.postCycleCursor)
-	case "esc":
+	case key.Matches(msg, Keys.Back):
 		// Dismiss menu — return to the completed log view; press q to fully quit.
 		m.showPostCycleMenu = false
 		return m, nil
@@ -1309,6 +1225,7 @@ type webhookPayload struct {
 	Repo      string `json:"repo"`
 	ExitCode  int    `json:"exit_code"`
 	Status    string `json:"status"`
+	Phase     string `json:"phase"`
 	Timestamp string `json:"timestamp"`
 }
 
@@ -1325,6 +1242,7 @@ func fireWebhook(webhookURL, pr, repo string, exitCode int, p phase) {
 		Repo:      repo,
 		ExitCode:  exitCode,
 		Status:    status,
+		Phase:     p.String(),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	}
 	body, err := json.Marshal(payload)
@@ -1338,7 +1256,21 @@ func fireWebhook(webhookURL, pr, repo string, exitCode int, p phase) {
 		fmt.Fprintf(os.Stderr, "[rinse] webhook POST error: %v\n", err)
 		return
 	}
-	_ = resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		snippet, readErr := io.ReadAll(io.LimitReader(resp.Body, 512))
+		if readErr != nil {
+			fmt.Fprintf(os.Stderr, "[rinse] webhook POST returned %s (failed to read response body: %v)\n", resp.Status, readErr)
+			return
+		}
+		msg := strings.TrimSpace(string(snippet))
+		if msg != "" {
+			fmt.Fprintf(os.Stderr, "[rinse] webhook POST returned %s: %s\n", resp.Status, msg)
+			return
+		}
+		fmt.Fprintf(os.Stderr, "[rinse] webhook POST returned %s\n", resp.Status)
+	}
 }
 
 // RunMonitor starts the cycle monitor TUI wrapping the given runner command.

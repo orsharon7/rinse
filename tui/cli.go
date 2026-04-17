@@ -116,8 +116,9 @@ func runStatusCmd(args []string) {
 		}
 	}
 
-	// Validate PR number is numeric.
-	if _, err := strconv.Atoi(prNum); err != nil {
+	// Validate PR number is a positive integer.
+	pr, err := strconv.Atoi(prNum)
+	if err != nil || pr <= 0 {
 		fatalf(asJSON, "PR number must be a positive integer, got: %s", prNum)
 	}
 
@@ -242,15 +243,22 @@ func runStartCmd(args []string) {
 		asJSON      bool
 	)
 
+	// Pre-scan for --json so early errors can be routed through fatalf.
+	for _, a := range args {
+		if a == "--json" {
+			asJSON = true
+			break
+		}
+	}
+
 	// Positional first arg is the required PR number.
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		fmt.Fprintln(os.Stderr, "usage: rinse start <pr_number> [options]")
-		os.Exit(1)
+		fatalf(asJSON, "usage: rinse start <pr_number> [options]")
 	}
 	prNum = args[0]
-	if _, err := strconv.Atoi(prNum); err != nil {
-		fmt.Fprintf(os.Stderr, "error: PR number must be a positive integer, got: %s\n", prNum)
-		os.Exit(1)
+	prInt, err := strconv.Atoi(prNum)
+	if err != nil || prInt <= 0 {
+		fatalf(asJSON, "PR number must be a positive integer, got: %s", prNum)
 	}
 	rest := args[1:]
 
@@ -288,8 +296,7 @@ func runStartCmd(args []string) {
 		case "--json":
 			asJSON = true
 		default:
-			fmt.Fprintf(os.Stderr, "unknown flag: %s\n", rest[i])
-			os.Exit(1)
+			fatalf(asJSON, "unknown flag: %s", rest[i])
 		}
 	}
 
