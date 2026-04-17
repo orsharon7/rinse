@@ -44,7 +44,7 @@ type Cycle struct {
 // Rationale: local HTTP is the most portable option — no gRPC toolchain
 // required, easy to mock in tests, and works across all future platform targets.
 func APIBase() string {
-	if u := os.Getenv("RINSE_API_URL"); u != "" {
+	if u := strings.TrimSpace(os.Getenv("RINSE_API_URL")); u != "" {
 		return u
 	}
 	return "http://localhost:7433"

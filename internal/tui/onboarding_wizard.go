@@ -393,7 +393,9 @@ func (m wizModel) doResume() (wizModel, tea.Cmd) {
 
 func (m wizModel) doStartOver() (wizModel, tea.Cmd) {
 	// Delete state and restart fresh.
-	_ = onboarding.DeleteState()
+	if err := onboarding.DeleteState(); err != nil {
+		fmt.Fprintf(os.Stderr, "rinse: failed to delete onboarding state: %v\n", err)
+	}
 	m.cycleName = ""
 	m.cycleInput.SetValue("")
 	m.remindOnComplete = true
