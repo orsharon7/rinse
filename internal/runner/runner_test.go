@@ -1,4 +1,4 @@
-package runner_test
+package runner
 
 import (
 	"errors"
@@ -8,7 +8,6 @@ import (
 
 	"github.com/orsharon7/rinse/internal/engine"
 	"github.com/orsharon7/rinse/internal/engine/lock"
-	"github.com/orsharon7/rinse/internal/runner"
 )
 
 // stubAgent is a configurable test double for engine.Agent.
@@ -40,12 +39,12 @@ func tempStateDir(t *testing.T) {
 
 	// Capture the current value before overriding so we always restore it,
 	// regardless of whether a home directory can be determined.
-	restoreDir := runner.GetStateDir()
+	restoreDir := GetStateDir()
 
-	// runner.SetStateDir is exported via state_test_hook.go for test isolation.
-	runner.SetStateDir(t.TempDir())
+	// SetStateDir is defined in state_test_hook_test.go for test isolation.
+	SetStateDir(t.TempDir())
 	t.Cleanup(func() {
-		runner.SetStateDir(restoreDir)
+		SetStateDir(restoreDir)
 	})
 }
 
@@ -54,8 +53,8 @@ func tempLockDir(t *testing.T) {
 	lock.Dir = t.TempDir()
 }
 
-func baseOpts(agent engine.Agent) runner.Opts {
-	return runner.Opts{
+func baseOpts(agent engine.Agent) Opts {
+	return Opts{
 		Repo:          "owner/repo",
 		PR:            "1",
 		CWD:           t_tempDir(),
@@ -78,7 +77,7 @@ func TestRun_ApprovedFirstIteration(t *testing.T) {
 		name:    "stub",
 		results: []engine.Result{{Approved: true, Comments: 2}},
 	}
-	res, err := runner.Run(baseOpts(agent))
+	res, err := Run(baseOpts(agent))
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -99,8 +98,8 @@ func TestRun_MaxIterationsReached(t *testing.T) {
 	opts := baseOpts(agent)
 	opts.MaxIterations = 3
 
-	res, err := runner.Run(opts)
-	if !errors.Is(err, runner.ErrMaxIterations) {
+	res, err := Run(opts)
+	if !errors.Is(err, ErrMaxIterations) {
 		t.Fatalf("expected ErrMaxIterations, got %v", err)
 	}
 	if res.Approved {
@@ -120,7 +119,7 @@ func TestRun_AgentError_PropagatesWithContext(t *testing.T) {
 		name: "stub",
 		errs: []error{sentinel},
 	}
-	_, err := runner.Run(baseOpts(agent))
+	_, err := Run(baseOpts(agent))
 	if err == nil {
 		t.Fatal("expected error from agent, got nil")
 	}
@@ -141,8 +140,8 @@ func TestRun_AlreadyRunning(t *testing.T) {
 	defer l.Release() //nolint:errcheck
 
 	agent := &stubAgent{name: "stub", results: []engine.Result{{Approved: true}}}
-	_, err = runner.Run(baseOpts(agent))
-	if !errors.Is(err, runner.ErrAlreadyRunning) {
+	_, err = Run(baseOpts(agent))
+	if !errors.Is(err, ErrAlreadyRunning) {
 		t.Fatalf("expected ErrAlreadyRunning, got %v", err)
 	}
 }
@@ -150,16 +149,16 @@ func TestRun_AlreadyRunning(t *testing.T) {
 func TestRun_MissingRequiredOpts(t *testing.T) {
 	tests := []struct {
 		name string
-		opts runner.Opts
+		opts Opts
 	}{
-		{"no repo", runner.Opts{PR: "1", CWD: "/tmp", Agent: &stubAgent{}}},
-		{"no pr", runner.Opts{Repo: "owner/repo", CWD: "/tmp", Agent: &stubAgent{}}},
-		{"no cwd", runner.Opts{Repo: "owner/repo", PR: "1", Agent: &stubAgent{}}},
-		{"no agent", runner.Opts{Repo: "owner/repo", PR: "1", CWD: "/tmp"}},
+		{"no repo", Opts{PR: "1", CWD: "/tmp", Agent: &stubAgent{}}},
+		{"no pr", Opts{Repo: "owner/repo", CWD: "/tmp", Agent: &stubAgent{}}},
+		{"no cwd", Opts{Repo: "owner/repo", PR: "1", Agent: &stubAgent{}}},
+		{"no agent", Opts{Repo: "owner/repo", PR: "1", CWD: "/tmp"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := runner.Run(tc.opts)
+			_, err := Run(tc.opts)
 			if err == nil {
 				t.Fatal("expected validation error, got nil")
 			}
@@ -186,7 +185,7 @@ func TestRun_WaitingDoesNotCountAsIteration(t *testing.T) {
 	opts := baseOpts(agent)
 	opts.MaxIterations = 1 // only 1 real iteration allowed
 
-	res, err := runner.Run(opts)
+	res, err := Run(opts)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -219,7 +218,7 @@ func TestRun_ReviewIDPassedOnSubsequentCall(t *testing.T) {
 	opts := baseOpts(agent)
 	opts.MaxIterations = 5
 
-	res, err := runner.Run(opts)
+	res, err := Run(opts)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -254,8 +253,8 @@ func TestRun_MaxWaitPollsReached(t *testing.T) {
 	opts := baseOpts(agent)
 	opts.MaxWaitPolls = 2 // exceeded after 3 Waiting results
 
-	res, err := runner.Run(opts)
-	if !errors.Is(err, runner.ErrMaxWaitPolls) {
+	res, err := Run(opts)
+	if !errors.Is(err, ErrMaxWaitPolls) {
 		t.Fatalf("expected ErrMaxWaitPolls, got %v", err)
 	}
 	if res.Iterations != 0 {
