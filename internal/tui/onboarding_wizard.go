@@ -87,7 +87,6 @@ type wizModel struct {
 
 	// splash
 	sp        spinner.Model
-	spReady   bool
 	savedStep onboarding.Step // from loaded state (may be "")
 
 	// resume
@@ -114,7 +113,6 @@ type wizModel struct {
 	cycleName     string
 	creatingCycle bool
 	cycleErr      string
-	createdID     string
 
 	// step E
 	colorOK      bool // true if ANSI color is safe to render
@@ -209,12 +207,10 @@ func (m wizModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.view != wizSplash {
 			return m, nil
 		}
-		m.spReady = true
 		return m.advanceFromSplash()
 
 	case wizCycleCreatedMsg:
 		m.creatingCycle = false
-		m.createdID = msg.cycleID
 		m.cycleName = msg.cycleName
 		// Save step D synchronously before moving to E so a later Step E save
 		// cannot be overwritten by an earlier async write finishing late.
@@ -315,9 +311,6 @@ func (m wizModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.view {
 	case wizSplash:
 		// Any non-quit key skips the splash immediately.
-		// Mark the splash as ready/consumed so a pending splash tick
-		// won't later re-handle this transition.
-		m.spReady = true
 		return m.advanceFromSplash()
 
 	case wizResume:
@@ -526,6 +519,9 @@ const (
 func (m wizModel) handleStepCKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 	switch {
 	case key.Matches(msg, Keys.Back):
+		if m.writingConfig {
+			return m, nil
+		}
 		m.view = wizStepB
 		m.cycleInput.Focus()
 		return m, textinput.Blink
@@ -882,7 +878,7 @@ func (m wizModel) renderStepC() string {
 		nextCursor + theme.StyleTeal.Render(theme.IconCheck+" Next") + "\n" +
 		skipCursor + theme.StyleMuted.Render("Skip for now")
 
-	hints := "\n" + theme.StyleMuted.Render("  ↑↓ move  space/enter toggle  esc back  q quit")
+	hints := "\n" + theme.StyleMuted.Render("  ↑↓ move  space toggle  enter select  esc back  q quit")
 
 	var errLine string
 	if m.configErr != "" {
@@ -976,7 +972,12 @@ func (m wizModel) renderStepE() string {
 	}
 
 	headline := theme.StyleStep.Render("You are in!")
-	body := theme.StyleMuted.Render("Your first cycle is ready. We will let you know when it is done.")
+	var body string
+	if m.remindOnComplete {
+		body = theme.StyleMuted.Render("Your first cycle is ready. We will let you know when it is done.")
+	} else {
+		body = theme.StyleMuted.Render("Your first cycle is ready.")
+	}
 
 	var subBody string
 	if !m.autoAdvance {
