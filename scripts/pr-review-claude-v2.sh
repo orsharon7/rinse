@@ -381,6 +381,33 @@ session_init "$REPO" "$PR_NUMBER"
 # ── Insights init ─────────────────────────────────────────────────────────────
 insights_init "$PR_NUMBER" "$REPO" "$MODEL"
 
+# Centralize insights finalization so every exit path (including early exits)
+# produces a summary when --json-insights is active.  Each exit path sets
+# _INSIGHTS_OUTCOME to the semantic label; the trap derives a fallback from the
+# exit code when it is not set.  A done-guard prevents double-finalization for
+# paths that already called insights_finalize before the trap fires.
+_INSIGHTS_OUTCOME=""
+_INSIGHTS_DONE=false
+_insights_exit_trap() {
+  [[ "$_INSIGHTS_DONE" == true ]] && return
+  _INSIGHTS_DONE=true
+  local exit_code="${1:-$?}"
+  local outcome="${_INSIGHTS_OUTCOME:-}"
+  if [[ -z "$outcome" ]]; then
+    case "$exit_code" in
+      0) outcome="clean" ;;
+      *) outcome="error" ;;
+    esac
+  fi
+  insights_finalize "$outcome"
+  if [[ "$JSON_INSIGHTS" == true ]]; then
+    insights_print --json
+  else
+    insights_print
+  fi
+}
+trap '_insights_exit_trap $?' EXIT
+
 if session_recover; then
   log "⚠️  Previous session crashed (iter ${RECOVER_ITER}, last review: ${RECOVER_REVIEW_ID:-none})"
   log "   Recovering — will resume from last known state"
@@ -566,7 +593,7 @@ while true; do
   pr_state=$(echo "$_pr_json" | jq -r '.state // "open"')
   merged_at=$(echo "$_pr_json" | jq -r '.merged_at // ""')
   if [[ "$pr_state" == "closed" ]]; then
-    [[ -n "$merged_at" ]] && log "🎉 PR merged!" || log "📕 PR closed."
+    [[ -n "$merged_at" ]] && { log "🎉 PR merged!"; _INSIGHTS_OUTCOME="merged"; } || { log "📕 PR closed."; _INSIGHTS_OUTCOME="closed"; }
     exit 0
   fi
 
