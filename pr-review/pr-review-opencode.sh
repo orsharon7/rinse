@@ -47,6 +47,11 @@ source "${SCRIPT_DIR}/pr-review-ui.sh"
 # shellcheck source=pr-review-session.sh
 source "${SCRIPT_DIR}/pr-review-session.sh"
 
+# ─── Stats / telemetry (opt-in) ───────────────────────────────────────────────
+
+# shellcheck source=pr-review-stats.sh
+source "${SCRIPT_DIR}/pr-review-stats.sh"
+
 # ─── Args ─────────────────────────────────────────────────────────────────────
 
 if [[ $# -lt 1 || "$1" == "--help" || "$1" == "-h" ]]; then
@@ -126,6 +131,18 @@ STATE_DIR="${HOME}/.pr-review/state/${REPO_SLUG}"
 LOGFILE="${HOME}/.pr-review/logs/${REPO_SLUG}-pr-${PR_NUMBER}.log"
 mkdir -p "$STATE_DIR" "$(dirname "$LOGFILE")"
 STATE_FILE="${STATE_DIR}/pr-${PR_NUMBER}-last-review"
+
+# ─── Stats init (opt-in prompt fires here on first run) ───────────────────────
+stats_init "$REPO" "$PR_NUMBER" "$MODEL"
+
+# Record stats on any exit (trap captures the final exit code).
+# _RINSE_OUTCOME is set to the semantic outcome just before each exit; the trap
+# uses it so we report the right label rather than just success/failure.
+_RINSE_OUTCOME="aborted"
+_stats_exit_trap() {
+  stats_record "$_RINSE_OUTCOME"
+}
+trap _stats_exit_trap EXIT
 
 # ─── Worktree isolation (optional — used by orchestrator for parallel runs) ───
 
@@ -392,9 +409,9 @@ pr_state=$(echo "$pr_json" | jq -r '.state')
 merged_at=$(echo "$pr_json" | jq -r '.merged_at // ""')
 
 if [[ "$pr_state" == "closed" && -n "$merged_at" ]]; then
-  log "🎉 PR already merged — nothing to do."; exit 0
+  log "🎉 PR already merged — nothing to do."; _RINSE_OUTCOME="merged"; exit 0
 elif [[ "$pr_state" == "closed" ]]; then
-  log "📕 PR closed (not merged) — nothing to do."; exit 1
+  log "📕 PR closed (not merged) — nothing to do."; _RINSE_OUTCOME="closed"; exit 1
 fi
 
 log "🔍 Checking existing reviews..."
@@ -414,7 +431,7 @@ else
   rat=$(echo "$latest" | jq -r '.submitted_at')
 
   if [[ "$rstate" == "APPROVED" ]]; then
-    log "✅ PR already APPROVED by Copilot — nothing to do."; exit 0
+    log "✅ PR already APPROVED by Copilot — nothing to do."; _RINSE_OUTCOME="approved"; exit 0
   fi
 
   comments=$(get_review_comments "$rid")
@@ -433,7 +450,7 @@ else
   fi
 fi
 
-[[ "$DRY_RUN" == true ]] && { log "[DRY RUN] Exiting."; exit 0; }
+[[ "$DRY_RUN" == true ]] && { log "[DRY RUN] Exiting."; _RINSE_OUTCOME="dry_run"; exit 0; }
 echo ""
 
 # ─── Main loop ────────────────────────────────────────────────────────────────
@@ -489,7 +506,11 @@ while true; do
   merged_at=$(echo "$_pr_json" | jq -r '.merged_at // ""')
   base_branch=$(echo "$_pr_json" | jq -r '.base.ref // "main"')
   if [[ "$pr_state" == "closed" ]]; then
-    [[ -n "$merged_at" ]] && log "🎉 PR merged!" || log "📕 PR closed."
+    if [[ -n "$merged_at" ]]; then
+      log "🎉 PR merged!"; _RINSE_OUTCOME="merged"
+    else
+      log "📕 PR closed."; _RINSE_OUTCOME="closed"
+    fi
     exit 0
   fi
 
@@ -497,6 +518,7 @@ while true; do
     ui_outcome "✅" "Copilot APPROVED PR #${PR_NUMBER}! Ready to merge."
     log "✅ Copilot APPROVED PR #${PR_NUMBER}! Ready to merge."
     echo "$rid" > "$STATE_FILE"
+    _RINSE_OUTCOME="approved"
     if [[ "$AUTO_MERGE" == true ]]; then
       log "🔀 Auto-merging and deleting branch..."
       local_branch=$(git -C "$CWD" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
@@ -534,6 +556,7 @@ while true; do
     ui_outcome "✅" "Clean review — 0 comments. PR #${PR_NUMBER} is ready to merge."
     log "✅ Clean review — 0 comments. PR #${PR_NUMBER} is ready to merge."
     echo "$rid" > "$STATE_FILE"
+    _RINSE_OUTCOME="clean"
     if [[ "$AUTO_MERGE" == true ]]; then
       log "🔀 Auto-merging and deleting branch..."
       local_branch=$(git -C "$CWD" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
@@ -648,6 +671,7 @@ PROMPT_EOF
       kill "$reflect_pid" 2>/dev/null || true
       ui_reflect_log "killed (opencode failed)" false
     fi
+    _RINSE_OUTCOME="error"
     exit 1
   fi
 
@@ -666,6 +690,7 @@ PROMPT_EOF
 
   echo "$rid" > "$STATE_FILE"
   log "💾 Saved last-known review ID: ${rid}"
+  stats_add_iteration "$comment_count"
 
   if [[ "$REFLECT_OPTIMIZE" == true ]] && (( iter % 3 == 0 )); then
     log "🔁 Running mid-cycle optimize pass (iteration ${iter})..."
