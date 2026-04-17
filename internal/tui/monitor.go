@@ -996,7 +996,7 @@ func (m monitorModel) View() string {
 		iterStr = fmt.Sprintf("%d", m.iter)
 	}
 
-	// Elapsed badge: hidden during phaseStarting; dimmed when done/cancelled.
+	// Elapsed badge: hidden during phaseStarting.
 	var elapsedBadge string
 	if m.phase != phaseStarting {
 		elapsedStr := formatElapsed(elapsed)
@@ -1010,25 +1010,23 @@ func (m monitorModel) View() string {
 		badges = append(badges, elapsedBadge)
 	}
 
-	// ETA badge: only render when we have a real ETA source of truth.
-	if m.estimatedEndAt != nil {
-		etaSt, etaTime := resolveETA(m.phase, m.estimatedEndAt, m.nowAdjusted())
-		switch etaSt {
-		case etaUnknown:
-			badges = append(badges, theme.StyleBadgeETA.Render(" ETA — "))
-		case etaComputable:
-			badges = append(badges, theme.StyleBadgeETA.Render(" ETA "+etaTime.Local().Format("15:04")+" "))
-		case etaFutureDay:
-			badges = append(badges, theme.StyleBadgeETA.Render(" ETA "+etaTime.Local().Format("Mon 15:04")+" "))
-		case etaOverdue:
-			overdueDur := m.nowAdjusted().Sub(etaTime).Round(time.Second)
-			badges = append(badges, theme.StyleBadgeOverdue.Render(" +"+formatElapsed(overdueDur)+" "))
-		case etaCompleted:
-			badges = append(badges, theme.StyleBadgeETA.Render(" Completed "))
-		case etaError:
-			badges = append(badges, theme.StyleBadgeETA.Render(" ETA — "))
-		// etaHidden: nothing added
-		}
+	// ETA badge: resolve unconditionally so unknown and terminal states can render.
+	etaSt, etaTime := resolveETA(m.phase, m.estimatedEndAt, m.nowAdjusted())
+	switch etaSt {
+	case etaUnknown:
+		badges = append(badges, theme.StyleBadgeETA.Render(" ETA — "))
+	case etaComputable:
+		badges = append(badges, theme.StyleBadgeETA.Render(" ETA "+etaTime.Local().Format("15:04")+" "))
+	case etaFutureDay:
+		badges = append(badges, theme.StyleBadgeETA.Render(" ETA "+etaTime.Local().Format("Mon 15:04")+" "))
+	case etaOverdue:
+		overdueDur := m.nowAdjusted().Sub(etaTime).Round(time.Second)
+		badges = append(badges, theme.StyleBadgeOverdue.Render(" +"+formatElapsed(overdueDur)+" "))
+	case etaCompleted:
+		badges = append(badges, theme.StyleBadgeETA.Render(" Completed "))
+	case etaError:
+		badges = append(badges, theme.StyleBadgeETA.Render(" ETA — "))
+	// etaHidden: nothing added
 	}
 	if m.totalComments > 0 {
 		badges = append(badges,
@@ -1122,7 +1120,7 @@ func (m monitorModel) View() string {
 // Shows timestamp in UTC and local timezone, matching the UX spec (RIN-42 §3).
 func (m monitorModel) renderTimingTooltip() string {
 	t := m.lastStateChangedAt
-	utcStr := t.UTC().Format("Mon, 02 Jan 2006  15:04:05 UTC")
+	utcStr := t.UTC().Format("Mon, 02 Jan 2006 15:04:05 UTC")
 	localStr := t.Local().Format("15:04:05 MST")
 
 	elapsedStr := formatElapsed(m.elapsedForDisplay())
