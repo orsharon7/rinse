@@ -298,6 +298,49 @@ lines_removed=$(git -C "$WORKTREE_DIR" diff --cached AGENTS.md \
 
 git -C "$WORKTREE_DIR" commit \
   -m "chore: optimize AI coding rules after PR #${PR_NUMBER} merge [skip ci]"
-retry 3 git -C "$WORKTREE_DIR" push origin "HEAD:${MAIN_BRANCH}"
+
+# Push with fetch-rebase-retry to handle parallel push conflicts on main.
+# When multiple reflect-optimize runs complete concurrently, the second push is
+# rejected as non-fast-forward.  We detect that case, fetch the new tip, rebase
+# our single commit on top of it, and retry — up to MAX_PUSH_ATTEMPTS times.
+MAX_PUSH_ATTEMPTS=5
+push_attempt=1
+while true; do
+  push_output=$(git -C "$WORKTREE_DIR" push origin "HEAD:${MAIN_BRANCH}" 2>&1)
+  push_exit=$?
+  echo "$push_output" | tee -a "$LOGFILE"
+
+  if [[ $push_exit -eq 0 ]]; then
+    break  # success
+  fi
+
+  # Detect non-fast-forward rejection (parallel push conflict)
+  if echo "$push_output" | grep -qE 'rejected|non-fast-forward|fetch first'; then
+    if [[ $push_attempt -ge $MAX_PUSH_ATTEMPTS ]]; then
+      log "⚠️  Push still failing after ${MAX_PUSH_ATTEMPTS} attempts — aborting"
+      exit 1
+    fi
+    log "Push rejected (attempt ${push_attempt}/${MAX_PUSH_ATTEMPTS}) — fetching and rebasing onto ${MAIN_BRANCH}..."
+    retry 3 bash -c 'set -euo pipefail; git -C "$1" fetch origin "$2" 2>&1 | tee -a "$3"' _ "$WORKTREE_DIR" "$MAIN_BRANCH" "$LOGFILE"
+    # Rebase our commit on top of the new upstream tip.
+    # Use -X ours so our optimized content wins on conflict (both sides touched the rules section).
+    if ! git -C "$WORKTREE_DIR" rebase "origin/${MAIN_BRANCH}" -X ours 2>&1 | tee -a "$LOGFILE"; then
+      log "⚠️  Rebase failed — aborting"
+      git -C "$WORKTREE_DIR" rebase --abort 2>/dev/null || true
+      exit 1
+    fi
+    push_attempt=$(( push_attempt + 1 ))
+    sleep $(( push_attempt * 2 ))
+  else
+    # Non-rejection failure (network, auth, etc.) — use simple retry
+    if [[ $push_attempt -ge $MAX_PUSH_ATTEMPTS ]]; then
+      log "⚠️  Push failed after ${MAX_PUSH_ATTEMPTS} attempts — aborting"
+      exit 1
+    fi
+    log "Push failed (attempt ${push_attempt}/${MAX_PUSH_ATTEMPTS}) — retrying in ${push_attempt}s..."
+    sleep "$push_attempt"
+    push_attempt=$(( push_attempt + 1 ))
+  fi
+done
 
 log "✓ Optimization complete — ~${lines_removed} line(s) removed, pushed to ${MAIN_BRANCH}"
