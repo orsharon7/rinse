@@ -7,6 +7,7 @@
 package stats
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -207,11 +208,13 @@ func PromptOptIn() (bool, error) {
   ─────────────────────────────────────────────────────`+"\n", sessionsDir)
 	fmt.Print("  Enable local stats? [y/N]: ")
 
-	var resp string
-	if _, err := fmt.Scanln(&resp); err != nil {
+	reader := bufio.NewReader(os.Stdin)
+	resp, err := reader.ReadString('\n')
+	if err != nil {
 		// Read failed (EOF / closed terminal) — treat as no response without persisting any preference.
 		return false, nil
 	}
+	// An empty response (just Enter) is treated as the default "no".
 	optIn := strings.ToLower(strings.TrimSpace(resp)) == "y"
 	if err := SetOptIn(optIn); err != nil {
 		return false, err
