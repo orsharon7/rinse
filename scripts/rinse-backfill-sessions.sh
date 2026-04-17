@@ -118,8 +118,9 @@ for logfile in "${LOGS_DIR}"/*.log; do
   started_at=$(_ts_to_utc "$first_ts")
   ended_at=$(_ts_to_utc "$last_ts")
 
-  # Compute file-slug for session filename using the Go stats convention:
+  # Compute session filename using the Go stats convention:
   # YYYYMMDD-HHMMSS-<repo>-PR<N>-<session_id>.json
+  session_id="$(_gen_uuid)"
   repo_slug="${REPO//\//-}"
   date_part="${started_at:0:10}"
   date_part="${date_part//-/}"
@@ -127,11 +128,8 @@ for logfile in "${LOGS_DIR}"/*.log; do
   time_part="${time_part//:/}"
   started_slug="${date_part}-${time_part}"
   session_prefix="${SESSIONS_DIR}/${started_slug}-${repo_slug}-PR${pr_num}"
-  file_suffix="$(basename "$logfile")"
-  file_suffix="${file_suffix%.log}"
-  file_suffix="${file_suffix//[^[:alnum:]._-]/-}"
   legacy_session_fname="${session_prefix}.json"
-  session_fname="${session_prefix}-${file_suffix}.json"
+  session_fname="${session_prefix}-${session_id}.json"
 
   if [[ -f "$legacy_session_fname" ]] || compgen -G "${session_prefix}-*.json" > /dev/null; then
     (( skipped++ )) || true
@@ -186,8 +184,6 @@ for logfile in "${LOGS_DIR}"/*.log; do
   duration_seconds=$(( end_epoch - start_epoch ))
   [[ $duration_seconds -lt 0 ]] && duration_seconds=0
   estimated_saved=$(( total_comments * 240 ))
-
-  session_id="$(_gen_uuid)"
 
   if [[ "$DRY_RUN" == true ]]; then
     echo "[DRY RUN] Would write: ${session_fname}"
