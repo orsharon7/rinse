@@ -153,7 +153,11 @@ if [[ "$USE_WORKTREE" == true ]]; then
       insights_finalize "$outcome"
     fi
     if [[ "$should_print_insights" == true ]]; then
-      insights_print $( [[ "${JSON_INSIGHTS:-false}" == true ]] && echo "--json" )
+      if [[ "${JSON_INSIGHTS:-false}" == true ]]; then
+        insights_print --json
+      else
+        insights_print
+      fi
     fi
   }
   trap cleanup_pr_worktree EXIT
@@ -409,7 +413,11 @@ if [[ "$USE_WORKTREE" == false ]]; then
     fi
 
     if [[ "${DRY_RUN:-false}" != true && "$should_print_insights" == true ]]; then
-      insights_print $( [[ "${JSON_INSIGHTS:-false}" == true ]] && echo "--json" )
+      if [[ "${JSON_INSIGHTS:-false}" == true ]]; then
+        insights_print --json
+      else
+        insights_print
+      fi
     fi
   }
   trap _cleanup_on_exit EXIT
@@ -521,7 +529,11 @@ while true; do
   if ! wait_for_review; then
     log "❌ Timed out waiting for Copilot — aborting"
     insights_finalize "stalled"
-    insights_print $( [[ "$JSON_INSIGHTS" == true ]] && echo "--json" )
+    if [[ "$JSON_INSIGHTS" == true ]]; then
+      insights_print --json
+    else
+      insights_print
+    fi
     exit 1
   fi
 
@@ -556,7 +568,11 @@ while true; do
     log "✅ Copilot APPROVED PR #${PR_NUMBER}! Ready to merge."
     echo "$rid" > "$STATE_FILE"
     insights_finalize "approved"
-    insights_print $( [[ "$JSON_INSIGHTS" == true ]] && echo "--json" )
+    if [[ "$JSON_INSIGHTS" == true ]]; then
+      insights_print --json
+    else
+      insights_print
+    fi
     ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
     exit 0
   fi
@@ -569,7 +585,11 @@ while true; do
     log "✅ Clean review — 0 comments. PR #${PR_NUMBER} is ready to merge."
     echo "$rid" > "$STATE_FILE"
     insights_finalize "clean"
-    insights_print $( [[ "$JSON_INSIGHTS" == true ]] && echo "--json" )
+    if [[ "$JSON_INSIGHTS" == true ]]; then
+      insights_print --json
+    else
+      insights_print
+    fi
     ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
     exit 0
   fi
@@ -660,7 +680,11 @@ PROMPT_EOF
       ui_reflect_log "killed (claude failed)" false
     fi
     insights_finalize "error"
-    insights_print $( [[ "$JSON_INSIGHTS" == true ]] && echo "--json" )
+    if [[ "$JSON_INSIGHTS" == true ]]; then
+      insights_print --json
+    else
+      insights_print
+    fi
     exit 1
   fi
 
