@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/orsharon7/rinse/internal/theme"
 	"github.com/orsharon7/rinse/internal/upgrade"
 )
@@ -163,6 +164,33 @@ func LoadAllTimeSaved() (totalMin int, totalPRs int, err error) {
 	return totalMin, totalPRs, nil
 }
 
+// formatSummaryElapsed formats a duration for the post-cycle summary title line.
+// e.g. 4m32s → "4m 32s", 45s → "45s".
+func formatSummaryElapsed(d time.Duration) string {
+	d = d.Round(time.Second)
+	if d <= 0 {
+		return ""
+	}
+	m := int(d.Minutes())
+	s := int(d.Seconds()) % 60
+	if m > 0 {
+		return fmt.Sprintf("%dm %ds", m, s)
+	}
+	return fmt.Sprintf("%ds", s)
+}
+
+// summaryTermWidth returns the terminal width for summary rendering.
+// It reads $COLUMNS and falls back to 80.
+func summaryTermWidth() int {
+	if v := os.Getenv("COLUMNS"); v != "" {
+		var w int
+		if _, err := fmt.Sscanf(v, "%d", &w); err == nil && w > 0 {
+			return w
+		}
+	}
+	return 80
+}
+
 // PrintSummary writes the post-cycle insight summary to stdout.
 // When jsonMode is true it emits JSON instead of the human-readable banner.
 func PrintSummary(s Session, jsonMode bool) {
@@ -176,67 +204,156 @@ func PrintSummary(s Session, jsonMode bool) {
 		return
 	}
 
-	// Title line
-	check := theme.StyleLogSuccess.Render(theme.IconCheck)
-	label := theme.GradientString("RINSE", theme.Mauve, theme.Lavender, true)
-	prBadge := theme.StylePRNum.Render("PR #" + s.PR)
-	var statusStr string
+	// Dumb-terminal / NO_COLOR: fall back to plain text output.
+	noCols := os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb"
+
+	termW := summaryTermWidth()
+	// Box width: min(termW-4, 56), at least 30.
+	boxW := termW - 4
+	if boxW > 56 {
+		boxW = 56
+	}
+	if boxW < 30 {
+		boxW = 30
+	}
+
+	// ── Title line ────────────────────────────────────────────────────────────
+	var titleIcon, statusStr string
 	if s.Approved {
+		titleIcon = theme.StyleLogSuccess.Render(theme.IconCheck)
 		statusStr = theme.StyleLogSuccess.Render("approved")
 	} else {
+		titleIcon = theme.StyleMuted.Render(theme.IconCircle)
 		statusStr = theme.StyleMuted.Render("complete")
 	}
+	label := theme.GradientString("RINSE", theme.Mauve, theme.Lavender, true)
+	prBadge := theme.StylePRNum.Render("PR #" + s.PR)
+
+	elapsedStr := formatSummaryElapsed(s.ElapsedWall())
+	titleParts := []string{titleIcon, label, prBadge, statusStr}
+	if elapsedStr != "" {
+		titleParts = append(titleParts, theme.StyleMuted.Render(elapsedStr))
+	}
 	fmt.Println()
-	fmt.Println("  " + check + " " + label + "  " + prBadge + "  " + statusStr)
+	fmt.Println("  " + strings.Join(titleParts, "  "))
 	fmt.Println()
 
-	// Metrics rows — key column is 18 chars wide, muted; value is styled.
+	// ── Hero box — value prop front and centre ────────────────────────────────
+	// Only render the box when terminal is capable.
+	if !noCols && termW >= 40 {
+		var heroIcon, heroMain string
+		saved := s.TimeSaved()
+
+		if s.Approved {
+			heroIcon = theme.StyleLogSuccess.Render("✦")
+			if s.TotalComments > 0 && saved > 0 {
+				heroMain = theme.StyleVal.Render(
+					fmt.Sprintf("%d comment(s) fixed", s.TotalComments)) +
+					theme.StyleMuted.Render(fmt.Sprintf("  ·  ~%d min saved", int(saved.Minutes())))
+			} else if s.TotalComments > 0 {
+				heroMain = theme.StyleVal.Render(fmt.Sprintf("%d comment(s) fixed", s.TotalComments))
+			} else {
+				heroMain = theme.StyleMuted.Render("clean review — no comments to fix")
+			}
+		} else {
+			heroIcon = theme.StylePhaseStalled.Render("⚠")
+			if s.TotalComments > 0 {
+				heroMain = theme.StyleVal.Render(fmt.Sprintf("%d comment(s) fixed", s.TotalComments)) +
+					theme.StyleMuted.Render(", PR not yet approved")
+			} else {
+				heroMain = theme.StyleMuted.Render("PR not yet approved")
+			}
+		}
+
+		heroLine1 := heroIcon + "  " + heroMain
+
+		// Rounds breakdown — only if >1 round.
+		var heroLine2 string
+		if len(s.CommentsByRound) > 1 {
+			parts := make([]string, len(s.CommentsByRound))
+			for i, c := range s.CommentsByRound {
+				parts[i] = fmt.Sprintf("%d", c)
+			}
+			heroLine2 = theme.StyleMuted.Render(
+				fmt.Sprintf("%d rounds: %s", len(s.CommentsByRound), strings.Join(parts, " → ")))
+		}
+
+		var boxContent string
+		if heroLine2 != "" {
+			boxContent = heroLine1 + "\n" + "   " + heroLine2
+		} else {
+			boxContent = heroLine1
+		}
+
+		borderColor := theme.Green
+		if !s.Approved {
+			borderColor = theme.Yellow
+		}
+
+		box := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(borderColor).
+			Padding(0, 2).
+			Width(boxW).
+			Render(boxContent)
+
+		for _, line := range strings.Split(box, "\n") {
+			fmt.Println("  " + line)
+		}
+		fmt.Println()
+	}
+
+	// ── Metrics rows ──────────────────────────────────────────────────────────
 	key := func(k string) string { return theme.StyleKey.Copy().Width(18).Render(k) }
 
-	// Time saved
-	var savedVal string
-	if saved := s.TimeSaved(); saved > 0 {
-		savedVal = theme.StyleVal.Render(fmt.Sprintf("~%d min", int(saved.Minutes())))
-	} else {
-		savedVal = theme.StyleMuted.Render("—")
+	// Elapsed wall-clock
+	if elapsedStr != "" {
+		fmt.Println("  " + key("Elapsed") + theme.StyleMuted.Render(elapsedStr))
 	}
-	fmt.Println("  " + key("Time saved") + savedVal)
 
-	// Comments fixed — green if >0
-	commentsCount := fmt.Sprintf("%d", s.TotalComments)
-	if len(s.CommentsByRound) > 1 {
-		parts := make([]string, len(s.CommentsByRound))
-		for i, c := range s.CommentsByRound {
-			parts[i] = fmt.Sprintf("%d", c)
-		}
-		commentsCount += fmt.Sprintf(" across %d rounds (%s)", len(s.CommentsByRound), strings.Join(parts, ", "))
-	} else if len(s.CommentsByRound) == 1 {
-		commentsCount += " in 1 round"
+	// Iterations — note if max was hit (no approved)
+	iterStr := fmt.Sprintf("%d", s.Iterations)
+	if !s.Approved && s.Iterations > 0 {
+		iterStr += theme.StyleMuted.Render("  (max reached)")
 	}
-	var commentsVal string
-	if s.TotalComments > 0 {
-		commentsVal = theme.StyleLogSuccess.Render(commentsCount)
-	} else {
-		commentsVal = theme.StyleMuted.Render(commentsCount)
+	fmt.Println("  " + key("Iterations") + theme.StyleMuted.Render(iterStr))
+
+	// Rules learned — only if > 0
+	if s.RulesExtracted > 0 {
+		fmt.Println("  " + key("Rules learned") + theme.StyleVal.Render(fmt.Sprintf("+%d", s.RulesExtracted)))
 	}
-	fmt.Println("  " + key("Comments fixed") + commentsVal)
 
-	// Iterations
-	fmt.Println("  " + key("Iterations") + theme.StyleMuted.Render(fmt.Sprintf("%d", s.Iterations)))
-
-	// Top patterns (if any)
+	// Top patterns (if any) — each on its own line
 	if len(s.Patterns) > 0 {
 		top := s.Patterns
 		if len(top) > 3 {
 			top = top[:3]
 		}
-		fmt.Println("  " + key("Top patterns") + theme.StyleMuted.Render(strings.Join(top, ", ")))
+		fmt.Println("  " + key("Top patterns") + theme.StyleMuted.Render(theme.Truncate(top[0], 50)))
+		for _, p := range top[1:] {
+			fmt.Println("  " + strings.Repeat(" ", 20) + theme.StyleMuted.Render(theme.Truncate(p, 50)))
+		}
 	}
 
 	fmt.Println()
 
+	// ── "What's next" hint ────────────────────────────────────────────────────
+	var ctaCmd, ctaSuffix string
+	if s.Approved {
+		ctaCmd = "rinse history"
+		ctaSuffix = "to browse past cycles"
+	} else {
+		ctaCmd = fmt.Sprintf("rinse run --pr %s", s.PR)
+		ctaSuffix = "to resume"
+	}
+	cta := theme.StyleMuted.Render("  $ ") +
+		theme.StyleTeal.Render(ctaCmd) +
+		theme.StyleMuted.Render("   "+ctaSuffix)
+	fmt.Println(cta)
+	fmt.Println()
+
 	// Show upgrade prompt after proof-of-value cycles (approved outcome only, no NO_COLOR/dumb terminal).
-	if s.Approved && os.Getenv("NO_COLOR") == "" && os.Getenv("TERM") != "dumb" {
+	if s.Approved && !noCols {
 		if totalMin, totalPRs, err := LoadAllTimeSaved(); err == nil {
 			if upgrade.ShouldShowPrompt(totalPRs) {
 				fmt.Println(upgrade.RenderPrompt(totalMin, totalPRs))
@@ -245,13 +362,6 @@ func PrintSummary(s Session, jsonMode bool) {
 			}
 		}
 	}
-
-	// CTA line
-	cta := theme.StyleMuted.Render("Run ") +
-		theme.StyleTeal.Render("rinse stats") +
-		theme.StyleMuted.Render(" to see your history.")
-	fmt.Println("  " + cta)
-	fmt.Println()
 }
 
 // PrintStats renders an aggregate statistics table for a slice of sessions.
