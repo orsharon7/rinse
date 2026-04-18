@@ -260,72 +260,6 @@
       line-height: 1.7;
     }
 
-    .terminal-bar {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 10px 16px;
-      background: #111;
-      border-bottom: 1px solid var(--border);
-    }
-
-    .terminal-dot {
-      width: 12px; height: 12px;
-      border-radius: 50%;
-    }
-
-    .td-red   { background: #ff5f57; }
-    .td-amber { background: #febc2e; }
-    .td-green { background: #28c840; }
-
-    .terminal-title {
-      flex: 1;
-      text-align: center;
-      font-size: 0.75rem;
-      color: var(--muted);
-    }
-
-    .terminal-body {
-      padding: 20px 24px;
-      min-height: 320px;
-    }
-
-    .t-line { display: block; white-space: pre-wrap; }
-    .t-dim   { color: var(--muted); }
-    .t-green { color: var(--green); }
-    .t-amber { color: var(--amber); }
-    .t-red   { color: var(--red); }
-    .t-bold  { font-weight: 600; }
-
-    .cursor {
-      display: inline-block;
-      width: 8px;
-      height: 1em;
-      background: var(--green);
-      vertical-align: text-bottom;
-      animation: blink 1.1s step-end infinite;
-    }
-
-    @keyframes blink { 50% { opacity: 0; } }
-
-    .replay-btn {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      margin-top: 20px;
-      background: none;
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      color: var(--muted);
-      font-family: var(--font-mono);
-      font-size: 0.8rem;
-      padding: 8px 14px;
-      cursor: pointer;
-      transition: border-color 0.15s, color 0.15s;
-    }
-
-    .replay-btn:hover { border-color: var(--green); color: var(--green); }
-
     /* ─── Why RINSE ─────────────────────────────────────────── */
     #why { padding: 80px 0; }
 
@@ -623,22 +557,21 @@
     <p class="section-label">// terminal demo</p>
     <h2>Watch RINSE work.</h2>
 
-    <div class="terminal">
-      <div class="terminal-bar">
-        <span class="terminal-dot td-red"></span>
-        <span class="terminal-dot td-amber"></span>
-        <span class="terminal-dot td-green"></span>
-        <span class="terminal-title">rinse — ~/projects/myapp</span>
-      </div>
-      <div class="terminal-body" id="term-body" aria-live="polite">
-        <!-- filled by JS animation -->
-      </div>
+    <div class="terminal" style="padding: 0; overflow: hidden; border-radius: 10px;">
+      <img
+        src="website/demo.svg"
+        alt="RINSE cycle monitor demo: rinse run invoked on a PR with 4 Copilot comments, two fix iterations, Copilot approves — post-cycle summary shows ~4 min saved"
+        width="820"
+        height="460"
+        style="display: block; width: 100%; height: auto;"
+        loading="lazy"
+        decoding="async"
+      />
     </div>
 
-    <button class="replay-btn" id="replay-btn" aria-label="Replay terminal demo">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 .49-4.5"></path></svg>
-      Replay
-    </button>
+    <p style="font-size: 0.78rem; color: var(--muted); margin-top: 12px; font-family: var(--font-mono);">
+      Actual RINSE TUI · cycle monitor · 2 iterations · ✓ Approved
+    </p>
   </div>
 </section>
 
@@ -791,47 +724,6 @@
 
   installBlock.addEventListener('click', copyInstall);
   installBlock.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') copyInstall(); });
-
-  /* ── Terminal animation ── */
-  const CMD = 'rinse run --pr 42';
-  const lines = [
-    { text: '● iteration 1  waiting for Copilot…',             cls: 't-dim',          delay: 700  },
-    { text: '● iteration 1  fixing 3 comments',                 cls: 't-amber',        delay: 1200 },
-    { text: '  ↳ pushed fix — re-requesting review',            cls: 't-dim',          delay: 500  },
-    { text: '● iteration 2  waiting for Copilot…',             cls: 't-dim',          delay: 1000 },
-    { text: '✓ Approved · saved you 6 min · fixed 3 comments', cls: 't-green t-bold', delay: 1400 },
-  ];
-
-  const termBody = document.getElementById('term-body');
-  let animTimer = null;
-
-  function runTerminalAnimation() {
-    termBody.innerHTML = '';
-    let cumDelay = 0;
-    lines.forEach((line, i) => {
-      cumDelay += line.delay;
-      animTimer = setTimeout(() => {
-        const span = document.createElement('span');
-        span.className = `t-line ${line.cls}`;
-        span.textContent = line.text;
-        termBody.appendChild(span);
-        // add cursor after last line
-        if (i === lines.length - 1) {
-          const cur = document.createElement('span');
-          cur.className = 'cursor';
-          termBody.appendChild(cur);
-        }
-      }, cumDelay);
-    });
-  }
-
-  document.getElementById('replay-btn').addEventListener('click', () => {
-    clearTimeout(animTimer);
-    runTerminalAnimation();
-  });
-
-  // Start on page load
-  runTerminalAnimation();
 
   /* ── Waitlist form ── */
   document.getElementById('waitlist-form').addEventListener('submit', function(e) {
