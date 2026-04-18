@@ -10,6 +10,7 @@
 package stats
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -24,21 +25,72 @@ import (
 	"github.com/orsharon7/rinse/internal/upgrade"
 )
 
+// Outcome describes the terminal result of a RINSE cycle.
+type Outcome string
+
+const (
+	OutcomeApproved Outcome = "approved"
+	OutcomeMerged   Outcome = "merged"
+	OutcomeMaxIter  Outcome = "max_iterations"
+	OutcomeError    Outcome = "error"
+	OutcomeAborted  Outcome = "aborted"
+)
+
+// newUUID generates a random UUID v4 string.
+// Returns an error if the OS random source is unavailable.
+func newUUID() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("stats: newUUID: crypto/rand unavailable: %w", err)
+	}
+	// Set version 4 (bits 12-15 of byte 6 to 0100)
+	b[6] = (b[6] & 0x0f) | 0x40
+	// Set variant bits (bits 6-7 of byte 8 to 10)
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
+}
+
 // Session records the outcome of a single rinse PR-review run.
 type Session struct {
+	// Identity
+	SessionID string `json:"session_id"`
+
 	// Metadata
 	StartedAt time.Time `json:"started_at"`
 	EndedAt   time.Time `json:"ended_at"`
 	Repo      string    `json:"repo"`
 	PR        string    `json:"pr"`
+	PRTitle   string    `json:"pr_title,omitempty"`
 	Runner    string    `json:"runner"`
 	Model     string    `json:"model"`
 
 	// Outcomes
-	TotalComments int      `json:"total_comments"`
-	Iterations    int      `json:"iterations"`
-	Approved      bool     `json:"approved"`
-	Patterns      []string `json:"patterns,omitempty"`
+	Outcome                    Outcome  `json:"outcome"`
+	Iterations                 int      `json:"iterations"`
+	CopilotCommentsByIteration []int    `json:"copilot_comments_by_iteration,omitempty"`
+	TotalComments              int      `json:"total_comments"`
+	EstimatedTimeSavedSeconds  int      `json:"estimated_time_saved_seconds"`
+	Approved                   bool     `json:"approved"`
+	Patterns                   []string `json:"patterns,omitempty"`
+}
+
+// NewSession creates a new Session with a generated UUID and the current time
+// as StartedAt. It panics if the OS random source is unavailable, since that
+// indicates a severe system fault.
+func NewSession(repo, pr, runner, model string) Session {
+	id, err := newUUID()
+	if err != nil {
+		panic(err)
+	}
+	return Session{
+		SessionID: id,
+		StartedAt: time.Now().UTC(),
+		Repo:      repo,
+		PR:        pr,
+		Runner:    runner,
+		Model:     model,
+	}
 }
 
 // DurationSeconds returns the session duration in seconds.
@@ -172,17 +224,16 @@ func loadFromDB() ([]Session, error) {
 func loadFromJSON() ([]Session, error) {
 	dir, err := SessionsDir()
 	if err != nil {
-		return nil, err
+		return sortByStarted(sessions), nil
 	}
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
-		return nil, nil
+		return sortByStarted(sessions), nil
 	}
 	if err != nil {
-		return nil, err
+		return sortByStarted(sessions), err
 	}
 
-	var sessions []Session
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
@@ -195,12 +246,43 @@ func loadFromJSON() ([]Session, error) {
 		if err := json.Unmarshal(data, &s); err != nil {
 			continue
 		}
+		if seen[s.SessionID] {
+			continue // DB record takes precedence
+		}
 		sessions = append(sessions, s)
 	}
+
+	return sortByStarted(sessions), nil
+}
+
+// dbRowToSession converts a db.SessionRow to a stats.Session.
+func dbRowToSession(r db.SessionRow) Session {
+	s := Session{
+		SessionID: r.ID,
+		Repo:      r.Repo,
+		PR:        fmt.Sprintf("%d", r.PRNumber),
+		PRTitle:   r.PRTitle,
+		StartedAt: r.StartedAt,
+		Model:     r.Model,
+		Outcome:   Outcome(r.Outcome),
+		Iterations: r.Iterations,
+		TotalComments: r.TotalCommentsFixed,
+	}
+	if r.CompletedAt != nil {
+		s.EndedAt = *r.CompletedAt
+	}
+	if r.EstimatedTimeSavedSeconds != nil {
+		s.EstimatedTimeSavedSeconds = *r.EstimatedTimeSavedSeconds
+	}
+	s.Approved = s.Outcome == OutcomeApproved || s.Outcome == OutcomeMerged
+	return s
+}
+
+func sortByStarted(sessions []Session) []Session {
 	sort.Slice(sessions, func(i, j int) bool {
 		return sessions[i].StartedAt.Before(sessions[j].StartedAt)
 	})
-	return sessions, nil
+	return sessions
 }
 
 // Summary holds aggregated metrics across a set of sessions.

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/orsharon7/rinse/internal/ignore"
 )
 
 // RepoRinseConfig is the per-repository .rinse.json config file structure.

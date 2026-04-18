@@ -101,6 +101,9 @@ type Result struct {
 
 	// ResumedFromIteration is non-zero when the run resumed from a checkpoint.
 	ResumedFromIteration int
+
+	// Session is the recorded session metrics for this run.
+	Session stats.Session
 }
 
 // Run drives the PR review lifecycle:
@@ -214,6 +217,7 @@ func Run(opts Opts) (Result, error) {
 			CWD:               opts.CWD,
 			Model:             opts.Model,
 			LastKnownReviewID: state.LastReviewID,
+			IgnorePatterns:    ignorePatterns,
 		})
 		if err != nil {
 			// Hard agent failure — persist state so we can resume, then surface.
@@ -225,6 +229,7 @@ func Run(opts Opts) (Result, error) {
 				Iterations:           state.Iteration,
 				TotalComments:        totalComments,
 				ResumedFromIteration: resumedFrom,
+				Session:              session,
 			}, fmt.Errorf("runner: agent %s iteration %d: %w", opts.Agent.Name(), state.Iteration+1, err)
 		}
 
@@ -243,6 +248,7 @@ func Run(opts Opts) (Result, error) {
 					Iterations:           state.Iteration,
 					TotalComments:        totalComments,
 					ResumedFromIteration: resumedFrom,
+					Session:              session,
 				}, ErrMaxWaitPolls
 			}
 			log.Info("runner: waiting for actionable review",
@@ -260,6 +266,24 @@ func Run(opts Opts) (Result, error) {
 
 		state.Iteration++
 		totalComments += agentResult.Comments
+
+		// Persist comment_event to telemetry DB (best-effort).
+		if telemetryDB != nil {
+			evtID, uuidErr := db.NewUUID()
+			if uuidErr != nil {
+				log.Warn("runner: failed to generate comment event UUID", "error", uuidErr)
+			} else {
+				evt := db.CommentEventRow{
+					ID:           evtID,
+					SessionID:    session.SessionID,
+					Iteration:    state.Iteration,
+					CommentCount: agentResult.Comments,
+				}
+				if err := telemetryDB.InsertCommentEvent(evt); err != nil {
+					log.Warn("runner: telemetry InsertCommentEvent failed", "error", err)
+				}
+			}
+		}
 
 		// Persist the review ID so the next iteration can detect no_change.
 		if agentResult.ReviewID != "" {
@@ -293,6 +317,7 @@ func Run(opts Opts) (Result, error) {
 				Iterations:           state.Iteration,
 				TotalComments:        totalComments,
 				ResumedFromIteration: resumedFrom,
+				Session:              session,
 			}, nil
 		}
 
@@ -361,6 +386,9 @@ func validateOpts(o *Opts) error {
 	}
 	if o.PR == "" {
 		return errors.New("runner: Opts.PR is required")
+	}
+	if _, err := strconv.Atoi(o.PR); err != nil {
+		return fmt.Errorf("runner: Opts.PR must be a numeric pull-request number, got %q", o.PR)
 	}
 	if o.CWD == "" {
 		return errors.New("runner: Opts.CWD is required")
