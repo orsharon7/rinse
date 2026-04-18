@@ -706,6 +706,15 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Parse runner-emitted ETA: "[eta] <RFC3339>"
+		if strings.HasPrefix(plain, "[eta] ") {
+			ts := strings.TrimPrefix(plain, "[eta] ")
+			if t, err := time.Parse(time.RFC3339, strings.TrimSpace(ts)); err == nil {
+				m.estimatedEndAt = &t
+			}
+			break
+		}
+
 		// Suppress wait-tick lines — render as progress bar instead.
 		if isWaitTickLine(plain) {
 			var e, mx int
@@ -1168,23 +1177,18 @@ func (m monitorModel) View() string {
 		badges = append(badges, elapsedBadge)
 	}
 
-	// ETA badge: state-driven per UX spec.
-	etaSt, etaTime := resolveETA(m.phase, m.estimatedEndAt, m.nowAdjusted())
+	// ETA badge: derived from resolveETA using the clock-offset-adjusted time.
+	etaSt, etaT := resolveETA(m.phase, m.estimatedEndAt, m.nowAdjusted())
 	switch etaSt {
-	case etaUnknown:
-		badges = append(badges, theme.StyleBadgeETA.Render(" ETA — "))
 	case etaComputable:
-		badges = append(badges, theme.StyleBadgeETA.Render(" ETA "+etaTime.Local().Format("15:04")+" "))
+		badges = append(badges,
+			theme.StyleBadgeETA.Render(fmt.Sprintf(" ETA %s ", etaT.Local().Format("15:04"))))
 	case etaFutureDay:
-		badges = append(badges, theme.StyleBadgeETA.Render(" ETA "+etaTime.Local().Format("Mon 15:04")+" "))
+		badges = append(badges,
+			theme.StyleBadgeETA.Render(fmt.Sprintf(" ETA %s ", etaT.Local().Format("Jan 2 15:04"))))
 	case etaOverdue:
-		overdueDur := m.nowAdjusted().Sub(etaTime).Round(time.Second)
-		badges = append(badges, theme.StyleBadgeOverdue.Render(" +"+formatElapsed(overdueDur)+" "))
-	case etaCompleted:
-		badges = append(badges, theme.StyleBadgeETA.Render(" Completed "))
-	case etaError:
-		badges = append(badges, theme.StyleBadgeETA.Render(" ETA — "))
-	// etaHidden and etaCancelled: nothing added
+		badges = append(badges,
+			theme.StyleBadgeOverdue.Render(fmt.Sprintf(" overdue since %s ", etaT.Local().Format("15:04"))))
 	}
 	if m.totalComments > 0 {
 		badges = append(badges,
@@ -1319,7 +1323,14 @@ func (m monitorModel) renderTimingTooltip() string {
 
 	dismissHint := theme.StyleMuted.Render("  any key to dismiss")
 
-	content := label + "\n" + utcLine + "\n" + localLine + "\n\n" + elapsedLabel + "\n\n" + dismissHint
+	var etaLine string
+	if m.estimatedEndAt != nil {
+		eta := *m.estimatedEndAt
+		etaLine = "\n" + theme.StyleMuted.Render("ETA:") + " " +
+			lipgloss.NewStyle().Foreground(theme.Text).Render(eta.Local().Format("15:04:05 MST")+" ("+eta.UTC().Format("15:04:05 UTC")+")")
+	}
+
+	content := label + "\n" + utcLine + "\n" + localLine + "\n\n" + elapsedLabel + etaLine + "\n\n" + dismissHint
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).

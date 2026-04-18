@@ -6,9 +6,10 @@
 //
 // Acquisition is atomic: we create a lock directory with os.Mkdir (which is
 // O_EXCL on every OS) and write a metadata file containing the owning PID.
-// A lock is considered stale when the recorded PID is no longer alive
-// (kill -0 equivalent via os.FindProcess + process.Signal(0)).  Stale locks
-// are cleared and re-acquired in a single retry.
+// A lock is considered stale when the recorded PID is no longer alive.
+// Liveness is checked via platform-specific isProcessAlive helpers:
+// syscall.Kill(pid, 0) on Unix and OpenProcess/CloseHandle on Windows.
+// Stale locks are cleared and re-acquired in a single retry.
 //
 // Callers must always defer lock.Release() after a successful Acquire.
 package lock
@@ -105,7 +106,31 @@ func (l *Lock) tryAcquire() error {
 
 	// Single retry after stale-lock removal.
 	if err := os.Mkdir(l.dir, 0o755); err != nil {
-		return ErrLocked // lost the race; another process won
+		if !os.IsExist(err) {
+			// Real filesystem error (e.g. permission denied, missing parent).
+			return fmt.Errorf("lock: mkdir: %w", err)
+		}
+		// Directory already exists — check whether the owner is alive.
+		active, aerr := l.isActive()
+		if aerr != nil {
+			// Can't read metadata; treat as stale.
+			_ = os.RemoveAll(l.dir)
+		} else if active {
+			return ErrLocked
+		} else {
+			// Stale lock — remove and retry once.
+			if rerr := os.RemoveAll(l.dir); rerr != nil {
+				return fmt.Errorf("lock: remove stale lock: %w", rerr)
+			}
+		}
+
+		// Single retry after stale-lock removal.
+		if err := os.Mkdir(l.dir, 0o755); err != nil {
+			if os.IsExist(err) {
+				return ErrLocked // lost the race; another process won
+			}
+			return fmt.Errorf("lock: mkdir retry: %w", err)
+		}
 	}
 	return l.writeMeta()
 }

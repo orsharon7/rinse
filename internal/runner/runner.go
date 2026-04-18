@@ -331,6 +331,9 @@ func Run(opts Opts) (Result, error) {
 			action = "no_comments"
 		}
 		state.LastAgentAction = action
+		if agentResult.ReviewID != "" {
+			state.LastReviewID = agentResult.ReviewID
+		}
 
 		// Checkpoint after each successful iteration.
 		if err := saveState(state); err != nil {
