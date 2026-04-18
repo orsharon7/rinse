@@ -1,4 +1,4 @@
-# rinse
+# RINSE
 
 PR reviews without the mess. RINSE drives Copilot through your review loop so you don't have to.
 
