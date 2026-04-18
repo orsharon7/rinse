@@ -8,8 +8,9 @@
 //
 // Usage:
 //
-//	rinse status [<pr>] [--repo <owner/repo>] [--json]
-//	rinse start  <pr>  [options]              [--json]
+//	rinse status  [<pr>] [--repo <owner/repo>] [--json]
+//	rinse start   <pr>  [options]              [--json]
+//	rinse predict [<pr>] [--repo <owner/repo>] [--json]
 //	rinse help
 //
 // RINSE primarily targets Linux and macOS (matching the cross-build Makefile targets).
@@ -113,6 +114,9 @@ func TryDispatch() bool {
 		return true
 	case "run":
 		runRunCmd(os.Args[2:])
+		return true
+	case "predict":
+		runPredictCmd(os.Args[2:])
 		return true
 	case "help", "--help", "-h":
 		PrintHelp()
@@ -889,6 +893,7 @@ USAGE
   rinse report       Show today's PR review dashboard (approval rate, time saved)
   rinse status       Print the Copilot review status of a PR (agent/CI use)
   rinse start        Start the review loop non-interactively (agent/CI use)
+  rinse predict      Predict which Copilot comments a PR is likely to receive
   rinse --version    Print the installed version
   rinse --help       Show this help
 
@@ -1039,6 +1044,25 @@ COMMANDS
     JSON output (--json):
       {"ok":true,"pr":"42","repo":"owner/repo","runner":"opencode","model":"github-copilot/claude-sonnet-4.6","exit_code":0}
       {"ok":false,"pr":"42","repo":"owner/repo","runner":"opencode","model":"","exit_code":1,"error":"runner failed"}
+
+  rinse predict [<pr>] [--repo <owner/repo>] [--json] [--no-log]
+
+    Predict which GitHub Copilot comments a PR (or staged diff) is likely to
+    receive, using AST-based pattern detectors. No AI required — no API key
+    needed. Exits 0 even when predictions exist (non-blocking by design).
+
+    When <pr> is omitted, analyzes the current staged diff (git diff --cached).
+    When <pr> is provided, fetches the PR diff from GitHub.
+    --pr is an alias for the positional PR number argument.
+
+    --repo <owner/repo>    Override repository detection (required with --pr)
+    --pr <number>          PR number to analyze (alternative to positional arg)
+    --json                 Emit predictions as a JSON envelope
+    --no-log               Skip logging the prediction event for hit-rate tracking
+
+    JSON output (--json):
+      {"ok":true,"source":"staged diff","predictions":[{"pattern":"Missing error handling","confidence":0.9,...}]}
+      {"ok":false,"error":"..."}
 
 ENVIRONMENT VARIABLES
 
