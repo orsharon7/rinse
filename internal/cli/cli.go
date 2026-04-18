@@ -617,7 +617,9 @@ SETTINGS  (press s inside the PR picker)
                 cycle completes. macOS uses osascript; Linux uses notify-send.
                 No-op in headless/CI environments.
 
-  Settings are saved per-repo under ~/.rinse/.
+  Settings are saved per-repo in:
+    macOS:  ~/Library/Application Support/rinse/config.json
+    Linux:  ~/.config/rinse/config.json
 
 COMMANDS
 
@@ -713,9 +715,11 @@ REQUIREMENTS
 
 SESSION DATA
 
-  Each run is saved as a JSON file in ~/.rinse/sessions/. Files contain the
-  repo, PR number, runner, model, comments fixed, iterations, approval status,
-  and detected code patterns. No data leaves your machine.
+  Each run is saved in ~/.rinse/rinse.db (SQLite). Legacy shell-script sessions
+  are stored as JSON files in ~/.rinse/sessions/ and are read automatically as
+  a fallback. Fields recorded: repo, PR number, runner, model, comments fixed,
+  iterations, approval status, and detected code patterns. No data leaves your
+  machine.
 
 EXAMPLES
 
