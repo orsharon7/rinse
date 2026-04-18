@@ -602,7 +602,7 @@ func (m interactiveModel) renderCompact() string {
 	// Key hints or badge.
 	sb.WriteString("\n")
 	if state != reviewNone {
-		sb.WriteString("  " + reviewedBadge(state) + "\n")
+		sb.WriteString("  " + reviewedBadge(state, m.noColor) + "\n")
 	} else {
 		keyStyle := theme.StyleTeal
 		hint := fmt.Sprintf("  %s apply  %s skip  %s editor  %s quit",
