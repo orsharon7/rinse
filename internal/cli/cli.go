@@ -571,7 +571,6 @@ USAGE
   rinse              Launch the interactive PR picker (recommended)
   rinse init         Create a per-repo .rinse.json config (guided setup)
   rinse stats        Show session history and time-saved metrics
-  rinse trends       Show quality improvement trends over the last 4 weeks
   rinse status       Print the Copilot review status of a PR (agent/CI use)
   rinse start        Start the review loop non-interactively (agent/CI use)
   rinse --version    Print the installed version
@@ -591,7 +590,7 @@ INTERACTIVE CONTROLS
   Enter         Launch review cycle on the selected PR
   g / G         Jump to top / bottom of list
   #             Enter a PR number manually
-  s             Open settings (runner, model, reflect, auto-merge)
+  s             Open settings (runner, model, reflect, auto-merge, notify)
   r             Refresh PR list from GitHub
   ?             Toggle keyboard shortcuts overlay
   q / Ctrl+C    Quit
@@ -613,6 +612,10 @@ SETTINGS  (press s inside the PR picker)
   branch        The branch where reflection rules are pushed (default: main)
 
   auto-merge    When on, RINSE merges the PR automatically once approved.
+
+  notify        When on, RINSE sends a desktop notification when the review
+                cycle completes. macOS uses osascript; Linux uses notify-send.
+                No-op in headless/CI environments.
 
   Settings are saved per-repo under ~/.rinse/.
 
@@ -637,12 +640,6 @@ COMMANDS
       Top patterns:
         1. Missing error handling  (41x)
         2. Unused imports          (28x)
-
-  rinse trends
-
-    Shows quality improvement trends across sessions, bucketed by week
-    (last 4 weeks). Useful for tracking whether your codebase is improving
-    over time as RINSE builds up its reflection rules.
 
   rinse status [<pr>] [--repo <owner/repo>] [--json]
 
