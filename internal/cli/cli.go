@@ -21,6 +21,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -86,6 +87,9 @@ func TryDispatch() bool {
 		return true
 	case "start":
 		runStartCmd(os.Args[2:])
+		return true
+	case "run":
+		runRunCmd(os.Args[2:])
 		return true
 	case "help", "--help", "-h":
 		PrintHelp()
@@ -254,6 +258,164 @@ func detectCurrentPR(repo string) string {
 		return ""
 	}
 	return strconv.Itoa(prs[0].Number)
+}
+
+// ── run ───────────────────────────────────────────────────────────────────────
+
+// stdoutIsTerminal reports whether os.Stdout is connected to a TTY.
+func stdoutIsTerminal() bool {
+	fi, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return (fi.Mode() & os.ModeCharDevice) != 0
+}
+
+// runRunCmd implements `rinse run` — the native Go runner with optional NDJSON
+// output. It calls runner.Run directly (no shell script) and streams lifecycle
+// events when --json is passed or stdout is not a TTY.
+func runRunCmd(args []string) {
+	var (
+		prNum      string
+		repo       string
+		cwd        string
+		model      string
+		runnerName string
+		asJSON     bool
+		// Future flags — accepted but not yet wired up.
+		// --max-iterations and --poll-interval are reserved; do not block on these.
+	)
+
+	// Pre-scan for --json before any validation so errors are emitted in the
+	// right format.
+	for _, a := range args {
+		if a == "--json" {
+			asJSON = true
+			break
+		}
+	}
+
+	// Auto-detect non-TTY: if stdout is not a terminal, force JSON mode.
+	if !asJSON && !stdoutIsTerminal() {
+		asJSON = true
+	}
+
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		fatalf(asJSON, "usage: rinse run <pr_number> [options]\nRun 'rinse help' for full usage.")
+	}
+	prNum = args[0]
+	if n, err := strconv.Atoi(prNum); err != nil || n <= 0 {
+		fatalf(asJSON, "PR number must be a positive integer, got: %s", prNum)
+	}
+
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--repo":
+			i++
+			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+				fatalf(asJSON, "--repo requires a value (e.g. --repo owner/repo)")
+			}
+			repo = args[i]
+		case "--cwd":
+			i++
+			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+				fatalf(asJSON, "--cwd requires a value (e.g. --cwd /path/to/repo)")
+			}
+			cwd = args[i]
+		case "--model":
+			i++
+			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+				fatalf(asJSON, "--model requires a value (e.g. --model claude-sonnet-4-6)")
+			}
+			model = args[i]
+		case "--runner":
+			i++
+			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+				fatalf(asJSON, "--runner requires a value (e.g. --runner opencode)")
+			}
+			runnerName = args[i]
+		case "--json":
+			asJSON = true
+		case "--max-iterations":
+			// Future flag — consume the value but do not wire up yet.
+			i++
+			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+				fatalf(asJSON, "--max-iterations requires a value")
+			}
+			// Intentionally not wired: see RIN-23 spec.
+		case "--poll-interval":
+			// Future flag — consume the value but do not wire up yet.
+			i++
+			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+				fatalf(asJSON, "--poll-interval requires a value")
+			}
+			// Intentionally not wired: see RIN-23 spec.
+		default:
+			fatalf(asJSON, "unknown flag: %s", args[i])
+		}
+	}
+
+	// Defaults.
+	if repo == "" {
+		repo = detectRepo()
+		if repo == "" {
+			fatalf(asJSON, "no repository detected — run from inside a git checkout or pass --repo")
+		}
+	}
+	if cwd == "" {
+		cwd = detectCWD()
+	}
+
+	// Resolve runner (only opencode is wired into the Go runner for now).
+	if runnerName != "" && !strings.EqualFold(runnerName, "opencode") {
+		fatalf(asJSON, "rinse run currently only supports --runner opencode")
+	}
+	if model == "" {
+		model = opencode.DefaultModel
+	}
+
+	// Build runner opts.
+	opts := runner.Opts{
+		Repo:       repo,
+		PR:         prNum,
+		CWD:        cwd,
+		Model:      model,
+		RunnerName: "opencode",
+		Agent:      &opencode.Agent{},
+		DB:         openRunDB(),
+	}
+	if asJSON {
+		opts.Monitor = runner.NewJSONMonitor(os.Stdout)
+	}
+
+	result, err := runner.Run(opts)
+
+	exitCode := 0
+	switch {
+	case err == nil && result.Approved:
+		exitCode = 0
+	case err != nil && isMaxIterationsErr(err):
+		exitCode = 1
+	case err != nil:
+		exitCode = 2
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+	}
+
+	os.Exit(exitCode)
+}
+
+// openRunDB tries to open the telemetry DB. Non-fatal on failure.
+func openRunDB() *db.DB {
+	d, err := db.OpenDefault()
+	if err != nil {
+		return nil
+	}
+	return d
+}
+
+// isMaxIterationsErr reports whether err wraps runner.ErrMaxIterations.
+func isMaxIterationsErr(err error) bool {
+	return errors.Is(err, runner.ErrMaxIterations)
 }
 
 // ── start ─────────────────────────────────────────────────────────────────────
