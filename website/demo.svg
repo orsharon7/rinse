@@ -235,12 +235,9 @@
   <!-- ════════════════════════════════════════════════════════════════════ -->
   <g class="s4">
     <!-- Fix 1: title styled to match PrintSummary Lip Gloss output -->
-    <text x="24" y="75" font-size="13">
-      <tspan fill="#8B5CF6" font-weight="bold">RINSE</tspan>
-      <tspan fill="#6E738D"> approved </tspan>
-      <tspan fill="#10B981" font-weight="bold">✓</tspan>
-      <tspan fill="#6E738D"> — PR #42</tspan>
-    </text>
+    <text x="24" y="75" fill="#8B5CF6" font-size="13" font-weight="bold">✓ RINSE</text>
+    <text x="88" y="75" fill="#B7BDF8" font-size="13">  PR #42  </text>
+    <text x="168" y="75" fill="#10B981" font-size="13" font-weight="bold">approved</text>
     <text x="24" y="100" fill="#6E738D" font-size="12"> </text>
     <text x="24" y="120" fill="#A5ADCB" font-size="13">  Time saved:      <tspan fill="#CAD3F5">~4 min</tspan></text>
     <!-- Fix 2: comments fixed value in green bold when > 0 -->
