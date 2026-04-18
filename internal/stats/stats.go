@@ -879,6 +879,7 @@ func pad(s string, l int) string {
 // statsConfig is the subset of the rinse config file that controls telemetry.
 type statsConfig struct {
 	StatsOptIn *bool `json:"stats_opt_in,omitempty"`
+	Pro        bool  `json:"pro,omitempty"`
 }
 
 // statsConfigPath returns the path to the rinse global config file.
@@ -963,4 +964,271 @@ func PromptOptIn() (bool, error) {
 		return optIn, err
 	}
 	return optIn, nil
+}
+
+// IsPro reports whether the user has a Pro licence.
+// It checks the "pro" field in ~/.rinse/config.json, falling back to false.
+func IsPro() bool {
+	cfg, err := loadConfig()
+	if err != nil {
+		return false
+	}
+	return cfg.Pro
+}
+
+// ── Predict hit-rate stats ────────────────────────────────────────────────────
+
+// predictEvent is the on-disk structure for a predict_generated event file
+// written by internal/predict.LogEvent().
+type predictEvent struct {
+	EventType   string              `json:"event_type"`
+	Source      string              `json:"source"`
+	GeneratedAt string              `json:"generated_at"`
+	Predictions []predictEventEntry `json:"predictions"`
+}
+
+type predictEventEntry struct {
+	PatternID   string  `json:"pattern_id"`
+	Description string  `json:"description"`
+	File        string  `json:"file"`
+	Line        int     `json:"line"`
+	Confidence  float64 `json:"confidence"`
+}
+
+// sessionPredictResult holds hit-rate data for a single predict→session pair.
+type sessionPredictResult struct {
+	Date      time.Time
+	Generated int // number of predictions made
+	Matched   int // number of predictions that appeared in session patterns
+}
+
+// loadPredictEvents reads all predict_generated event files from the sessions dir.
+func loadPredictEvents() ([]predictEvent, error) {
+	dir, err := SessionsDir()
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var events []predictEvent
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), "predict-") || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		var ev predictEvent
+		if err := json.Unmarshal(data, &ev); err != nil {
+			continue
+		}
+		if ev.EventType == "predict_generated" {
+			events = append(events, ev)
+		}
+	}
+	return events, nil
+}
+
+// computePredictHitRate computes per-session hit rates by matching predict events
+// against session pattern lists (best-effort correlation by time proximity).
+// Returns results sorted oldest-first.
+func computePredictHitRate(events []predictEvent, sessions []Session) []sessionPredictResult {
+	if len(events) == 0 {
+		return nil
+	}
+
+	var results []sessionPredictResult
+	for _, ev := range events {
+		t, err := time.Parse(time.RFC3339, ev.GeneratedAt)
+		if err != nil {
+			t = time.Now()
+		}
+
+		// Build set of predicted pattern IDs.
+		predicted := make(map[string]bool, len(ev.Predictions))
+		for _, p := range ev.Predictions {
+			predicted[p.PatternID] = true
+		}
+
+		// Find the closest session that started within 10 minutes after the predict event.
+		matched := 0
+		var bestSession *Session
+		for i := range sessions {
+			s := &sessions[i]
+			diff := s.StartedAt.Sub(t)
+			if diff >= 0 && diff <= 10*time.Minute {
+				if bestSession == nil || diff < bestSession.StartedAt.Sub(t) {
+					bestSession = s
+				}
+			}
+		}
+
+		if bestSession != nil {
+			// Count patterns from the session that were predicted.
+			for _, pat := range bestSession.Patterns {
+				pid := patternID(pat)
+				if predicted[pid] {
+					matched++
+				}
+			}
+		}
+
+		results = append(results, sessionPredictResult{
+			Date:      t,
+			Generated: len(ev.Predictions),
+			Matched:   matched,
+		})
+	}
+
+	// Sort oldest-first.
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Date.Before(results[j].Date)
+	})
+	return results
+}
+
+// patternID converts a human-readable pattern name to a stable snake_case ID.
+// Mirrors the same function in internal/predict to avoid an import cycle.
+func patternID(pattern string) string {
+	id := strings.ToLower(pattern)
+	id = strings.ReplaceAll(id, " ", "_")
+	id = strings.ReplaceAll(id, "/", "_")
+	id = strings.ReplaceAll(id, "-", "_")
+	var b strings.Builder
+	for _, r := range id {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+const predictGateThreshold = 0.85 // 85% hit rate unlocks auto-fix
+
+// PrintPredictStats renders the `rinse stats --predict` dashboard.
+// Pro status is read from ~/.rinse/config.json.
+func PrintPredictStats() {
+	isPro := IsPro()
+
+	sessions, _ := Load()
+	events, _ := loadPredictEvents()
+
+	fmt.Println()
+	icon := theme.StyleStep.Render(theme.IconRadioOn + " ")
+	label := theme.GradientString("RINSE", theme.Mauve, theme.Lavender, true)
+	sub := theme.StyleMuted.Render("  Prediction Hit Rate")
+	fmt.Println("  " + icon + label + sub)
+	fmt.Println()
+
+	if len(events) == 0 {
+		fmt.Println("  " + theme.StyleMuted.Render("No prediction events recorded yet."))
+		fmt.Println("  " + theme.StyleMuted.Render("Run ") + theme.StyleTeal.Render("rinse predict") +
+			theme.StyleMuted.Render(" on a PR to start tracking."))
+		fmt.Println()
+		return
+	}
+
+	results := computePredictHitRate(events, sessions)
+
+	// Compute all-time hit rate.
+	var totalGenerated, totalMatched int
+	for _, r := range results {
+		totalGenerated += r.Generated
+		totalMatched += r.Matched
+	}
+
+	allTimeRate := 0.0
+	if totalGenerated > 0 {
+		allTimeRate = float64(totalMatched) / float64(totalGenerated)
+	}
+
+	// Rolling last-10 hit rate.
+	last10 := results
+	if len(last10) > 10 {
+		last10 = last10[len(last10)-10:]
+	}
+	var l10gen, l10match int
+	for _, r := range last10 {
+		l10gen += r.Generated
+		l10match += r.Matched
+	}
+	rolling10Rate := 0.0
+	if l10gen > 0 {
+		rolling10Rate = float64(l10match) / float64(l10gen)
+	}
+
+	key := func(s string) string { return theme.StyleKey.Copy().Width(24).Render(s) }
+	barWidth := 10
+
+	// Last 10 PRs row.
+	l10Pct := int(math.Round(rolling10Rate * 100))
+	l10Bar := scoreBar(rolling10Rate, barWidth)
+	fmt.Println("  " + key("Last 10 PRs") + theme.StyleVal.Render(fmt.Sprintf("%d%%", l10Pct)) +
+		"  " + theme.StyleMuted.Render(l10Bar))
+
+	// All-time row.
+	atPct := int(math.Round(allTimeRate * 100))
+	atBar := scoreBar(allTimeRate, barWidth)
+	fmt.Println("  " + key("All time") + theme.StyleVal.Render(fmt.Sprintf("%d%%", atPct)) +
+		"  " + theme.StyleMuted.Render(atBar))
+
+	// Gate line.
+	fmt.Println()
+	gateDelta := predictGateThreshold - rolling10Rate
+	if gateDelta <= 0 {
+		fmt.Println("  " + theme.StyleLogSuccess.Render("✓ Auto-fix gate reached (≥85%)"))
+	} else {
+		need := int(math.Ceil(gateDelta * 100))
+		fmt.Println("  " + key("Gate to auto-fix") +
+			theme.StyleMuted.Render(fmt.Sprintf("85%%  (need %d%% more)", need)))
+	}
+
+	// Recent sessions table.
+	fmt.Println()
+	fmt.Println("  " + theme.StyleStep.Render("Recent sessions"))
+	fmt.Println()
+
+	display := results
+	if len(display) > 5 {
+		display = display[len(display)-5:]
+	}
+	// Reverse so newest is first.
+	for i, j := 0, len(display)-1; i < j; i, j = i+1, j-1 {
+		display[i], display[j] = display[j], display[i]
+	}
+
+	if !isPro && len(display) > 3 {
+		display = display[:3]
+	}
+
+	for _, r := range display {
+		date := r.Date.Local().Format("Jan 02")
+		var ratePct int
+		if r.Generated > 0 {
+			ratePct = int(math.Round(float64(r.Matched) / float64(r.Generated) * 100))
+		}
+		hitStr := fmt.Sprintf("%d/%d predictions correct  (%d%%)", r.Matched, r.Generated, ratePct)
+		fmt.Println("  " + theme.StyleMuted.Render(date) + "  " + theme.StyleVal.Render(hitStr))
+	}
+
+	// Pro gate teaser.
+	if !isPro {
+		fmt.Println()
+		fmt.Println("  " + theme.StyleStep.Render("★") + " " +
+			theme.StyleMuted.Render("Upgrade to RINSE Pro to unlock the full prediction history."))
+		fmt.Println("  " + theme.StyleMuted.Render("  rinse.sh/#pro"))
+	}
+
+	fmt.Println()
+	fmt.Println("  " + theme.StyleMuted.Render(strings.Repeat("─", 41)))
+	dir, _ := SessionsDir()
+	fmt.Println("  " + theme.StyleMuted.Render("Events: "+dir))
+	fmt.Println()
 }
