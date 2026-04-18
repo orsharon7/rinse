@@ -889,8 +889,8 @@ func (m wizModel) renderStepC() string {
 		val     bool
 		focusID int
 	}{
-		{"Desktop notifications", "Get a macOS/Linux alert when your review cycle finishes.", m.remindOnComplete, cFocusRemind},
-		{"Auto-advance between PRs", "Automatically start the next PR in your list when one finishes.", m.autoAdvance, cFocusAuto},
+		{"Desktop notifications", "Save your preference — enable per-run with --notify on rinse start.", m.remindOnComplete, cFocusRemind},
+		{"Auto-advance between PRs", "Save your preference for when auto-advance is available (coming soon).", m.autoAdvance, cFocusAuto},
 		{"Save cycle history", "Track PRs reviewed, comments fixed, and time saved in ~/.rinse/rinse.db.", m.saveHistory, cFocusHist},
 	}
 
@@ -1021,16 +1021,11 @@ func (m wizModel) renderStepE() string {
 	}
 
 	headline := theme.StyleStep.Render("You're set up. Pick a PR — RINSE does the rest.")
-	var body string
-	if m.remindOnComplete {
-		body = theme.StyleMuted.Render("You'll get a desktop notification when the review cycle finishes.")
-	} else {
-		body = theme.StyleMuted.Render("Select any open PR from the list and press Enter to start.")
-	}
+	body := theme.StyleMuted.Render("Select any open PR from the list and press Enter to start.")
 
 	var subBody string
-	if !m.autoAdvance {
-		subBody = "\n" + theme.StyleMuted.Render("Press Enter on any PR to launch the review loop.")
+	if m.remindOnComplete {
+		subBody = "\n" + theme.StyleMuted.Render("Add --notify to rinse start to get a desktop alert when a cycle finishes.")
 	}
 
 	cta := "\n" + theme.StyleTeal.Render("  → Open the PR picker") + "  " + theme.StyleMuted.Render("(enter)")
