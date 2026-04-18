@@ -819,12 +819,12 @@ func (m interactiveModel) View() string {
 		}
 	}
 
-	// Section label: "Suggested fix:" + diff preview.
+	// Section label: "Suggested:" + diff preview.
 	if strings.TrimSpace(p.SuggestedDiff) != "" {
 		if m.noColor {
-			card.WriteString("\nSuggested fix:\n")
+			card.WriteString("\nSuggested:\n")
 		} else {
-			card.WriteString("\n" + theme.StyleMuted.Render("Suggested fix:") + "\n")
+			card.WriteString("\n" + theme.StyleMuted.Render("Suggested:") + "\n")
 		}
 		lines := strings.Split(p.SuggestedDiff, "\n")
 		limit := 8
@@ -874,7 +874,7 @@ func (m interactiveModel) View() string {
 	if state != reviewNone {
 		card.WriteString("\n" + reviewedBadge(state, m.noColor) + "\n")
 	} else if m.noColor {
-		card.WriteString("\n[y] apply   [n/space] skip   [e] open in $EDITOR   [q] quit   [h/<] back\n")
+		card.WriteString("\n[y] apply  [n] skip  [e] editor  [q] quit\n")
 	} else {
 		keyStyle := theme.StyleTeal
 		hint := fmt.Sprintf("%s apply   %s skip   %s open in $EDITOR   %s quit   %s back",
@@ -1067,6 +1067,11 @@ type InteractiveOpts struct {
 
 	// SkipProCheck disables the pro gate (for tests).
 	SkipProCheck bool
+
+	// NoColor forces plain ASCII output regardless of the NO_COLOR env var or
+	// terminal type.  When false (default) the value is derived from
+	// theme.IsPlainTerminal() at runtime.
+	NoColor bool
 }
 
 // RunInteractive runs the Bubble Tea predict review loop.
@@ -1078,7 +1083,7 @@ func RunInteractive(opts InteractiveOpts) error {
 		out = os.Stdout
 	}
 
-	noColor := theme.IsPlainTerminal()
+	noColor := opts.NoColor || theme.IsPlainTerminal()
 
 	// Pro gate.
 	if !opts.SkipProCheck && !IsProEnabled() {
