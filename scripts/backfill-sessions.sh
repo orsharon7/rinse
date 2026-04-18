@@ -55,7 +55,7 @@ for log_file in "${log_files[@]}"; do
   fi
 
   # Check if session already exists (any file matching *-PR${pr_num}.json)
-  existing="$(ls "${SESSIONS_DIR}"/*-PR${pr_num}.json 2>/dev/null | head -1 || true)"
+  existing="$(find "${SESSIONS_DIR}" -maxdepth 1 -name "*-PR${pr_num}.json" 2>/dev/null | head -1 || true)"
   if [[ -n "$existing" && "$OVERWRITE" == "false" ]]; then
     echo "  [SKIP] PR #${pr_num}: session already exists at $(basename "$existing")"
     ((skipped++)) || true
@@ -102,7 +102,7 @@ for log_file in "${log_files[@]}"; do
 
   # Extract repo from log line like: "   Repo:        orsharon7/rinse#45"
   repo_raw="$(grep -a -E 'Repo:' "$log_file" 2>/dev/null | head -1 | sed 's/.*Repo:[[:space:]]*//' | awk '{print $1}' || true)"
-  repo="$(echo "$repo_raw" | sed "s/#${pr_num}//")"
+  repo="${repo_raw//#${pr_num}/}"
   if [[ -z "$repo" ]]; then
     repo="orsharon7/rinse"
   fi

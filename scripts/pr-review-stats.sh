@@ -260,7 +260,7 @@ _cli_show() {
   echo ""
   printf "%-24s %-30s %-5s %-8s %-6s %-10s %-10s %s\n" \
     "timestamp" "repo" "pr" "dur(s)" "iters" "comments" "outcome" "model"
-  echo "$(printf '%.0s─' {1..110})"
+  printf '%.0s─' {1..110}; echo
 
   if [[ -n "$repo_filter" ]]; then
     awk -v limit="$limit" -v repo_filter="$repo_filter" '

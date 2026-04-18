@@ -73,7 +73,7 @@ if [[ -z "$REPO" ]]; then
   fi
 fi
 
-REPO_FLAG="--repo ${REPO}"
+REPO_FLAG=("--repo" "${REPO}")
 
 # ─── Stats / telemetry (opt-in) ───────────────────────────────────────────────
 
@@ -87,7 +87,7 @@ _stats_exit_trap() {
   local exit_code=$?
   if [[ "$_RINSE_OUTCOME" == "aborted" ]]; then
     local final_status_json final_status
-    final_status_json=$(bash "$PR_REVIEW" "$PR_NUMBER" status $REPO_FLAG 2>/dev/null || true)
+    final_status_json=$(bash "$PR_REVIEW" "$PR_NUMBER" status "${REPO_FLAG[@]}" 2>/dev/null || true)
     final_status=$(echo "$final_status_json" | jq -r '.status // "unknown"' 2>/dev/null || echo "unknown")
 
     case "$final_status" in
@@ -107,6 +107,7 @@ _stats_exit_trap() {
 
   stats_record "$_RINSE_OUTCOME"
 }
+# shellcheck disable=SC2154  # _exit_code assigned in trap string then passed as arg
 trap '_exit_code=$?; _stats_exit_trap "$_exit_code"' EXIT
 
 log "🚀 Claude PR review loop starting"
@@ -121,7 +122,7 @@ log "   Log file:    ${LOGFILE}"
 # so cycle requests a fresh review instead of re-processing old comments.
 
 log "🔍 Checking current PR state..."
-startup_status=$(bash "$PR_REVIEW" "$PR_NUMBER" status $REPO_FLAG 2>/dev/null) || true
+startup_status=$(bash "$PR_REVIEW" "$PR_NUMBER" status "${REPO_FLAG[@]}" 2>/dev/null) || true
 startup_state=$(echo "$startup_status" | jq -r '.status // "unknown"')
 REPO_SLUG="${REPO//\//_}"
 STATE_DIR="${HOME}/.pr-review/state/${REPO_SLUG}"
@@ -184,7 +185,7 @@ for iter in $(seq 1 "$MAX_ITER"); do
 
   log "⏳ Waiting for Copilot review (up to ${WAIT_MAX}s)..."
 
-  review_result=$(bash "$PR_REVIEW" "$PR_NUMBER" cycle --wait "$WAIT_MAX" $REPO_FLAG 2>>"$LOGFILE") || {
+  review_result=$(bash "$PR_REVIEW" "$PR_NUMBER" cycle --wait "$WAIT_MAX" "${REPO_FLAG[@]}" 2>>"$LOGFILE") || {
     log "❌ pr-review cycle exited non-zero — check log for details"
     exit 1
   }
@@ -298,12 +299,12 @@ Each comment object has:
 
 2. After ALL comments are fixed, commit and push:
    \`\`\`bash
-   bash ${PR_REVIEW} ${PR_NUMBER} push ${REPO_FLAG}
+   bash ${PR_REVIEW} ${PR_NUMBER} push "${REPO_FLAG[@]}"
    \`\`\`
 
 3. Request a new Copilot review (required — do not skip):
    \`\`\`bash
-   bash ${PR_REVIEW} ${PR_NUMBER} request ${REPO_FLAG}
+   bash ${PR_REVIEW} ${PR_NUMBER} request "${REPO_FLAG[@]}"
    \`\`\`
 
 4. Reply to EVERY top-level comment to confirm it was fixed:

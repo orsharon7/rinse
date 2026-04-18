@@ -55,9 +55,12 @@ _gen_uuid() {
   fi
 }
 
+# shellcheck disable=SC2034  # used by sourced pr-review-session.sh
 SESSION_ID="$(_gen_uuid)"
+# shellcheck disable=SC2034  # used by sourced pr-review-session.sh
 SESSION_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 SESSION_STARTED_EPOCH="$(date +%s)"
+# shellcheck disable=SC2034  # written by exit path; read by future session-write integration
 SESSION_OUTCOME="aborted"             # updated to final outcome before EXIT writes JSON
 declare -a SESSION_COMMENTS_BY_ITER=() # populated each main-loop iteration
 
@@ -135,8 +138,8 @@ run_reflect_optimize() {
     --agent opencode \
     ${skip_flag:+"$skip_flag"} \
     >> "$LOGFILE" 2>&1 \
-    && log "✓ Reflection optimize pass complete" \
-    || log "⚠️  Reflection optimize pass exited non-zero (non-fatal)"
+  && log "✓ Reflection optimize pass complete" \
+  || log "⚠️  Reflection optimize pass exited non-zero (non-fatal)" || true
 }
 
 if [[ -z "$REPO" ]]; then
@@ -287,8 +290,8 @@ EOF
 
   gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
     -X POST -f body="$body" >/dev/null 2>&1 \
-    && log "📝 Posted RINSE cycle summary comment on PR #${PR_NUMBER}" \
-    || log "⚠️  Could not post cycle summary comment (non-fatal)"
+  && log "📝 Posted RINSE cycle summary comment on PR #${PR_NUMBER}" \
+  || log "⚠️  Could not post cycle summary comment (non-fatal)" || true
 }
 
 # _cycle_duration_min returns elapsed minutes since SESSION_STARTED_EPOCH.
@@ -821,6 +824,7 @@ PROMPT_EOF
 
   if [[ $oc_exit -ne 0 ]]; then
     log "❌ opencode exited with code ${oc_exit} — aborting"
+    # shellcheck disable=SC2034
     SESSION_OUTCOME="error"
     if [[ -n "$reflect_pid" ]]; then
       kill "$reflect_pid" 2>/dev/null || true
