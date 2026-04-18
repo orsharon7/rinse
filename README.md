@@ -25,27 +25,33 @@ Request review → wait → read comments → fix → repeat. Rinse handles ever
 ## ⚡ Install
 
 ```bash
+brew install orsharon7/rinse/rinse
+```
+
+That's it.
+
+<details>
+<summary>Other install methods</summary>
+
+**Direct download (macOS / Linux):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/orsharon7/rinse/master/install.sh | sh
+```
+
+**Build from source (requires Go ≥ 1.24):**
+```bash
 git clone https://github.com/orsharon7/rinse.git
 cd rinse
 make install
 ```
 
-> **Note:** `make install` installs only the `rinse` binary. The runner scripts (`scripts/pr-review-*.sh`) are **not** installed automatically. To use `rinse` after installation, either:
-> - Copy the `scripts/` directory to a location next to the installed binary, **or**
-> - Set `RINSE_SCRIPT_DIR` (or the legacy alias `PR_REVIEW_SCRIPT_DIR`) to the path of your local `scripts/` directory.
-
-The `--model` flag accepts any valid opencode model string. Example GitHub Copilot model strings: `github-copilot/claude-sonnet-4`, `github-copilot/claude-sonnet-4.5`, `github-copilot/claude-sonnet-4.6` (default). This list is not exhaustive — pass any model string supported by your opencode installation.
-
-**Example:**
-
-```bash
-mkdir -p ~/.local/bin
-go build -ldflags "-X main.version=$(git describe --tags --always)" -o ~/.local/bin/rinse .
-```
-
-Without the `-ldflags` above, `rinse --version` will print `dev`.
+> **Note:** `make install` installs only the `rinse` binary. Set `RINSE_SCRIPT_DIR` to your local `scripts/` directory if the runner scripts are needed.
 
 Pre-built binaries are also available on the [Releases](https://github.com/orsharon7/rinse/releases) page.
+
+</details>
+
+The `--model` flag accepts any valid opencode model string (e.g. `github-copilot/claude-sonnet-4.6`).
 
 ---
 
