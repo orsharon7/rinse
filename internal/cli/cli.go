@@ -1100,7 +1100,7 @@ COMMANDS
         "auto_merge": false
       }
 
-  rinse stats
+  rinse stats [--predict]
 
     Reads session history and prints a 30-day rolling summary:
 
@@ -1114,6 +1114,12 @@ COMMANDS
         1. error_handling  (41x)
         2. nil_check       (28x)
         3. naming          (19x)
+
+    --predict   Show prediction hit-rate dashboard instead of the standard
+                summary. Correlates rinse predict runs with actual session
+                outcomes over the last 10 PRs and all time. Pro users see
+                the full session table; Free users see the last 3 sessions.
+                See SESSION DATA section for hit-rate calculation details.
 
   rinse report
 
@@ -1242,10 +1248,14 @@ STATS OPT-IN / OPT-OUT
     JSON file in ~/.rinse/sessions/. No data leaves your machine. Required for
     rinse stats and rinse report to show data.
 
+    Preference is stored in ~/.rinse/config.json as {"stats_opt_in": true}.
+
   rinse opt-out
 
     Disable session stats collection. No new session files will be written.
     Existing session files are not deleted.
+
+    Preference is stored in ~/.rinse/config.json as {"stats_opt_in": false}.
 
 ENVIRONMENT VARIABLES
 
