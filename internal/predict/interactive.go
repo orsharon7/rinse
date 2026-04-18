@@ -87,16 +87,27 @@ type interactiveSession struct {
 }
 
 // logInteractiveSession writes an interactive_session event JSON file to
-// ~/.rinse/sessions/.  Non-fatal on any error.
-func logInteractiveSession(sessionID string, started time.Time, nPredictions, applied, skipped int) {
+// ~/.rinse/sessions/.  When the sessions directory cannot be created or
+// written to, it falls back to appending a summary line to
+// ~/.rinse/predict-events.log and emits a warning to warnW (os.Stderr when
+// nil).  Non-fatal on any error — interactive mode always continues.
+func logInteractiveSession(sessionID string, started time.Time, nPredictions, applied, skipped int, warnW io.Writer) {
+	if warnW == nil {
+		warnW = os.Stderr
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return
 	}
+
 	dir := filepath.Join(home, ".rinse", "sessions")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if mkErr := os.MkdirAll(dir, 0o755); mkErr != nil {
+		fmt.Fprintln(warnW, "Session write failed — continuing without logging")
+		_ = logSessionFallback(sessionID, started, nPredictions, applied, skipped, filepath.Join(home, ".rinse"))
 		return
 	}
+
 	payload := interactiveSession{
 		Event:       "interactive_session",
 		SessionID:   sessionID,
@@ -107,6 +118,8 @@ func logInteractiveSession(sessionID string, started time.Time, nPredictions, ap
 	}
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
+		fmt.Fprintln(warnW, "Session write failed — continuing without logging")
+		_ = logSessionFallback(sessionID, started, nPredictions, applied, skipped, filepath.Join(home, ".rinse"))
 		return
 	}
 	ts := started.UTC().Format("20060102-150405")
@@ -116,19 +129,46 @@ func logInteractiveSession(sessionID string, started time.Time, nPredictions, ap
 
 	tmp, err := os.CreateTemp(dir, ".interactive-*.json.tmp")
 	if err != nil {
+		fmt.Fprintln(warnW, "Session write failed — continuing without logging")
+		_ = logSessionFallback(sessionID, started, nPredictions, applied, skipped, filepath.Join(home, ".rinse"))
 		return
 	}
 	tmpPath := tmp.Name()
 	if _, werr := tmp.Write(data); werr != nil {
 		_ = tmp.Close()
 		_ = os.Remove(tmpPath)
+		fmt.Fprintln(warnW, "Session write failed — continuing without logging")
+		_ = logSessionFallback(sessionID, started, nPredictions, applied, skipped, filepath.Join(home, ".rinse"))
 		return
 	}
 	if cerr := tmp.Close(); cerr != nil {
 		_ = os.Remove(tmpPath)
+		fmt.Fprintln(warnW, "Session write failed — continuing without logging")
+		_ = logSessionFallback(sessionID, started, nPredictions, applied, skipped, filepath.Join(home, ".rinse"))
 		return
 	}
 	_ = os.Rename(tmpPath, dest)
+}
+
+// logSessionFallback appends a one-line interactive_session summary to
+// ~/.rinse/predict-events.log when the sessions directory is unavailable.
+func logSessionFallback(sessionID string, started time.Time, nPredictions, applied, skipped int, dir string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	logPath := filepath.Join(dir, "predict-events.log")
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	line := fmt.Sprintf(
+		`{"ts":%q,"event":"interactive_session","session_id":%q,"predictions":%d,"applied":%d,"skipped":%d}`+"\n",
+		started.UTC().Format(time.RFC3339), sessionID, nPredictions, applied, skipped,
+	)
+	_, err = f.WriteString(line)
+	return err
 }
 
 // ── Patch application ─────────────────────────────────────────────────────────
@@ -724,7 +764,7 @@ func RunInteractive(opts InteractiveOpts) error {
 	// Log session event (fire-and-forget).
 	nApplied := final.countApplied()
 	nSkipped := final.countSkipped()
-	logInteractiveSession(sessionID, final.startedAt, len(final.predictions), nApplied, nSkipped)
+	logInteractiveSession(sessionID, final.startedAt, len(final.predictions), nApplied, nSkipped, out)
 
 	return nil
 }

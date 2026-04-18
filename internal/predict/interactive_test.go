@@ -2,8 +2,11 @@ package predict
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -207,4 +210,62 @@ func TestIsProEnabled_EnvVarNotSet(t *testing.T) {
 	// We can't easily control the config file path in tests, so just verify
 	// the function doesn't panic and returns a bool.
 	_ = IsProEnabled()
+}
+
+// ── logInteractiveSession fallback tests ──────────────────────────────────────
+
+// TestLogInteractiveSession_FallbackOnUnwritableDir simulates an unwritable
+// sessions directory and verifies that:
+//  1. The warning "Session write failed — continuing without logging" is written to warnW.
+//  2. The fallback line is appended to predict-events.log.
+//  3. The function returns without panicking (interactive mode continues).
+func TestLogInteractiveSession_FallbackOnUnwritableDir(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("running as root — permission checks are ineffective")
+	}
+
+	// Create a temp home-like directory.
+	tmpHome := t.TempDir()
+
+	// Create .rinse/ but make sessions/ a file (not a dir) so MkdirAll fails.
+	rinseDir := filepath.Join(tmpHome, ".rinse")
+	if err := os.MkdirAll(rinseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sessionsPath := filepath.Join(rinseDir, "sessions")
+	// Write a regular file where the directory would be — MkdirAll will fail.
+	if err := os.WriteFile(sessionsPath, []byte("blocker"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	// Make it read-only so even overwriting fails.
+	if err := os.Chmod(sessionsPath, 0o444); err != nil {
+		t.Fatal(err)
+	}
+
+	// Redirect HOME so logInteractiveSession uses tmpHome.
+	t.Setenv("HOME", tmpHome)
+
+	var warnBuf strings.Builder
+	started := time.Now()
+	logInteractiveSession("test-session-fallback", started, 3, 1, 2, &warnBuf)
+
+	// 1. Warning must be emitted.
+	warning := warnBuf.String()
+	if !strings.Contains(warning, "Session write failed") {
+		t.Errorf("expected warning containing 'Session write failed', got: %q", warning)
+	}
+
+	// 2. Fallback log must exist and contain the session entry.
+	logPath := filepath.Join(rinseDir, "predict-events.log")
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("expected fallback log at %s, got error: %v", logPath, err)
+	}
+	logStr := string(content)
+	if !strings.Contains(logStr, "interactive_session") {
+		t.Errorf("expected fallback log to contain 'interactive_session', got: %q", logStr)
+	}
+	if !strings.Contains(logStr, "test-session-fallback") {
+		t.Errorf("expected fallback log to contain session ID, got: %q", logStr)
+	}
 }
