@@ -143,6 +143,16 @@ Enable reflection via the TUI settings (press `s` inside the PR picker and toggl
 
 ---
 
+## 🔧 Environment variables
+
+| Variable | Description |
+|----------|-------------|
+| `RINSE_SCRIPT_DIR` | Override the directory where runner scripts (`pr-review-*.sh`) are found. Set this if you installed the binary but kept the scripts elsewhere. |
+| `PR_REVIEW_SCRIPT_DIR` | Legacy alias for `RINSE_SCRIPT_DIR`. Deprecated — prefer `RINSE_SCRIPT_DIR`. |
+| `RINSE_WEBHOOK_URL` | When set, RINSE POSTs a JSON payload to this URL after each completed review cycle. Useful for Slack notifications, dashboards, or CI integrations. |
+
+---
+
 ## 🤝 Contributing
 
 1. Fork the repo and create a branch: `git checkout -b feat/my-change`
