@@ -776,9 +776,17 @@
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify({ email })
-    }).finally(() => {
-      form.style.display = 'none';
-      document.getElementById('waitlist-success').classList.add('visible');
+    }).then(res => {
+      if (res.ok) {
+        form.style.display = 'none';
+        document.getElementById('waitlist-success').classList.add('visible');
+      } else {
+        if (btn) btn.disabled = false;
+        if (btn) btn.textContent = 'Try again';
+      }
+    }).catch(() => {
+      if (btn) btn.disabled = false;
+      if (btn) btn.textContent = 'Try again';
     });
   });
 </script>
