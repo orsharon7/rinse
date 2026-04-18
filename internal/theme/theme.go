@@ -176,11 +176,13 @@ var (
 			BorderForeground(Surface).
 			Padding(0, 1)
 
-	StylePhaseWaiting = lipgloss.NewStyle().Foreground(Yellow).Bold(true)
-	StylePhaseFixing  = lipgloss.NewStyle().Foreground(Mauve).Bold(true)
-	StylePhaseReflect = lipgloss.NewStyle().Foreground(Teal).Bold(true)
-	StylePhaseDone    = lipgloss.NewStyle().Foreground(Green).Bold(true)
-	StylePhaseErr     = lipgloss.NewStyle().Foreground(Red).Bold(true)
+	StylePhaseWaiting   = lipgloss.NewStyle().Foreground(Yellow).Bold(true)
+	StylePhaseFixing    = lipgloss.NewStyle().Foreground(Mauve).Bold(true)
+	StylePhaseReflect   = lipgloss.NewStyle().Foreground(Teal).Bold(true)
+	StylePhaseDone      = lipgloss.NewStyle().Foreground(Green).Bold(true)
+	StylePhaseErr       = lipgloss.NewStyle().Foreground(Red).Bold(true)
+	StylePhaseStalled   = lipgloss.NewStyle().Foreground(Peach).Bold(true)   // amber/peach — stalled Copilot review
+	StylePhaseCancelled = lipgloss.NewStyle().Foreground(Overlay).Bold(true) // silver/muted — cancelled cycle
 
 	StyleLogInfo    = lipgloss.NewStyle().Foreground(Text)
 	StyleLogDebug   = lipgloss.NewStyle().Foreground(Subtext)
