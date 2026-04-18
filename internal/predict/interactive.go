@@ -842,6 +842,11 @@ type InteractiveOpts struct {
 
 	// SkipProCheck disables the pro gate (for tests).
 	SkipProCheck bool
+
+	// NoColor forces plain ASCII output regardless of the NO_COLOR env var or
+	// terminal type.  When false (default) the value is derived from
+	// theme.IsPlainTerminal() at runtime.
+	NoColor bool
 }
 
 // RunInteractive runs the Bubble Tea predict review loop.
@@ -853,7 +858,7 @@ func RunInteractive(opts InteractiveOpts) error {
 		out = os.Stdout
 	}
 
-	noColor := theme.IsPlainTerminal()
+	noColor := opts.NoColor || theme.IsPlainTerminal()
 
 	// Pro gate.
 	if !opts.SkipProCheck && !IsProEnabled() {
