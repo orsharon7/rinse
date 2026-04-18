@@ -39,6 +39,14 @@ func main() {
 			}
 			session.PrintStats(sessions)
 			os.Exit(0)
+		case "report":
+			sessions, err := stats.Load()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "error reading sessions:", err)
+				os.Exit(1)
+			}
+			stats.PrintReport(sessions)
+			os.Exit(0)
 		}
 	}
 
