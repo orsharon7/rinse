@@ -9,6 +9,7 @@
   --text-muted:   #7A7A7A;
   --red:          #FF5252;
   --green:        #69FF97;
+  --yellow:       #FFD700;
 
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
@@ -200,6 +201,7 @@ img, svg { display: block; }
 .tline-dim  { color: var(--text-muted); }
 .tline-red  { color: var(--red); }
 .tline-green{ color: var(--green); }
+.tline-yellow{ color: var(--yellow); }
 
 /* ─── SECTION COMMON ─────────────────────────────────────── */
 .section {
