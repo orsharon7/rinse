@@ -14,6 +14,7 @@ package predict
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -485,8 +486,36 @@ func sortByConfidence(preds []Prediction) {
 // A nil logger is a no-op.
 type EventLogger func(r *Report) error
 
-// LogEvent records prediction events to ~/.rinse/predict-events.log.
-// Each line is JSON: {"ts":"…","source":"…","pattern":"…","confidence":0.9}
+// predictEventFile holds the structured payload written to
+// ~/.rinse/sessions/predict-<source>-<ts>.json for hit-rate tracking.
+// Layout matches the RIN-176 spec for predict_generated events.
+type predictEventFile struct {
+	EventType   string            `json:"event_type"`
+	Source      string            `json:"source"`
+	GeneratedAt string            `json:"generated_at"`
+	Predictions []predictEventRow `json:"predictions"`
+}
+
+type predictEventRow struct {
+	PatternID   string  `json:"pattern_id"`
+	Description string  `json:"description"`
+	File        string  `json:"file"`
+	Line        int     `json:"line"`
+	Confidence  float64 `json:"confidence"`
+}
+
+// LogEvent records a predict_generated event to ~/.rinse/sessions/.
+//
+// Each call produces a single JSON file named
+// predict-<sanitised-source>-<RFC3339nano>.json in the sessions directory.
+// This keeps predict events alongside RINSE session files so that the
+// hit-rate computation in `rinse report` can correlate them with subsequent
+// review_completed events (RIN-176 spec).
+//
+// When the sessions directory cannot be created or written to, the function
+// falls back to appending to ~/.rinse/predict-events.log so that events are
+// never silently lost. Callers should treat all errors as non-fatal and
+// continue regardless (fire-and-forget).
 func LogEvent(r *Report) error {
 	if r == nil || len(r.Predictions) == 0 {
 		return nil
@@ -496,11 +525,71 @@ func LogEvent(r *Report) error {
 	if err != nil {
 		return err
 	}
-	dir := filepath.Join(home, ".rinse")
+
+	sessDir := filepath.Join(home, ".rinse", "sessions")
+	if mkErr := os.MkdirAll(sessDir, 0o755); mkErr != nil {
+		// Fall back to flat log.
+		return logEventFallback(r, filepath.Join(home, ".rinse"))
+	}
+
+	rows := make([]predictEventRow, len(r.Predictions))
+	for i, p := range r.Predictions {
+		rows[i] = predictEventRow{
+			PatternID:   patternID(p.Pattern),
+			Description: p.Detail,
+			File:        p.File,
+			Line:        p.Line,
+			Confidence:  p.Confidence,
+		}
+	}
+
+	payload := predictEventFile{
+		EventType:   "predict_generated",
+		Source:      r.Source,
+		GeneratedAt: r.GeneratedAt.UTC().Format(time.RFC3339),
+		Predictions: rows,
+	}
+
+	data, err := marshalJSON(payload)
+	if err != nil {
+		return logEventFallback(r, filepath.Join(home, ".rinse"))
+	}
+
+	// File name: predict-<sanitisedSource>-<nanosecond-ts>.json
+	safe := sanitiseSource(r.Source)
+	ts := r.GeneratedAt.UTC().Format("20060102-150405")
+	nano := r.GeneratedAt.UTC().UnixNano() % 1e9
+	name := fmt.Sprintf("predict-%s-%s-%09d.json", safe, ts, nano)
+	dest := filepath.Join(sessDir, name)
+
+	// Atomic write: temp file + rename.
+	tmp, err := os.CreateTemp(sessDir, ".predict-*.json.tmp")
+	if err != nil {
+		return logEventFallback(r, filepath.Join(home, ".rinse"))
+	}
+	tmpPath := tmp.Name()
+	if _, werr := tmp.Write(data); werr != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return logEventFallback(r, filepath.Join(home, ".rinse"))
+	}
+	if cerr := tmp.Close(); cerr != nil {
+		_ = os.Remove(tmpPath)
+		return logEventFallback(r, filepath.Join(home, ".rinse"))
+	}
+	if rerr := os.Rename(tmpPath, dest); rerr != nil {
+		_ = os.Remove(tmpPath)
+		return logEventFallback(r, filepath.Join(home, ".rinse"))
+	}
+	return nil
+}
+
+// logEventFallback appends events to ~/.rinse/predict-events.log when the
+// sessions directory is unavailable. This preserves events without blocking.
+func logEventFallback(r *Report, dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-
 	logPath := filepath.Join(dir, "predict-events.log")
 	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -519,4 +608,49 @@ func LogEvent(r *Report) error {
 		}
 	}
 	return nil
+}
+
+// patternID converts a human-readable pattern name to a stable snake_case ID.
+func patternID(pattern string) string {
+	id := strings.ToLower(pattern)
+	id = strings.ReplaceAll(id, " ", "_")
+	id = strings.ReplaceAll(id, "/", "_")
+	id = strings.ReplaceAll(id, "-", "_")
+	// Remove any remaining non-alphanumeric/underscore characters.
+	var b strings.Builder
+	for _, r := range id {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// sanitiseSource converts a source string to a safe filename component.
+// E.g. "PR #42 (owner/repo)" → "pr42_owner_repo".
+func sanitiseSource(source string) string {
+	s := strings.ToLower(source)
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	// Collapse runs of underscores.
+	result := b.String()
+	for strings.Contains(result, "__") {
+		result = strings.ReplaceAll(result, "__", "_")
+	}
+	result = strings.Trim(result, "_")
+	if len(result) > 40 {
+		result = result[:40]
+	}
+	return result
+}
+
+// marshalJSON marshals v to indented JSON.
+func marshalJSON(v any) ([]byte, error) {
+	return json.MarshalIndent(v, "", "  ")
 }
