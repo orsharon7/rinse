@@ -363,29 +363,6 @@ func loadFromJSON() ([]Session, error) {
 	return sortByStarted(sessions), nil
 }
 
-// dbRowToSession converts a db.SessionRow to a stats.Session.
-func dbRowToSession(r db.SessionRow) Session {
-	s := Session{
-		SessionID: r.ID,
-		Repo:      r.Repo,
-		PR:        fmt.Sprintf("%d", r.PRNumber),
-		PRTitle:   r.PRTitle,
-		StartedAt: r.StartedAt,
-		Model:     r.Model,
-		Outcome:   Outcome(r.Outcome),
-		Iterations: r.Iterations,
-		TotalComments: r.TotalCommentsFixed,
-	}
-	if r.CompletedAt != nil {
-		s.EndedAt = *r.CompletedAt
-	}
-	if r.EstimatedTimeSavedSeconds != nil {
-		s.EstimatedTimeSavedSeconds = *r.EstimatedTimeSavedSeconds
-	}
-	s.Approved = s.Outcome == OutcomeApproved || s.Outcome == OutcomeMerged
-	return s
-}
-
 func sortByStarted(sessions []Session) []Session {
 	sort.Slice(sessions, func(i, j int) bool {
 		return sessions[i].StartedAt.Before(sessions[j].StartedAt)
