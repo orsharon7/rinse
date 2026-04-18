@@ -103,6 +103,25 @@ After building the binary (`make build`), use these workflows to validate your c
 ./rinse predict --json
 ```
 
+**Test predict Pro-gated flags (Free tier should show upgrade prompt):**
+```bash
+# Without pro:true in ~/.rinse/config.json — should show upgrade prompt and exit 0
+./rinse predict --interactive
+./rinse predict --doc-drift
+
+# With Pro enabled:
+# echo '{"pro":true}' > ~/.rinse/config.json
+# ./rinse predict --doc-drift   # runs doc-drift detector
+```
+
+**Test rinse stats --predict (hit-rate dashboard):**
+```bash
+# Run at least one predict first so events are recorded
+./rinse predict --json
+# Then view the dashboard
+./rinse stats --predict
+```
+
 **Test the native Go runner (rinse run):**
 ```bash
 # Dry-run against a real PR — streams NDJSON to stdout
@@ -144,6 +163,8 @@ rinse/
 │   ├── notify/                 # Desktop notification helper (macOS/Linux)
 │   ├── onboarding/             # First-run wizard state, cycles API, TOML config
 │   ├── predict/                # Pattern prediction (pre-run review signal)
+│   │                           # predict.go — AST/text heuristics, LogEvent
+│   │                           # doc_drift.go — LLM documentation drift (--doc-drift, Pro)
 │   ├── quality/                # Code quality delta measurement
 │   ├── reflect/                # Reflection agent (AGENTS.md / CLAUDE.md updates)
 │   ├── runner/                 # PR review loop runner
