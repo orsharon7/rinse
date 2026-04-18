@@ -395,7 +395,7 @@ func (m interactiveModel) View() string {
 	}
 
 	// Prompt line.
-	keyStyle := lipgloss.NewStyle().Foreground(theme.Mauve).Bold(true)
+	keyStyle := theme.StyleTeal
 	prompt := fmt.Sprintf("  %s apply   %s skip   %s edit   %s quit",
 		keyStyle.Render("[y]"),
 		keyStyle.Render("[n]"),

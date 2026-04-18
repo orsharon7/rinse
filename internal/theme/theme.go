@@ -402,3 +402,20 @@ func RenderCompactBrandWithDetails(width int, details string) string {
 		" " + detailsRendered + " " +
 		StyleDiag.Render(strings.Repeat(IconDiag, rightDiags))
 }
+
+// FormatPatternLabel trims common glob noise from a pattern string and returns
+// a clean, human-readable label suitable for display in the TUI.
+//
+// Examples:
+//
+//	"**/internal/auth/**" → "internal/auth"
+//	"cmd/rinse/*.go"       → "cmd/rinse/*.go"
+//	"**/*.ts"              → "*.ts"
+func FormatPatternLabel(pattern string) string {
+	label := strings.TrimPrefix(pattern, "**/")
+	label = strings.TrimSuffix(label, "/**")
+	if label == "" {
+		return pattern
+	}
+	return label
+}
