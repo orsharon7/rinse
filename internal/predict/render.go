@@ -85,15 +85,11 @@ func renderStyled(w io.Writer, report *Report, termWidth int) {
 	narrow := termWidth < narrowTermWidth
 
 	switch {
-	case len(preds) == 0 && strings.TrimSpace(report.Source) == "staged changes" &&
-		report.Source == "staged changes":
-		// Distinguish "nothing staged" vs "staged but clean" by checking
-		// Source — Run() sets Source to "staged changes" in both cases, but
-		// the diff is empty when nothing is staged.
-		// We detect "nothing to scan" via a sentinel Source set by Run when
-		// the diff is empty (handled below in the empty-source path).
-		renderClean(w)
+	case report.Source == "":
+		// No staged diff and no PR — nothing to analyze.
+		renderEmpty(w)
 	case len(preds) == 0:
+		// Diff was scanned but no predictions found — clean.
 		renderClean(w)
 	default:
 		renderPredictions(w, preds, narrow, termWidth)
@@ -189,6 +185,10 @@ func renderPredictionRow(w io.Writer, p Prediction, narrow bool, termWidth int) 
 
 func renderDumb(w io.Writer, report *Report) {
 	preds := report.Predictions
+	if report.Source == "" {
+		fmt.Fprintln(w, "[rinse predict] nothing to analyze. Stage changes or pass --pr <N> --repo <owner/repo>")
+		return
+	}
 	if len(preds) == 0 {
 		fmt.Fprintf(w, "[rinse predict] no predictions. Diff looks clean.\n")
 		return
@@ -224,15 +224,6 @@ func RenderError(w io.Writer, err error) {
 	line := fmt.Sprintf("%s  rinse predict failed: %v",
 		theme.StyleErr.Render(theme.IconCross), err)
 	fmt.Fprintln(w, theme.StyleErr.Render(line))
-}
-
-// RenderEmpty wraps renderEmpty for external callers (cli.go).
-func RenderEmpty(w io.Writer) {
-	if isDumb() {
-		fmt.Fprintln(w, "[rinse predict] nothing to analyze. Stage changes or pass --pr <N> --repo <owner/repo>")
-		return
-	}
-	renderEmpty(w)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
