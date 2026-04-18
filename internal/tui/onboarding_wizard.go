@@ -806,6 +806,10 @@ func (m wizModel) renderStepA() string {
 		theme.StyleTeal.Render("  " + theme.IconDot + " ") + theme.StyleMuted.Render("See everything in one place — history, status,\n    what is next."),
 	}
 
+	tip := theme.StyleMuted.Render("  "+theme.IconDiamond+" Tip  ") +
+		theme.StyleTeal.Render(".rinseignore") +
+		theme.StyleMuted.Render(" — add this file to exclude paths from your cycles.")
+
 	cta := "\n" + theme.StyleTeal.Render("  → Sounds good, let me try it") +
 		"  " + theme.StyleMuted.Render("(enter)")
 	skip := theme.StyleMuted.Render("  Skip intro (space)")
@@ -814,6 +818,7 @@ func (m wizModel) renderStepA() string {
 
 	return box.Render(progress + "\n\n" + headline + "\n\n" +
 		strings.Join(bullets, "\n\n") +
+		"\n\n" + tip +
 		cta + "\n" + skip + hints)
 }
 
