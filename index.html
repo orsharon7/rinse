@@ -527,7 +527,7 @@
 
     <div class="install-block" id="install-block" title="Click to copy" role="button" tabindex="0" aria-label="Copy install command">
       <code class="install-code">
-        <span class="prompt">$</span>brew install rinse
+        <span class="prompt">$</span>brew install orsharon7/rinse/rinse
       </code>
       <button class="copy-btn" id="copy-btn" aria-label="Copy to clipboard">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -538,7 +538,7 @@
     </div>
 
     <p class="install-hint">
-      Also available via <a href="https://github.com/orsharon7/rinse" target="_blank" rel="noopener">pip, npm, and direct download →</a>
+      Also available via <a href="https://github.com/orsharon7/rinse/releases" target="_blank" rel="noopener">go install or binary release →</a>
     </p>
 
     <div class="hero-ctas">
@@ -712,7 +712,7 @@
   const copyBtn = document.getElementById('copy-btn');
 
   function copyInstall() {
-    navigator.clipboard.writeText('brew install rinse').then(() => {
+    navigator.clipboard.writeText('brew install orsharon7/rinse/rinse').then(() => {
       copyBtn.classList.add('copied');
       copyBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
       setTimeout(() => {
@@ -739,9 +739,17 @@
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify({ email })
-    }).finally(() => {
-      form.style.display = 'none';
-      document.getElementById('waitlist-success').classList.add('visible');
+    }).then(res => {
+      if (res.ok) {
+        form.style.display = 'none';
+        document.getElementById('waitlist-success').classList.add('visible');
+      } else {
+        if (btn) btn.disabled = false;
+        btn.textContent = 'Try again';
+      }
+    }).catch(() => {
+      if (btn) btn.disabled = false;
+      btn.textContent = 'Try again';
     });
   });
 </script>
