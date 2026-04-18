@@ -91,6 +91,7 @@ type interactiveSession struct {
 	StartedAt   string `json:"started_at"`
 	Predictions int    `json:"predictions"`
 	Applied     int    `json:"applied"`
+	Edited      int    `json:"edited"`
 	Skipped     int    `json:"skipped"`
 }
 
@@ -99,7 +100,7 @@ type interactiveSession struct {
 // written to, it falls back to appending a summary line to
 // ~/.rinse/predict-events.log and emits a warning to warnW (os.Stderr when
 // nil).  Non-fatal on any error — interactive mode always continues.
-func logInteractiveSession(sessionID string, started time.Time, nPredictions, applied, skipped int, warnW io.Writer) {
+func logInteractiveSession(sessionID string, started time.Time, nPredictions, applied, edited, skipped int, warnW io.Writer) {
 	if warnW == nil {
 		warnW = os.Stderr
 	}
@@ -112,7 +113,7 @@ func logInteractiveSession(sessionID string, started time.Time, nPredictions, ap
 	dir := filepath.Join(home, ".rinse", "sessions")
 	if mkErr := os.MkdirAll(dir, 0o755); mkErr != nil {
 		fmt.Fprintln(warnW, "Session write failed — continuing without logging")
-		_ = logSessionFallback(sessionID, started, nPredictions, applied, skipped, filepath.Join(home, ".rinse"))
+		_ = logSessionFallback(sessionID, started, nPredictions, applied, edited, skipped, filepath.Join(home, ".rinse"))
 		return
 	}
 
@@ -122,12 +123,13 @@ func logInteractiveSession(sessionID string, started time.Time, nPredictions, ap
 		StartedAt:   started.UTC().Format(time.RFC3339),
 		Predictions: nPredictions,
 		Applied:     applied,
+		Edited:      edited,
 		Skipped:     skipped,
 	}
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		fmt.Fprintln(warnW, "Session write failed — continuing without logging")
-		_ = logSessionFallback(sessionID, started, nPredictions, applied, skipped, filepath.Join(home, ".rinse"))
+		_ = logSessionFallback(sessionID, started, nPredictions, applied, edited, skipped, filepath.Join(home, ".rinse"))
 		return
 	}
 	ts := started.UTC().Format("20060102-150405")
@@ -138,7 +140,7 @@ func logInteractiveSession(sessionID string, started time.Time, nPredictions, ap
 	tmp, err := os.CreateTemp(dir, ".interactive-*.json.tmp")
 	if err != nil {
 		fmt.Fprintln(warnW, "Session write failed — continuing without logging")
-		_ = logSessionFallback(sessionID, started, nPredictions, applied, skipped, filepath.Join(home, ".rinse"))
+		_ = logSessionFallback(sessionID, started, nPredictions, applied, edited, skipped, filepath.Join(home, ".rinse"))
 		return
 	}
 	tmpPath := tmp.Name()
@@ -146,13 +148,13 @@ func logInteractiveSession(sessionID string, started time.Time, nPredictions, ap
 		_ = tmp.Close()
 		_ = os.Remove(tmpPath)
 		fmt.Fprintln(warnW, "Session write failed — continuing without logging")
-		_ = logSessionFallback(sessionID, started, nPredictions, applied, skipped, filepath.Join(home, ".rinse"))
+		_ = logSessionFallback(sessionID, started, nPredictions, applied, edited, skipped, filepath.Join(home, ".rinse"))
 		return
 	}
 	if cerr := tmp.Close(); cerr != nil {
 		_ = os.Remove(tmpPath)
 		fmt.Fprintln(warnW, "Session write failed — continuing without logging")
-		_ = logSessionFallback(sessionID, started, nPredictions, applied, skipped, filepath.Join(home, ".rinse"))
+		_ = logSessionFallback(sessionID, started, nPredictions, applied, edited, skipped, filepath.Join(home, ".rinse"))
 		return
 	}
 	_ = os.Rename(tmpPath, dest)
@@ -160,7 +162,7 @@ func logInteractiveSession(sessionID string, started time.Time, nPredictions, ap
 
 // logSessionFallback appends a one-line interactive_session summary to
 // ~/.rinse/predict-events.log when the sessions directory is unavailable.
-func logSessionFallback(sessionID string, started time.Time, nPredictions, applied, skipped int, dir string) error {
+func logSessionFallback(sessionID string, started time.Time, nPredictions, applied, edited, skipped int, dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -172,8 +174,8 @@ func logSessionFallback(sessionID string, started time.Time, nPredictions, appli
 	defer f.Close()
 
 	line := fmt.Sprintf(
-		`{"ts":%q,"event":"interactive_session","session_id":%q,"predictions":%d,"applied":%d,"skipped":%d}`+"\n",
-		started.UTC().Format(time.RFC3339), sessionID, nPredictions, applied, skipped,
+		`{"ts":%q,"event":"interactive_session","session_id":%q,"predictions":%d,"applied":%d,"edited":%d,"skipped":%d}`+"\n",
+		started.UTC().Format(time.RFC3339), sessionID, nPredictions, applied, edited, skipped,
 	)
 	_, err = f.WriteString(line)
 	return err
@@ -390,10 +392,97 @@ func (m interactiveModel) countSkipped() int {
 	return n
 }
 
+// countEdited returns the number of edited predictions.
+func (m interactiveModel) countEdited() int {
+	n := 0
+	for _, s := range m.states {
+		if s == reviewEdited {
+			n++
+		}
+	}
+	return n
+}
+
 // applyResultMsg carries the result of an async ApplyPatch call back to Update.
 type applyResultMsg struct {
 	result ApplyPatchResult
 	index  int
+}
+
+// editorResultMsg carries the result of an async editor launch back to Update.
+type editorResultMsg struct {
+	// edited is true when the editor exited with code 0.
+	edited bool
+	// errMsg is the human-readable error message (empty on success).
+	errMsg string
+	index  int
+}
+
+// detectEditor returns the editor binary to use.
+// Detection order: $VISUAL -> $EDITOR -> vi.
+// Returns ("", false) when none of the candidates can be found.
+func detectEditor() (string, bool) {
+	for _, env := range []string{"VISUAL", "EDITOR"} {
+		if v := os.Getenv(env); v != "" {
+			if path, err := exec.LookPath(v); err == nil {
+				return path, true
+			}
+			// env var set but binary not found — still return it so the error
+			// message can name the variable.
+			return v, false
+		}
+	}
+	// Fallback to vi.
+	if path, err := exec.LookPath("vi"); err == nil {
+		return path, true
+	}
+	return "", false
+}
+
+// launchEditor opens the prediction's file in the detected editor.
+// It returns a tea.Cmd that suspends the TUI, runs the editor, and resumes.
+func launchEditor(p Prediction, idx int) tea.Cmd {
+	editor, found := detectEditor()
+	if !found {
+		errMsg := "No editor found. Set $EDITOR to enable."
+		if editor != "" {
+			errMsg = fmt.Sprintf("Editor %q not found. Set $EDITOR to enable.", editor)
+		}
+		return func() tea.Msg {
+			return editorResultMsg{index: idx, errMsg: errMsg}
+		}
+	}
+
+	// Edge case: file not found.
+	if p.File != "" {
+		if _, err := os.Stat(p.File); os.IsNotExist(err) {
+			errMsg := fmt.Sprintf("File not found: %s", p.File)
+			return func() tea.Msg {
+				return editorResultMsg{index: idx, errMsg: errMsg}
+			}
+		}
+	}
+
+	// Build args: editor [+line] file
+	args := []string{}
+	if p.File != "" {
+		if p.Line > 0 {
+			args = append(args, fmt.Sprintf("+%d", p.Line))
+		}
+		args = append(args, p.File)
+	}
+
+	cmd := exec.Command(editor, args...) //nolint:gosec
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		if err != nil {
+			return editorResultMsg{index: idx, errMsg: fmt.Sprintf("Editor exited with error: %s", err)}
+		}
+		return editorResultMsg{index: idx, edited: true}
+	})
 }
 
 func (m interactiveModel) Init() tea.Cmd {
@@ -428,6 +517,17 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		next, cmd := m.advance()
 		return next, cmd
+
+	case editorResultMsg:
+		if msg.edited {
+			m.states[msg.index] = reviewEdited
+			m.lastMsg = lipgloss.NewStyle().Foreground(theme.Yellow).Render(theme.IconCheck + " Edited.")
+			next, cmd := m.advance()
+			return next, cmd
+		}
+		// Error: show message but stay on current prediction.
+		m.lastMsg = theme.StyleErr.Render(theme.IconCross + "  " + msg.errMsg)
+		return m, nil
 
 	case tea.WindowSizeMsg:
 		m.termWidth = msg.Width
@@ -465,14 +565,9 @@ func (m interactiveModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.done || m.cursor >= len(m.predictions) {
 			return m, tea.Quit
 		}
-		// v0.4: mark as edited, show muted note. Do NOT launch editor (v0.5).
-		m.states[m.cursor] = reviewEdited
-		if m.noColor {
-			m.lastMsg = "Marked as edited — open your editor manually to apply changes."
-		} else {
-			m.lastMsg = theme.StyleMuted.Render("Marked as edited — open your editor manually to apply changes.")
-		}
-		return m.advance()
+		idx := m.cursor
+		p := m.predictions[idx]
+		return m, launchEditor(p, idx)
 
 	case "right", "l", "L":
 		// Advance without deciding.
@@ -602,7 +697,7 @@ func (m interactiveModel) renderCompact() string {
 	// Key hints or badge.
 	sb.WriteString("\n")
 	if state != reviewNone {
-		sb.WriteString("  " + reviewedBadge(state) + "\n")
+		sb.WriteString("  " + reviewedBadge(state, m.noColor) + "\n")
 	} else {
 		keyStyle := theme.StyleTeal
 		hint := fmt.Sprintf("  %s apply  %s skip  %s editor  %s quit",
@@ -646,7 +741,7 @@ func reviewedBadge(s reviewState, noColor bool) string {
 	case reviewSkipped:
 		return theme.StyleMuted.Render("○ skipped")
 	case reviewEdited:
-		return theme.StyleTeal.Render("✎ edited")
+		return lipgloss.NewStyle().Foreground(theme.Yellow).Render("✎ edited")
 	}
 	return ""
 }
@@ -779,10 +874,10 @@ func (m interactiveModel) View() string {
 	if state != reviewNone {
 		card.WriteString("\n" + reviewedBadge(state, m.noColor) + "\n")
 	} else if m.noColor {
-		card.WriteString("\n[y] apply   [n/space] skip   [e] mark-edited   [q] quit   [h/<] back\n")
+		card.WriteString("\n[y] apply   [n/space] skip   [e] open in $EDITOR   [q] quit   [h/<] back\n")
 	} else {
 		keyStyle := theme.StyleTeal
-		hint := fmt.Sprintf("%s apply   %s skip   %s mark-edited   %s quit   %s back",
+		hint := fmt.Sprintf("%s apply   %s skip   %s open in $EDITOR   %s quit   %s back",
 			keyStyle.Render("[y]"),
 			keyStyle.Render("[n/space]"),
 			keyStyle.Render("[e]"),
@@ -893,12 +988,15 @@ const minutesPerAppliedFix = 4
 func printSummary(w io.Writer, predictions []Prediction, states []reviewState, noColor bool) {
 	total := len(predictions)
 	nApplied := 0
+	nEdited := 0
 	nSkipped := 0
 	for _, s := range states {
-		if s == reviewApplied {
+		switch s {
+		case reviewApplied:
 			nApplied++
-		}
-		if s == reviewSkipped || s == reviewEdited {
+		case reviewEdited:
+			nEdited++
+		case reviewSkipped:
 			nSkipped++
 		}
 	}
@@ -935,10 +1033,14 @@ func printSummary(w io.Writer, predictions []Prediction, states []reviewState, n
 	sb.WriteString(title + "\n\n")
 	sb.WriteString(fmt.Sprintf("  Predictions reviewed:  %s\n",
 		theme.StyleVal.Render(fmt.Sprintf("%d", total))))
-	sb.WriteString(fmt.Sprintf("  Fixes applied:         %s\n",
-		theme.StyleLogSuccess.Render(fmt.Sprintf("%d", nApplied))))
-	sb.WriteString(fmt.Sprintf("  Skipped:               %s\n",
-		theme.StyleMuted.Render(fmt.Sprintf("%d", nSkipped))))
+
+	// Summary line: "3 applied  ·  1 edited  ·  1 skipped"
+	appliedStr := lipgloss.NewStyle().Foreground(theme.Green).Render(fmt.Sprintf("%d applied", nApplied))
+	editedStr := lipgloss.NewStyle().Foreground(theme.Yellow).Render(fmt.Sprintf("%d edited", nEdited))
+	skippedStr := theme.StyleMuted.Render(fmt.Sprintf("%d skipped", nSkipped))
+	dot := theme.StyleMuted.Render("  ·  ")
+	sb.WriteString("  " + appliedStr + dot + editedStr + dot + skippedStr + "\n")
+
 	if estMin > 0 {
 		sb.WriteString(fmt.Sprintf("  Est. time saved:       %s\n",
 			theme.StyleVal.Render(fmt.Sprintf("~%d min", estMin))))
@@ -1030,8 +1132,9 @@ func RunInteractive(opts InteractiveOpts) error {
 
 	// Log session event (fire-and-forget).
 	nApplied := final.countApplied()
+	nEdited := final.countEdited()
 	nSkipped := final.countSkipped()
-	logInteractiveSession(sessionID, final.startedAt, len(final.predictions), nApplied, nSkipped, out)
+	logInteractiveSession(sessionID, final.startedAt, len(final.predictions), nApplied, nEdited, nSkipped, out)
 
 	return nil
 }
