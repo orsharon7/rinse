@@ -538,49 +538,144 @@ func fatalf(asJSON bool, format string, a ...any) {
 
 // PrintHelp prints the CLI usage text to stdout.
 func PrintHelp() {
-	fmt.Print(`rinse — Autonomous Copilot PR review lifecycle manager
+	fmt.Print(`rinse — AI-powered PR review that fixes your code automatically.
+
+RINSE drives an AI agent in a loop to resolve GitHub Copilot review comments
+until your PR is approved. You pick the PR; RINSE handles the rest.
 
 USAGE
-  rinse [subcommand] [flags]
 
-  Without a subcommand, rinse launches the interactive TUI.
+  rinse              Launch the interactive PR picker (recommended)
+  rinse init         Create a per-repo .rinse.json config (guided setup)
+  rinse stats        Show session history and time-saved metrics
+  rinse trends       Show quality improvement trends over the last 4 weeks
+  rinse status       Print the Copilot review status of a PR (agent/CI use)
+  rinse start        Start the review loop non-interactively (agent/CI use)
+  rinse --version    Print the installed version
+  rinse --help       Show this help
 
-SUBCOMMANDS
+QUICK START
 
-  status [<pr>] [--repo <owner/repo>] [--json]
-      Print the current Copilot review status of a PR.
-      When <pr> is omitted, auto-detects from the current git branch.
+  cd your-repo
+  rinse
 
-      Output statuses:
-        approved   — Copilot approved the PR
-        pending    — Copilot review is in progress
-        new_review — new review with comments ready to fix
-        no_reviews — no Copilot reviews yet
-        merged     — PR already merged
-        closed     — PR closed without merge
-        error      — could not determine status
+  RINSE auto-detects your repository and lists open PRs. Press Enter to
+  launch the review cycle on the selected PR.
 
-  start <pr> [options] [--json]
-      Start the PR review fix loop non-interactively (no TUI, no TTY required).
-      Suitable for agent pipelines and CI.
+INTERACTIVE CONTROLS
 
-      --repo <owner/repo>           Override repository detection
-      --cwd  <path>                 Local checkout path (default: current directory)
-      --model <model>               AI model string (overrides runner default)
-      --runner opencode|claude      Runner to use (default: opencode)
-      --reflect                     Enable reflection agent to update AGENTS.md
-      --reflect-main-branch <br>    Target branch for reflection commits (default: main)
-      --auto-merge                  Auto-merge when Copilot approves
-      --json                        Emit a JSON result after the runner exits.
-                                    Streaming output goes to stderr throughout.
+  ↑ ↓ / j k    Navigate the PR list
+  Enter         Launch review cycle on the selected PR
+  g / G         Jump to top / bottom of list
+  #             Enter a PR number manually
+  s             Open settings (runner, model, reflect, auto-merge)
+  r             Refresh PR list from GitHub
+  ?             Toggle keyboard shortcuts overlay
+  q / Ctrl+C    Quit
 
-  help | --help | -h
-      Show this help.
+SETTINGS  (press s inside the PR picker)
 
-  --version | -v
-      Print version string.
+  runner        opencode  GitHub Copilot, no API key required (default)
+                claude    Claude Code, requires an Anthropic API key
+
+  model         AI model to use. Leave blank for the runner's default.
+                opencode default: github-copilot/claude-sonnet-4.6
+                claude default:   claude-sonnet-4-6
+
+  reflect       When on, a second AI agent extracts generalizable coding
+                rules from review comments and pushes them to AGENTS.md
+                and CLAUDE.md on your main branch. Each future cycle
+                starts with those rules loaded — fewer comments over time.
+
+  branch        The branch where reflection rules are pushed (default: main)
+
+  auto-merge    When on, RINSE merges the PR automatically once approved.
+
+  Settings are saved per-repo under ~/.rinse/.
+
+COMMANDS
+
+  rinse init
+
+    Scaffolds a per-repo .rinse.json config in the current directory.
+    Prompts for engine, model, reflection settings, and auto-merge preference.
+    Commit .rinse.json to share consistent defaults with your team.
+
+  rinse stats
+
+    Reads session history and prints:
+
+      RINSE Stats (last 30 days)
+      PRs reviewed:     23
+      Comments fixed:   187
+      Avg iterations:   2.1
+      Est. time saved:  ~9.4 hours
+
+      Top patterns:
+        1. Missing error handling  (41x)
+        2. Unused imports          (28x)
+
+  rinse trends
+
+    Shows quality improvement trends across sessions, bucketed by week
+    (last 4 weeks). Useful for tracking whether your codebase is improving
+    over time as RINSE builds up its reflection rules.
+
+  rinse status [<pr>] [--repo <owner/repo>] [--json]
+
+    Print the current Copilot review status of a PR. Suitable for agents
+    and CI pipelines. When <pr> is omitted, auto-detects from the current
+    git branch.
+
+    Output statuses:
+      approved   — Copilot approved the PR
+      pending    — Copilot review is in progress
+      new_review — new review with comments ready to fix
+      no_reviews — no Copilot reviews yet
+      merged     — PR already merged
+      closed     — PR closed without merge
+      error      — could not determine status
+
+  rinse start <pr> [options] [--json]
+
+    Start the PR review fix loop non-interactively (no TUI, no TTY required).
+    Suitable for agent pipelines and CI.
+
+    --repo <owner/repo>           Override repository detection
+    --cwd  <path>                 Local checkout path (default: current directory)
+    --model <model>               AI model string (overrides runner default)
+    --runner opencode|claude      Runner to use (default: opencode)
+    --reflect                     Enable reflection agent to update AGENTS.md
+    --reflect-main-branch <br>    Target branch for reflection commits (default: main)
+    --auto-merge                  Auto-merge when Copilot approves
+    --json                        Emit a JSON result after the runner exits.
+                                  Streaming output goes to stderr throughout.
+
+ENVIRONMENT VARIABLES
+
+  RINSE_SCRIPT_DIR      Override the directory where runner scripts are found.
+  PR_REVIEW_SCRIPT_DIR  Fallback script directory (legacy alias).
+  RINSE_WEBHOOK_URL     When set, POST a JSON payload to this URL after each
+                        completed review cycle.
+
+REQUIREMENTS
+
+  gh v2.88+   GitHub CLI — used by all runners
+  opencode    Required for the opencode runner
+  claude      Required for the claude runner
+  jq          Required by shell scripts
+  git         Required by the reflection agent
+
+SESSION DATA
+
+  Each run is saved as a JSON file in ~/.rinse/sessions/. Files contain the
+  repo, PR number, runner, model, comments fixed, iterations, approval status,
+  and detected code patterns. No data leaves your machine.
 
 EXAMPLES
+
+  # Interactive TUI — recommended first run
+  rinse
 
   # Check status of the PR for the current branch (machine-readable)
   rinse status --json
@@ -594,5 +689,9 @@ EXAMPLES
   # Agent pipeline: stream output, capture JSON result
   rinse start 42 --repo owner/repo --reflect --json
 
+MORE
+
+  GitHub:    https://github.com/orsharon7/rinse
+  Pro tier:  https://rinse.sh
 `)
 }
