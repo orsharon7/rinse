@@ -247,7 +247,7 @@ func TestLogInteractiveSession_FallbackOnUnwritableDir(t *testing.T) {
 
 	var warnBuf strings.Builder
 	started := time.Now()
-	logInteractiveSession("test-session-fallback", started, 3, 1, 2, &warnBuf)
+	logInteractiveSession("test-session-fallback", started, 3, 1, 0, 2, &warnBuf)
 
 	// 1. Warning must be emitted.
 	warning := warnBuf.String()
