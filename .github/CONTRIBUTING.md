@@ -92,11 +92,13 @@ rinse/
 ├── Makefile                    # build / install / cross / clean targets
 ├── go.mod                      # Module: github.com/orsharon7/rinse
 ├── internal/
-│   ├── cli/                    # CLI orchestration layer
+│   ├── cli/                    # CLI orchestration layer (subcommands, --help, deps check)
 │   ├── db/                     # Local session storage (SQLite)
 │   ├── engine/                 # Review cycle engine
 │   │   └── lock/               # Atomic lock primitives
+│   ├── notify/                 # Desktop notification helper (macOS/Linux)
 │   ├── onboarding/             # First-run wizard state, cycles API, TOML config
+│   ├── predict/                # Pattern prediction (pre-run review signal)
 │   ├── quality/                # Code quality delta measurement
 │   ├── reflect/                # Reflection agent (AGENTS.md / CLAUDE.md updates)
 │   ├── runner/                 # PR review loop runner
@@ -163,67 +165,86 @@ copy: fix first-run onboarding wizard — replace laundry placeholders
 
 ## Label system
 
-RINSE uses a two-tier label system:
+RINSE uses a two-tier label system. Understanding which tier a label belongs
+to matters because **tier-1 labels are machine-managed** — touching them
+during an active cycle can break the runner's lock logic.
 
-1. **RINSE workflow labels** — applied and removed automatically by the runner scripts during review cycles. These are a product surface: when a developer sees `rinse:running` on their PR in GitHub's UI, that is RINSE communicating its state. **Do not manually remove these labels while a cycle is active.**
+**Tier 1 — RINSE workflow labels** are applied and removed automatically by
+the runner scripts during review cycles. They are a product surface: when a
+developer sees `rinse:running` on their PR in GitHub's UI, that is RINSE
+communicating its state. Do not manually remove these labels while a cycle
+is active.
 
-2. **Human labels** — applied manually by contributors and maintainers for organization, triage, and milestone tracking.
+**Tier 2 — Human labels** are applied manually by contributors and
+maintainers for triage, routing, and milestone tracking.
 
-### RINSE workflow labels (auto-applied by scripts)
+### Tier 1 — RINSE workflow labels (auto-applied by scripts)
 
-> **Important:** `rinse:running` signals that RINSE holds a lock on the PR. Removing it manually will not stop the running cycle and may cause race conditions. Wait for the cycle to complete or kill the RINSE process first.
+> **`rinse:running` is a lock signal.** Removing it manually will not stop
+> the running cycle and may cause race conditions. Wait for the cycle to
+> complete, or kill the RINSE process first.
+
+| Label | Color | When applied | When removed |
+|-------|-------|-------------|--------------|
+| `rinse:running` | `#8B5CF6` (purple) | Cycle starts — lock acquired | Cycle ends (any outcome) |
+| `rinse:approved` | `#10B981` (green) | Copilot approves the PR | Next cycle starts on same PR |
+| `rinse:needs-work` | `#F59E0B` (amber) | Cycle ends with unresolved comments | Next cycle starts on same PR |
+
+The brand colors (purple/green/amber) are intentional — `rinse:*` labels are
+a product surface in GitHub's UI and should be visually distinct from
+human-applied labels.
+
+### Tier 2 — Human labels
+
+#### Component labels (which part of the codebase)
+
+Use these to route issues and PRs to the right area. Apply one or more.
+
+| Label | Color | Area |
+|-------|-------|------|
+| `cli` | `#0075ca` | CLI subcommands, flag parsing, `--help` text |
+| `db` | `#0052CC` | SQLite session storage (`internal/db`) |
+| `docs` | `#0075ca` | Documentation files (README, CONTRIBUTING, --help copy) |
+| `engine` | `#0075ca` | Review cycle engine and runner scripts |
+| `tui` | `#1d76db` | Interactive TUI (PR picker, onboarding wizard, monitor) |
+| `brand` | `#8B5CF6` | Brand assets, visual identity |
+| `legal` | `#cfd3d7` | License, legal notices |
+
+> **`docs` vs `documentation`:** `docs` is a component label — use it for
+> issues about documentation files. `documentation` is the standard GitHub
+> label with a broader meaning ("improvements or additions to documentation").
+> Either is fine; `docs` is preferred for routing to the dev-advocate queue.
+
+#### Priority labels (how urgent)
 
 | Label | Color | Meaning |
 |-------|-------|---------|
-| `rinse:running` | `#8B5CF6` | RINSE is actively reviewing this PR — do not merge |
-| `rinse:approved` | `#10B981` | Copilot approved — ready to merge |
-| `rinse:needs-work` | `#F59E0B` | RINSE cycle found issues — changes needed |
+| `p0-critical` | `#b60205` | Blocks a release or breaks existing users — fix immediately |
+| `p1-important` | `#d93f0b` | Should land in the next release cycle |
+| `p2-nice` | `#e4e669` | Improvement, not blocking anything |
 
-### Component Labels
+#### Milestone labels (which release)
 
-| Label | Color | Description |
-|-------|-------|-------------|
-| `cli` | `#0075ca` | Command-line interface |
-| `db` | `#0052CC` | Database |
-| `docs` | `#0075ca` | Documentation |
-| `legal` | `#cfd3d7` | Legal |
-| `brand` | `#8B5CF6` | Brand |
-| `engine` | `#0075ca` | RINSE engine/runner scripts |
-| `tui` | `#1d76db` | RINSE TUI application |
-
-### Standard Labels
-
-| Label | Color | Description |
-|-------|-------|-------------|
-| `bug` | `#d73a4a` | Something isn't working |
-| `documentation` | `#0075ca` | Improvements or additions to documentation |
-| `duplicate` | `#cfd3d7` | This issue or pull request already exists |
-| `enhancement` | `#a2eeef` | New feature or request |
-| `help wanted` | `#008672` | Extra attention is needed |
-| `good first issue` | `#7057ff` | Good for newcomers |
-| `invalid` | `#e4e669` | This doesn't seem right |
-| `wontfix` | `#ffffff` | This will not be worked on |
-
-### Priority Labels
-
-| Label | Color | Description |
-|-------|-------|-------------|
-| `p0-critical` | `#b60205` | Must-have for launch |
-| `p1-important` | `#d93f0b` | High priority |
-| `p2-nice` | `#e4e669` | Nice to have |
-
-### Milestone Labels
-
-| Label | Color | Description |
-|-------|-------|-------------|
+| Label | Color | Meaning |
+|-------|-------|---------|
 | `milestone:v0.2` | `#c5def5` | Target: v0.2 release |
 | `milestone:v0.3` | `#c5def5` | Target: v0.3 release |
 | `milestone:v1.0` | `#c5def5` | Target: v1.0 release |
 
-### Standard GitHub labels
+#### Standard GitHub labels
 
-`bug`, `documentation`, `duplicate`, `enhancement`, `good first issue`,
-`help wanted`, `invalid`, `wontfix`
+These are GitHub's built-in labels, kept as-is:
+
+| Label | Meaning |
+|-------|---------|
+| `bug` | Something isn't working |
+| `documentation` | Improvements or additions to documentation |
+| `duplicate` | This issue or pull request already exists |
+| `enhancement` | New feature or request |
+| `good first issue` | Good for newcomers |
+| `help wanted` | Extra attention is needed |
+| `invalid` | This doesn't seem right |
+| `wontfix` | This will not be worked on |
 
 ---
 
