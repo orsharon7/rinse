@@ -63,7 +63,15 @@ func IsProEnabled() bool {
 }
 
 // RenderUpgradePrompt prints the upgrade prompt for non-Pro users.
-func RenderUpgradePrompt(w io.Writer) {
+// When noColor is true (or when theme.IsPlainTerminal() reports a plain
+// terminal), it emits unstyled ASCII output instead of lipgloss-styled text.
+func RenderUpgradePrompt(w io.Writer, noColor bool) {
+	if noColor || theme.IsPlainTerminal() {
+		fmt.Fprintf(w, "\n  [*]  rinse predict --interactive  requires RINSE Pro\n\n")
+		fmt.Fprintf(w, "       Unlock interactive fix review, team dashboards, and unlimited patterns.\n")
+		fmt.Fprintf(w, "       rinse.sh/#pro\n\n")
+		return
+	}
 	star := lipgloss.NewStyle().Foreground(theme.Mauve).Bold(true).Render("✦")
 	link := lipgloss.NewStyle().Foreground(theme.Overlay).Underline(true).Render("rinse.sh/#pro")
 	fmt.Fprintf(w, "\n  %s  %s\n\n",
@@ -239,7 +247,8 @@ func ApplyPatch(p Prediction) ApplyPatchResult {
 //	██████████░░░░  87%
 //
 // Green ≥ 80%, Yellow ≥ 60%, Red < 60%.
-func renderConfBar(conf float64) string {
+// When noColor is true it falls back to ASCII: [##########....] 87%
+func renderConfBar(conf float64, noColor bool) string {
 	const total = 14
 	filled := int(conf * float64(total))
 	if filled > total {
@@ -249,6 +258,11 @@ func renderConfBar(conf float64) string {
 		filled = 0
 	}
 	empty := total - filled
+	pct := fmt.Sprintf("%d%%", int(conf*100))
+
+	if noColor {
+		return "[" + strings.Repeat("#", filled) + strings.Repeat(".", empty) + "] " + pct
+	}
 
 	var barColor lipgloss.Color
 	switch {
@@ -262,8 +276,8 @@ func renderConfBar(conf float64) string {
 
 	bar := lipgloss.NewStyle().Foreground(barColor).Render(strings.Repeat("█", filled)) +
 		theme.StyleMuted.Render(strings.Repeat("░", empty))
-	pct := lipgloss.NewStyle().Foreground(barColor).Bold(true).Render(fmt.Sprintf("%d%%", int(conf*100)))
-	return bar + "  " + pct
+	pctStyled := lipgloss.NewStyle().Foreground(barColor).Bold(true).Render(pct)
+	return bar + "  " + pctStyled
 }
 
 // ── Progress bar ──────────────────────────────────────────────────────────────
@@ -271,7 +285,9 @@ func renderConfBar(conf float64) string {
 // renderReviewProgress renders the progress row:
 //
 //	████████░░  2 / 7 reviewed  •  1 applied  •  ~4 min saved
-func renderReviewProgress(cursor, total, applied int) string {
+//
+// When noColor is true it falls back to ASCII: Progress: [##........] 2/7  applied: 1  ~4 min saved
+func renderReviewProgress(cursor, total, applied int, noColor bool) string {
 	const barWidth = 10
 	reviewed := cursor // items reviewed so far (current item not yet decided)
 	filled := 0
@@ -279,11 +295,19 @@ func renderReviewProgress(cursor, total, applied int) string {
 		filled = reviewed * barWidth / total
 	}
 	empty := barWidth - filled
+	estMin := applied * minutesPerAppliedFix
+
+	if noColor {
+		bar := "[" + strings.Repeat("#", filled) + strings.Repeat(".", empty) + "]"
+		s := fmt.Sprintf("Progress: %s %d/%d  applied: %d", bar, reviewed, total, applied)
+		if estMin > 0 {
+			s += fmt.Sprintf("  ~%d min saved", estMin)
+		}
+		return s
+	}
 
 	bar := lipgloss.NewStyle().Foreground(theme.Mauve).Render(strings.Repeat("█", filled)) +
 		theme.StyleMuted.Render(strings.Repeat("░", empty))
-
-	estMin := applied * minutesPerAppliedFix
 	sep := theme.StyleMuted.Render("  " + theme.IconSep + "  ")
 
 	parts := []string{
@@ -321,16 +345,18 @@ type interactiveModel struct {
 	sessionID   string
 	startedAt   time.Time
 	lastMsg     string // status message from last action
+	noColor     bool   // when true, suppress lipgloss styles and use ASCII art
 }
 
 // newInteractiveModel creates the model for the given predictions.
-func newInteractiveModel(predictions []Prediction, termWidth int, sessionID string) interactiveModel {
+func newInteractiveModel(predictions []Prediction, termWidth int, sessionID string, noColor bool) interactiveModel {
 	return interactiveModel{
 		predictions: predictions,
 		states:      make([]reviewState, len(predictions)),
 		termWidth:   termWidth,
 		sessionID:   sessionID,
 		startedAt:   time.Now(),
+		noColor:     noColor,
 	}
 }
 
@@ -380,11 +406,23 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case applyResultMsg:
 		if msg.result.Applied {
 			m.states[msg.index] = reviewApplied
-			m.lastMsg = theme.StyleLogSuccess.Render(theme.IconCheck + " Applied and staged.")
+			if m.noColor {
+				m.lastMsg = "[y] Applied and staged."
+			} else {
+				m.lastMsg = theme.StyleLogSuccess.Render(theme.IconCheck + " Applied and staged.")
+			}
 		} else if msg.result.BuildFail {
-			m.lastMsg = theme.StyleErr.Render(theme.IconCross + " Build failed; change reverted. " + msg.result.Err.Error())
+			if m.noColor {
+				m.lastMsg = "[x] Build failed; change reverted. " + msg.result.Err.Error()
+			} else {
+				m.lastMsg = theme.StyleErr.Render(theme.IconCross + " Build failed; change reverted. " + msg.result.Err.Error())
+			}
 		} else if msg.result.Err != nil {
-			m.lastMsg = theme.StyleErr.Render(theme.IconCross + " " + msg.result.Err.Error())
+			if m.noColor {
+				m.lastMsg = "[x] " + msg.result.Err.Error()
+			} else {
+				m.lastMsg = theme.StyleErr.Render(theme.IconCross + " " + msg.result.Err.Error())
+			}
 		}
 		next, cmd := m.advance()
 		return next, cmd
@@ -413,7 +451,11 @@ func (m interactiveModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		m.states[m.cursor] = reviewSkipped
-		m.lastMsg = theme.StyleMuted.Render("Skipped.")
+		if m.noColor {
+			m.lastMsg = "Skipped."
+		} else {
+			m.lastMsg = theme.StyleMuted.Render("Skipped.")
+		}
 		return m.advance()
 
 	case "e", "E":
@@ -422,7 +464,11 @@ func (m interactiveModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		// v0.4: mark as edited, show muted note. Do NOT launch editor (v0.5).
 		m.states[m.cursor] = reviewEdited
-		m.lastMsg = theme.StyleMuted.Render("Marked as edited — open your editor manually to apply changes.")
+		if m.noColor {
+			m.lastMsg = "Marked as edited — open your editor manually to apply changes."
+		} else {
+			m.lastMsg = theme.StyleMuted.Render("Marked as edited — open your editor manually to apply changes.")
+		}
 		return m.advance()
 
 	case "right", "l", "L":
@@ -465,8 +511,20 @@ func (m interactiveModel) advance() (tea.Model, tea.Cmd) {
 
 // ── Card renderer ─────────────────────────────────────────────────────────────
 
-// reviewedBadge returns the top-right badge string for an already-reviewed prediction.
-func reviewedBadge(s reviewState) string {
+// reviewedBadge returns the badge string for an already-reviewed prediction.
+// When noColor is true it uses ASCII icons instead of Unicode glyphs.
+func reviewedBadge(s reviewState, noColor bool) string {
+	if noColor {
+		switch s {
+		case reviewApplied:
+			return "[y] applied"
+		case reviewSkipped:
+			return "[x] skipped"
+		case reviewEdited:
+			return "[*] edited"
+		}
+		return ""
+	}
 	switch s {
 	case reviewApplied:
 		return theme.StyleLogSuccess.Render("✓ applied")
@@ -498,14 +556,18 @@ func (m interactiveModel) View() string {
 
 	// ── Pattern line ────────────────────────────────────────────────────────
 	patLabel := theme.FormatPatternLabel(p.Pattern)
-	patternLine := fmt.Sprintf("%s  %s",
-		lipgloss.NewStyle().Foreground(theme.Mauve).Render(theme.IconDiamond),
-		lipgloss.NewStyle().Foreground(theme.Text).Bold(true).Render(patLabel),
-	)
-	card.WriteString(patternLine + "\n")
+	if m.noColor {
+		card.WriteString(fmt.Sprintf("[*] %s\n", patLabel))
+	} else {
+		patternLine := fmt.Sprintf("%s  %s",
+			lipgloss.NewStyle().Foreground(theme.Mauve).Render(theme.IconDiamond),
+			lipgloss.NewStyle().Foreground(theme.Text).Bold(true).Render(patLabel),
+		)
+		card.WriteString(patternLine + "\n")
+	}
 
 	// Confidence bar.
-	card.WriteString(renderConfBar(p.Confidence) + "\n")
+	card.WriteString(renderConfBar(p.Confidence, m.noColor) + "\n")
 
 	// File:line.
 	if p.File != "" {
@@ -513,42 +575,75 @@ func (m interactiveModel) View() string {
 		if p.Line > 0 {
 			loc = fmt.Sprintf("%s:%d", p.File, p.Line)
 		}
-		card.WriteString(theme.StyleMuted.Render(loc) + "\n")
+		if m.noColor {
+			card.WriteString(loc + "\n")
+		} else {
+			card.WriteString(theme.StyleMuted.Render(loc) + "\n")
+		}
 	}
 
 	// Section label: "Copilot will likely flag:"
 	if p.Detail != "" {
-		card.WriteString("\n" + theme.StyleMuted.Render("Copilot will likely flag:") + "\n")
+		if m.noColor {
+			card.WriteString("\nCopilot will likely flag:\n")
+		} else {
+			card.WriteString("\n" + theme.StyleMuted.Render("Copilot will likely flag:") + "\n")
+		}
 		maxDetail := w - 10
 		if maxDetail < 20 {
 			maxDetail = 20
 		}
 		detail := theme.Truncate(p.Detail, maxDetail)
-		card.WriteString(theme.StyleMuted.Render(detail) + "\n")
+		if m.noColor {
+			card.WriteString(detail + "\n")
+		} else {
+			card.WriteString(theme.StyleMuted.Render(detail) + "\n")
+		}
 	}
 
 	// Section label: "Suggested fix:" + diff preview.
 	if strings.TrimSpace(p.SuggestedDiff) != "" {
-		card.WriteString("\n" + theme.StyleMuted.Render("Suggested fix:") + "\n")
+		if m.noColor {
+			card.WriteString("\nSuggested fix:\n")
+		} else {
+			card.WriteString("\n" + theme.StyleMuted.Render("Suggested fix:") + "\n")
+		}
 		lines := strings.Split(p.SuggestedDiff, "\n")
 		limit := 8
 		if len(lines) < limit {
 			limit = len(lines)
 		}
 		for _, l := range lines[:limit] {
-			var styled string
-			switch {
-			case strings.HasPrefix(l, "+"):
-				styled = lipgloss.NewStyle().Foreground(theme.Green).Render(l)
-			case strings.HasPrefix(l, "-"):
-				styled = lipgloss.NewStyle().Foreground(theme.Red).Render(l)
-			default:
-				styled = theme.StyleMuted.Render(l)
+			if m.noColor {
+				var prefixed string
+				switch {
+				case strings.HasPrefix(l, "+"):
+					prefixed = "  NEW: " + strings.TrimPrefix(l, "+")
+				case strings.HasPrefix(l, "-"):
+					prefixed = "  OLD: " + strings.TrimPrefix(l, "-")
+				default:
+					prefixed = "  " + l
+				}
+				card.WriteString(prefixed + "\n")
+			} else {
+				var styled string
+				switch {
+				case strings.HasPrefix(l, "+"):
+					styled = lipgloss.NewStyle().Foreground(theme.Green).Render(l)
+				case strings.HasPrefix(l, "-"):
+					styled = lipgloss.NewStyle().Foreground(theme.Red).Render(l)
+				default:
+					styled = theme.StyleMuted.Render(l)
+				}
+				card.WriteString(styled + "\n")
 			}
-			card.WriteString(styled + "\n")
 		}
 		if len(strings.Split(p.SuggestedDiff, "\n")) > 8 {
-			card.WriteString(theme.StyleMuted.Render("… (truncated)") + "\n")
+			if m.noColor {
+				card.WriteString("... (truncated)\n")
+			} else {
+				card.WriteString(theme.StyleMuted.Render("… (truncated)") + "\n")
+			}
 		}
 	}
 
@@ -559,7 +654,9 @@ func (m interactiveModel) View() string {
 
 	// Hint row: if already reviewed, show badge; otherwise show key hints.
 	if state != reviewNone {
-		card.WriteString("\n" + reviewedBadge(state) + "\n")
+		card.WriteString("\n" + reviewedBadge(state, m.noColor) + "\n")
+	} else if m.noColor {
+		card.WriteString("\n[y] apply   [n/space] skip   [e] mark-edited   [q] quit   [h/<] back\n")
 	} else {
 		keyStyle := theme.StyleTeal
 		hint := fmt.Sprintf("%s apply   %s skip   %s mark-edited   %s quit   %s back",
@@ -572,7 +669,7 @@ func (m interactiveModel) View() string {
 		card.WriteString("\n" + hint + "\n")
 	}
 
-	// ── Wrap card body in rounded border ────────────────────────────────────
+	// ── Wrap card body in border ─────────────────────────────────────────────
 	cardInner := card.String()
 	// Strip trailing newline for cleaner border rendering.
 	cardInner = strings.TrimRight(cardInner, "\n")
@@ -580,9 +677,6 @@ func (m interactiveModel) View() string {
 	// Card title: "Prediction N / T"
 	cardTitle := fmt.Sprintf(" Prediction %d / %d ", idx, total)
 
-	// Build header title for the border — lipgloss doesn't support titles natively,
-	// so we construct a border manually using lipgloss.RoundedBorder glyphs and
-	// render the box with the title embedded in the top-left.
 	cardWidth := w - 4 // leave 2-char margin each side
 	if cardWidth < 40 {
 		cardWidth = 40
@@ -590,48 +684,79 @@ func (m interactiveModel) View() string {
 
 	// Inner width = cardWidth - 2 (border chars on each side).
 	innerW := cardWidth - 2
-	titleRaw := theme.StyleMuted.Render(cardTitle)
-	titleVisW := lipgloss.Width(titleRaw)
-
-	rb := lipgloss.RoundedBorder()
-	borderColor := lipgloss.NewStyle().Foreground(theme.Mauve)
-
-	// Top border: ╭─ title ─────────╮
-	topFillLen := innerW - titleVisW - 2 // 2 for "─ " prefix
-	if topFillLen < 0 {
-		topFillLen = 0
-	}
-	topLine := borderColor.Render(rb.TopLeft+"─") + titleRaw +
-		borderColor.Render(strings.Repeat("─", topFillLen)+rb.TopRight)
-
-	// Body lines wrapped with side borders.
-	bodyLines := strings.Split(cardInner, "\n")
-	var bodyRendered strings.Builder
-	for _, bl := range bodyLines {
-		blW := lipgloss.Width(bl)
-		padding := innerW - blW
-		if padding < 0 {
-			padding = 0
-		}
-		bodyRendered.WriteString(borderColor.Render(rb.Left) +
-			bl + strings.Repeat(" ", padding) +
-			borderColor.Render(rb.Right) + "\n")
-	}
-
-	// Bottom border: ╰──────────────╯
-	bottomLine := borderColor.Render(rb.BottomLeft + strings.Repeat("─", innerW) + rb.BottomRight)
 
 	// ── Progress row ────────────────────────────────────────────────────────
-	progressRow := renderReviewProgress(m.cursor, total, nApplied)
+	progressRow := renderReviewProgress(m.cursor, total, nApplied, m.noColor)
 
 	var sb strings.Builder
-	sb.WriteString("\n  " + topLine + "\n")
-	// Indent each body line.
-	for _, bl := range strings.Split(strings.TrimRight(bodyRendered.String(), "\n"), "\n") {
-		sb.WriteString("  " + bl + "\n")
+
+	if m.noColor {
+		// ASCII border: +--- Prediction N / T ---+
+		titleVisW := len([]rune(cardTitle))
+		topFillLen := innerW - titleVisW - 1 // 1 for "+" prefix dash
+		if topFillLen < 0 {
+			topFillLen = 0
+		}
+		topLine := "+-" + cardTitle + strings.Repeat("-", topFillLen) + "+"
+		bottomLine := "+" + strings.Repeat("-", innerW) + "+"
+
+		bodyLines := strings.Split(cardInner, "\n")
+		var bodyRendered strings.Builder
+		for _, bl := range bodyLines {
+			blW := len([]rune(bl))
+			padding := innerW - blW
+			if padding < 0 {
+				padding = 0
+			}
+			bodyRendered.WriteString("|" + bl + strings.Repeat(" ", padding) + "|\n")
+		}
+
+		sb.WriteString("\n  " + topLine + "\n")
+		for _, bl := range strings.Split(strings.TrimRight(bodyRendered.String(), "\n"), "\n") {
+			sb.WriteString("  " + bl + "\n")
+		}
+		sb.WriteString("  " + bottomLine + "\n")
+		sb.WriteString("\n  " + progressRow + "\n\n")
+	} else {
+		// Rounded Unicode border via lipgloss glyphs.
+		titleRaw := theme.StyleMuted.Render(cardTitle)
+		titleVisW := lipgloss.Width(titleRaw)
+
+		rb := lipgloss.RoundedBorder()
+		borderColor := lipgloss.NewStyle().Foreground(theme.Mauve)
+
+		// Top border: ╭─ title ─────────╮
+		topFillLen := innerW - titleVisW - 2 // 2 for "─ " prefix
+		if topFillLen < 0 {
+			topFillLen = 0
+		}
+		topLine := borderColor.Render(rb.TopLeft+"─") + titleRaw +
+			borderColor.Render(strings.Repeat("─", topFillLen)+rb.TopRight)
+
+		// Body lines wrapped with side borders.
+		bodyLines := strings.Split(cardInner, "\n")
+		var bodyRendered strings.Builder
+		for _, bl := range bodyLines {
+			blW := lipgloss.Width(bl)
+			padding := innerW - blW
+			if padding < 0 {
+				padding = 0
+			}
+			bodyRendered.WriteString(borderColor.Render(rb.Left) +
+				bl + strings.Repeat(" ", padding) +
+				borderColor.Render(rb.Right) + "\n")
+		}
+
+		// Bottom border: ╰──────────────╯
+		bottomLine := borderColor.Render(rb.BottomLeft + strings.Repeat("─", innerW) + rb.BottomRight)
+
+		sb.WriteString("\n  " + topLine + "\n")
+		for _, bl := range strings.Split(strings.TrimRight(bodyRendered.String(), "\n"), "\n") {
+			sb.WriteString("  " + bl + "\n")
+		}
+		sb.WriteString("  " + bottomLine + "\n")
+		sb.WriteString("\n  " + progressRow + "\n\n")
 	}
-	sb.WriteString("  " + bottomLine + "\n")
-	sb.WriteString("\n  " + progressRow + "\n\n")
 
 	return sb.String()
 }
@@ -641,7 +766,8 @@ func (m interactiveModel) View() string {
 const minutesPerAppliedFix = 4
 
 // printSummary writes the post-loop summary box to w.
-func printSummary(w io.Writer, predictions []Prediction, states []reviewState) {
+// When noColor is true it uses plain ASCII output instead of lipgloss styles.
+func printSummary(w io.Writer, predictions []Prediction, states []reviewState, noColor bool) {
 	total := len(predictions)
 	nApplied := 0
 	nSkipped := 0
@@ -654,6 +780,18 @@ func printSummary(w io.Writer, predictions []Prediction, states []reviewState) {
 		}
 	}
 	estMin := nApplied * minutesPerAppliedFix
+
+	if noColor {
+		fmt.Fprintln(w, "\n  +--- rinse predict -- session complete ---+")
+		fmt.Fprintf(w, "  | Predictions reviewed:  %d\n", total)
+		fmt.Fprintf(w, "  | Fixes applied:         %d\n", nApplied)
+		fmt.Fprintf(w, "  | Skipped:               %d\n", nSkipped)
+		if estMin > 0 {
+			fmt.Fprintf(w, "  | Est. time saved:       ~%d min\n", estMin)
+		}
+		fmt.Fprintln(w, "  +------------------------------------------+")
+		return
+	}
 
 	// Border color: green when applied > 0, overlay when all skipped.
 	var borderColor lipgloss.Color
@@ -715,9 +853,11 @@ func RunInteractive(opts InteractiveOpts) error {
 		out = os.Stdout
 	}
 
+	noColor := theme.IsPlainTerminal()
+
 	// Pro gate.
 	if !opts.SkipProCheck && !IsProEnabled() {
-		RenderUpgradePrompt(out)
+		RenderUpgradePrompt(out, noColor)
 		return nil
 	}
 
@@ -728,9 +868,13 @@ func RunInteractive(opts InteractiveOpts) error {
 
 	// Empty prediction set.
 	if len(report.Predictions) == 0 {
-		icon := theme.StyleLogSuccess.Render(theme.IconCheck)
-		fmt.Fprintf(out, "\n  %s  %s\n\n", icon,
-			theme.StyleLogSuccess.Render("No predictions — your diff looks clean."))
+		if noColor {
+			fmt.Fprintf(out, "\n  [y]  No predictions — your diff looks clean.\n\n")
+		} else {
+			icon := theme.StyleLogSuccess.Render(theme.IconCheck)
+			fmt.Fprintf(out, "\n  %s  %s\n\n", icon,
+				theme.StyleLogSuccess.Render("No predictions — your diff looks clean."))
+		}
 		return nil
 	}
 
@@ -744,7 +888,7 @@ func RunInteractive(opts InteractiveOpts) error {
 		termWidth = 80
 	}
 
-	model := newInteractiveModel(report.Predictions, termWidth, sessionID)
+	model := newInteractiveModel(report.Predictions, termWidth, sessionID, noColor)
 
 	// Inline rendering — no alt-screen (spec: "renders inline, no alt-screen required").
 	prog := tea.NewProgram(model)
@@ -759,7 +903,7 @@ func RunInteractive(opts InteractiveOpts) error {
 	}
 
 	// Print summary.
-	printSummary(out, final.predictions, final.states)
+	printSummary(out, final.predictions, final.states, noColor)
 
 	// Log session event (fire-and-forget).
 	nApplied := final.countApplied()

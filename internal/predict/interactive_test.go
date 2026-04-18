@@ -18,7 +18,7 @@ func TestInteractiveModel_SkipAdvances(t *testing.T) {
 		{Pattern: "Missing error handling", Confidence: 0.88, File: "foo.go", Line: 10},
 		{Pattern: "TODO/FIXME left in code", Confidence: 0.65, File: "bar.go", Line: 5},
 	}
-	m := newInteractiveModel(preds, 80, "test-session")
+	m := newInteractiveModel(preds, 80, "test-session", false)
 
 	// Press 'n' on first prediction — should advance to cursor=1.
 	next, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
@@ -38,7 +38,7 @@ func TestInteractiveModel_QuitMarksDone(t *testing.T) {
 	preds := []Prediction{
 		{Pattern: "Hardcoded secret", Confidence: 0.93, File: "main.go", Line: 3},
 	}
-	m := newInteractiveModel(preds, 80, "test-session")
+	m := newInteractiveModel(preds, 80, "test-session", false)
 
 	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	nm := next.(interactiveModel)
@@ -54,7 +54,7 @@ func TestInteractiveModel_AllSkipped_Done(t *testing.T) {
 	preds := []Prediction{
 		{Pattern: "Missing error handling", Confidence: 0.88},
 	}
-	m := newInteractiveModel(preds, 80, "test-session")
+	m := newInteractiveModel(preds, 80, "test-session", false)
 
 	// Advance past all predictions via 'n'.
 	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
@@ -65,7 +65,7 @@ func TestInteractiveModel_AllSkipped_Done(t *testing.T) {
 }
 
 func TestInteractiveModel_EmptyPredictions(t *testing.T) {
-	m := newInteractiveModel(nil, 80, "test-session")
+	m := newInteractiveModel(nil, 80, "test-session", false)
 	view := m.View()
 	// No predictions — view should be empty (the caller shows the "clean" message).
 	if strings.TrimSpace(view) != "" {
@@ -78,7 +78,7 @@ func TestInteractiveModel_ViewContainsPattern(t *testing.T) {
 		{Pattern: "Unused variable", Confidence: 0.82, File: "util.go", Line: 42,
 			Detail: "Variable x assigned but never used."},
 	}
-	m := newInteractiveModel(preds, 80, "test-session")
+	m := newInteractiveModel(preds, 80, "test-session", false)
 	view := m.View()
 	if !strings.Contains(view, "Unused variable") {
 		t.Errorf("expected view to contain pattern name, got: %q", view)
@@ -99,7 +99,7 @@ func TestInteractiveModel_ApplyResult_Applied(t *testing.T) {
 		{Pattern: "Missing error handling", Confidence: 0.88, File: "x.go", Line: 1},
 		{Pattern: "Naked return", Confidence: 0.72, File: "x.go", Line: 2},
 	}
-	m := newInteractiveModel(preds, 80, "test-session")
+	m := newInteractiveModel(preds, 80, "test-session", false)
 
 	next, cmd := m.Update(applyResultMsg{result: ApplyPatchResult{Applied: true}, index: 0})
 	if cmd != nil {
@@ -118,7 +118,7 @@ func TestInteractiveModel_ApplyResult_BuildFail(t *testing.T) {
 	preds := []Prediction{
 		{Pattern: "Missing error handling", Confidence: 0.88, File: "x.go"},
 	}
-	m := newInteractiveModel(preds, 80, "test-session")
+	m := newInteractiveModel(preds, 80, "test-session", false)
 
 	next, _ := m.Update(applyResultMsg{
 		result: ApplyPatchResult{BuildFail: true, Err: fmt.Errorf("compile error")},
