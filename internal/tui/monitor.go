@@ -960,7 +960,17 @@ func (m monitorModel) renderFailedScreen(w int) string {
 	if len(lines) > 5 {
 		lines = lines[len(lines)-5:]
 	}
-	logSnippet := theme.StyleMuted.Render(strings.Join(lines, "\n"))
+	var renderedLines []string
+	for _, l := range lines {
+		plain := strings.ToLower(stripANSI(l))
+		if strings.Contains(plain, "error") || strings.Contains(plain, "failed") ||
+			strings.Contains(plain, "fatal") || strings.Contains(plain, "❌") {
+			renderedLines = append(renderedLines, theme.StyleLogErr.Render(l))
+		} else {
+			renderedLines = append(renderedLines, theme.StyleMuted.Render(l))
+		}
+	}
+	logSnippet := strings.Join(renderedLines, "\n")
 	body := lipgloss.JoinVertical(lipgloss.Left,
 		title,
 		"",
