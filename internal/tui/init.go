@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/orsharon7/rinse/internal/ignore"
+	"github.com/orsharon7/rinse/internal/theme"
 )
 
 // RepoRinseConfig is the per-repository .rinse.json config file structure.
@@ -36,7 +37,7 @@ func RunInit() error {
 		if !fi.Mode().IsRegular() {
 			return fmt.Errorf("%s exists but is not a regular file (mode: %s); remove it manually and re-run", rinseConfigFile, fi.Mode())
 		}
-		fmt.Printf("Config already exists. Overwrite? (y/N) ")
+		fmt.Print(theme.StyleMuted.Render("Config already exists. Overwrite? (y/N) "))
 		line, _ := reader.ReadString('\n')
 		line = strings.TrimSpace(strings.ToLower(line))
 		if line != "y" && line != "yes" {
@@ -163,7 +164,9 @@ func RunInit() error {
 
 	fmt.Printf("\n%s %s\n", theme.StyleLogSuccess.Render(theme.IconCheck), theme.StyleVal.Render("Created "+rinseConfigFile))
 	fmt.Println()
-	fmt.Println("Tip: commit .rinse.json so your team shares the same settings.")
+	fmt.Println(theme.StyleLogSuccess.Render(fmt.Sprintf("%s Created %s", theme.IconCheck, rinseConfigFile)))
+	fmt.Println()
+	fmt.Println(theme.StyleMuted.Render("Tip: ") + theme.StyleTeal.Render("commit .rinse.json") + theme.StyleMuted.Render(" so your team shares the same settings."))
 
 	// Offer to generate .github/copilot-instructions.md to reduce Copilot noise.
 	fmt.Println()
