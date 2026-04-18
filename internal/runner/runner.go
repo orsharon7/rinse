@@ -14,6 +14,8 @@ import (
 	"github.com/orsharon7/rinse/internal/db"
 	"github.com/orsharon7/rinse/internal/engine"
 	"github.com/orsharon7/rinse/internal/engine/lock"
+	"github.com/orsharon7/rinse/internal/ignore"
+	"github.com/orsharon7/rinse/internal/stats"
 	"github.com/orsharon7/rinse/internal/summary"
 )
 
@@ -101,6 +103,11 @@ type Result struct {
 
 	// ResumedFromIteration is non-zero when the run resumed from a checkpoint.
 	ResumedFromIteration int
+
+	// Session holds the stats.Session recorded for this run. Populated on all
+	// terminal paths so callers can inspect outcome, timing, and comment counts
+	// without re-querying the DB.
+	Session stats.Session
 }
 
 // Run drives the PR review lifecycle:
@@ -188,20 +195,51 @@ func Run(opts Opts) (Result, error) {
 		}
 	}
 
-	// finalizeSession is deferred so every exit path records a terminal outcome.
+	// finalizeSession is called on every terminal exit path. It persists the
+	// session to the DB (when available) and returns a stats.Session that
+	// callers can attach to Result.
 	totalComments := 0
-	finalizeSession := func(outcome string, iterations int) {
-		if opts.DB == nil {
-			return
-		}
+	var copilotCommentsByIteration []int
+	finalizeSession := func(outcome stats.Outcome, iterations int) stats.Session {
 		now := time.Now()
-		dur := int(now.Sub(startedAt).Seconds())
-		if dbErr := opts.DB.FinalizeSession(sessionID, now, dur, totalComments, iterations, outcome); dbErr != nil {
-			log.Warn("runner: telemetry: finalize session", "error", dbErr)
+		s := stats.Session{
+			SessionID:                  sessionID,
+			StartedAt:                  startedAt,
+			EndedAt:                    now,
+			Repo:                       opts.Repo,
+			PR:                         opts.PR,
+			PRTitle:                    opts.PRTitle,
+			Runner:                     opts.RunnerName,
+			Model:                      opts.Model,
+			Outcome:                    outcome,
+			Iterations:                 iterations,
+			TotalComments:              totalComments,
+			CopilotCommentsByIteration: copilotCommentsByIteration,
+			Approved:                   outcome == stats.OutcomeApproved,
+			SchemaVersion:              stats.SchemaVersion,
 		}
+		if opts.DB != nil {
+			dur := int(now.Sub(startedAt).Seconds())
+			if dbErr := opts.DB.FinalizeSession(sessionID, now, dur, totalComments, iterations, string(outcome)); dbErr != nil {
+				log.Warn("runner: telemetry: finalize session", "error", dbErr)
+			}
+		}
+		// Also persist to the legacy JSON session store so callers and tests
+		// that read from SessionsDir can observe the outcome.
+		if saveErr := stats.Save(s); saveErr != nil {
+			log.Warn("runner: save legacy session", "error", saveErr)
+		}
+		return s
 	}
 
 	// ── 4. Main cycle loop ────────────────────────────────────────────────────
+	// Load .rinseignore patterns once before the loop; a missing file is not an error.
+	ignoreMatcher, ignoreErr := ignore.Load(opts.CWD)
+	if ignoreErr != nil {
+		log.Warn("runner: load .rinseignore", "error", ignoreErr)
+	}
+	ignorePatterns := ignoreMatcher.Patterns()
+
 	waitPolls := 0
 	for state.Iteration < opts.MaxIterations {
 		log.Info("runner: starting iteration",
@@ -219,18 +257,19 @@ func Run(opts Opts) (Result, error) {
 			CWD:               opts.CWD,
 			Model:             opts.Model,
 			LastKnownReviewID: state.LastReviewID,
-			IgnorePatterns:    nil,
+			IgnorePatterns:    ignorePatterns,
 		})
 		if err != nil {
 			// Hard agent failure — persist state so we can resume, then surface.
 			state.LastAgentAction = "error"
 			_ = saveState(state)
-			finalizeSession("failed", state.Iteration)
+			sess := finalizeSession(stats.OutcomeError, state.Iteration)
 			mon.OnError("agent_error", err.Error())
 			return Result{
 				Iterations:           state.Iteration,
 				TotalComments:        totalComments,
 				ResumedFromIteration: resumedFrom,
+				Session:              sess,
 			}, fmt.Errorf("runner: agent %s iteration %d: %w", opts.Agent.Name(), state.Iteration+1, err)
 		}
 
@@ -243,12 +282,13 @@ func Run(opts Opts) (Result, error) {
 					"pr", opts.PR,
 					"wait_polls", waitPolls,
 				)
-				finalizeSession("failed", state.Iteration)
+				sess := finalizeSession(stats.OutcomeAborted, state.Iteration)
 				mon.OnError("max_wait_polls", ErrMaxWaitPolls.Error())
 				return Result{
 					Iterations:           state.Iteration,
 					TotalComments:        totalComments,
 					ResumedFromIteration: resumedFrom,
+					Session:              sess,
 				}, ErrMaxWaitPolls
 			}
 			log.Info("runner: waiting for actionable review",
@@ -266,6 +306,7 @@ func Run(opts Opts) (Result, error) {
 
 		state.Iteration++
 		totalComments += agentResult.Comments
+		copilotCommentsByIteration = append(copilotCommentsByIteration, agentResult.Comments)
 
 		// Persist the review ID so the next iteration can detect no_change.
 		if agentResult.ReviewID != "" {
@@ -295,7 +336,7 @@ func Run(opts Opts) (Result, error) {
 			)
 			// Terminal success — clear the checkpoint.
 			_ = clearState(opts.Repo, opts.PR)
-			finalizeSession("approved", state.Iteration)
+			sess := finalizeSession(stats.OutcomeApproved, state.Iteration)
 			// Post cycle summary (non-fatal).
 			if err := summary.Post(opts.Repo, opts.PR, summary.OutcomeApproved, state.Iteration, totalComments, time.Since(startedAt)); err != nil {
 				log.Warn("runner: post cycle summary", "error", err)
@@ -305,6 +346,7 @@ func Run(opts Opts) (Result, error) {
 				Iterations:           state.Iteration,
 				TotalComments:        totalComments,
 				ResumedFromIteration: resumedFrom,
+				Session:              sess,
 			}, nil
 		}
 
@@ -344,7 +386,7 @@ func Run(opts Opts) (Result, error) {
 		"pr", opts.PR,
 		"iterations", state.Iteration,
 	)
-	finalizeSession("failed", state.Iteration)
+	maxIterSess := finalizeSession(stats.OutcomeMaxIter, state.Iteration)
 	// Post cycle summary (non-fatal).
 	if err := summary.Post(opts.Repo, opts.PR, summary.OutcomeMaxIter, state.Iteration, totalComments, time.Since(startedAt)); err != nil {
 		log.Warn("runner: post cycle summary", "error", err)
@@ -355,6 +397,7 @@ func Run(opts Opts) (Result, error) {
 		Iterations:           state.Iteration,
 		TotalComments:        totalComments,
 		ResumedFromIteration: resumedFrom,
+		Session:              maxIterSess,
 	}
 	elapsed := int(time.Since(startedAt).Seconds())
 	mon.OnDone(res, 1, elapsed)

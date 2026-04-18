@@ -32,19 +32,76 @@ const SchemaVersion = 1
 // sessionsDirOverride is set by tests to redirect session storage.
 var sessionsDirOverride string
 
-// loadConfig returns a minimal config with opt-in unset (prompts at runtime).
-// Stub until internal/config exposes a proper read path.
+// statsConfigPath returns the path to the stats config file (~/.rinse/stats.json).
+func statsConfigPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".rinse", "stats.json"), nil
+}
+
+// statsConfig is the on-disk structure for persisted stats preferences.
+type statsConfig struct {
+	OptIn *bool `json:"opt_in,omitempty"`
+}
+
+// loadConfig reads the stats config from ~/.rinse/stats.json.
+// Returns a zero-value config (no preference set) when the file does not exist.
 func loadConfig() (struct{ StatsOptIn *bool }, error) {
-	return struct{ StatsOptIn *bool }{}, nil
+	path, err := statsConfigPath()
+	if err != nil {
+		return struct{ StatsOptIn *bool }{}, err
+	}
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return struct{ StatsOptIn *bool }{}, nil
+	}
+	if err != nil {
+		return struct{ StatsOptIn *bool }{}, fmt.Errorf("stats: read config: %w", err)
+	}
+	var cfg statsConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return struct{ StatsOptIn *bool }{}, fmt.Errorf("stats: parse config: %w", err)
+	}
+	return struct{ StatsOptIn *bool }{StatsOptIn: cfg.OptIn}, nil
+}
+
+// IsOptedIn reports whether the user has opted in to session telemetry.
+// Returns (false, nil) when no preference has been recorded yet.
+func IsOptedIn() (bool, error) {
+	cfg, err := loadConfig()
+	if err != nil {
+		return false, err
+	}
+	if cfg.StatsOptIn == nil {
+		return false, nil
+	}
+	return *cfg.StatsOptIn, nil
 }
 
 // PromptOptIn shows an interactive TTY prompt asking whether the user wants to
 // opt in to session telemetry. Defaults to true; stub until full UI is wired.
 func PromptOptIn() (bool, error) { return true, nil }
 
-// SetOptIn persists the user's telemetry preference.
-// Stub until the config package exposes a write path.
-func SetOptIn(_ bool) error { return nil }
+// SetOptIn persists the user's telemetry preference to ~/.rinse/stats.json.
+func SetOptIn(optIn bool) error {
+	path, err := statsConfigPath()
+	if err != nil {
+		return fmt.Errorf("stats: SetOptIn: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("stats: SetOptIn: create dir: %w", err)
+	}
+	data, err := json.MarshalIndent(statsConfig{OptIn: &optIn}, "", "  ")
+	if err != nil {
+		return fmt.Errorf("stats: SetOptIn: marshal: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("stats: SetOptIn: write: %w", err)
+	}
+	return nil
+}
 
 // Outcome describes the terminal result of a RINSE cycle.
 type Outcome string
@@ -129,9 +186,14 @@ func (s Session) DurationSeconds() float64 {
 }
 
 // SessionsDir returns the directory where legacy session JSON files are stored.
+// The RINSE_SESSIONS_DIR environment variable overrides the default location
+// (used by tests for isolation).
 func SessionsDir() (string, error) {
 	if sessionsDirOverride != "" {
 		return sessionsDirOverride, nil
+	}
+	if env := os.Getenv("RINSE_SESSIONS_DIR"); env != "" {
+		return env, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -142,27 +204,33 @@ func SessionsDir() (string, error) {
 
 // Save writes the session as a JSON file in SessionsDir (legacy path, used by
 // shell scripts). New code should write to the SQLite DB instead.
+//
+// When RINSE_SESSIONS_DIR is set the opt-in gate is bypassed so that test
+// environments and explicit overrides always get session files written.
 func Save(s Session) error {
-	cfg, err := loadConfig()
-	if err != nil {
-		return fmt.Errorf("stats: cannot load config: %w", err)
-	}
-	if cfg.StatsOptIn != nil && !*cfg.StatsOptIn {
-		// User explicitly opted out — never prompt again.
-		return nil
-	}
-	if cfg.StatsOptIn == nil {
-		// No preference set yet — prompt if interactive; silently skip in CI.
-		fi, statErr := os.Stdin.Stat()
-		if statErr != nil || (fi.Mode()&os.ModeCharDevice) == 0 {
-			return nil // CI/non-TTY: silently off
+	// RINSE_SESSIONS_DIR set → explicit override; skip the opt-in gate entirely.
+	if os.Getenv("RINSE_SESSIONS_DIR") == "" && sessionsDirOverride == "" {
+		cfg, err := loadConfig()
+		if err != nil {
+			return fmt.Errorf("stats: cannot load config: %w", err)
 		}
-		optedIn, promptErr := PromptOptIn()
-		if promptErr != nil {
-			return promptErr
-		}
-		if !optedIn {
+		if cfg.StatsOptIn != nil && !*cfg.StatsOptIn {
+			// User explicitly opted out — never prompt again.
 			return nil
+		}
+		if cfg.StatsOptIn == nil {
+			// No preference set yet — prompt if interactive; silently skip in CI.
+			fi, statErr := os.Stdin.Stat()
+			if statErr != nil || (fi.Mode()&os.ModeCharDevice) == 0 {
+				return nil // CI/non-TTY: silently off
+			}
+			optedIn, promptErr := PromptOptIn()
+			if promptErr != nil {
+				return promptErr
+			}
+			if !optedIn {
+				return nil
+			}
 		}
 	}
 
@@ -363,9 +431,19 @@ func loadFromJSON() ([]Session, error) {
 		if err := json.Unmarshal(data, &s); err != nil {
 			continue
 		}
+		// Migrate legacy sessions that have no Outcome field.
+		// Pre-Outcome sessions used Approved bool; map that to Outcome.
+		if s.Outcome == "" {
+			if s.Approved {
+				s.Outcome = OutcomeApproved
+			} else {
+				s.Outcome = OutcomeClean
+			}
+		}
 		if seen[s.SessionID] {
 			continue // DB record takes precedence
 		}
+		seen[s.SessionID] = true
 		sessions = append(sessions, s)
 	}
 
@@ -482,6 +560,7 @@ func Summarize(sessions []Session) Summary {
 			sum.TotalComments += s.TotalComments
 			sum.TotalIterations += s.Iterations
 			sum.TotalDurationSec += s.DurationSeconds()
+			sum.TotalTimeSavedSeconds += s.EstimatedTimeSavedSeconds
 			if s.Outcome == OutcomeApproved {
 				sum.ApprovedSessions++
 			}
