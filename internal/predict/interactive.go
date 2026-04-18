@@ -819,12 +819,12 @@ func (m interactiveModel) View() string {
 		}
 	}
 
-	// Section label: "Suggested fix:" + diff preview.
+	// Section label: "Suggested:" + diff preview.
 	if strings.TrimSpace(p.SuggestedDiff) != "" {
 		if m.noColor {
-			card.WriteString("\nSuggested fix:\n")
+			card.WriteString("\nSuggested:\n")
 		} else {
-			card.WriteString("\n" + theme.StyleMuted.Render("Suggested fix:") + "\n")
+			card.WriteString("\n" + theme.StyleMuted.Render("Suggested:") + "\n")
 		}
 		lines := strings.Split(p.SuggestedDiff, "\n")
 		limit := 8
@@ -874,7 +874,7 @@ func (m interactiveModel) View() string {
 	if state != reviewNone {
 		card.WriteString("\n" + reviewedBadge(state, m.noColor) + "\n")
 	} else if m.noColor {
-		card.WriteString("\n[y] apply   [n/space] skip   [e] open in $EDITOR   [q] quit   [h/<] back\n")
+		card.WriteString("\n[y] apply  [n] skip  [e] editor  [q] quit\n")
 	} else {
 		keyStyle := theme.StyleTeal
 		hint := fmt.Sprintf("%s apply   %s skip   %s open in $EDITOR   %s quit   %s back",
