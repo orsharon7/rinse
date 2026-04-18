@@ -808,7 +808,9 @@ func (m wizModel) renderStepA() string {
 
 	tip := theme.StyleMuted.Render("  "+theme.IconDiamond+" Tip  ") +
 		theme.StyleTeal.Render(".rinseignore") +
-		theme.StyleMuted.Render(" — add this file to exclude paths from your cycles.")
+		theme.StyleMuted.Render(" — gitignore-style globs to exclude paths from cycles.\n") +
+		theme.StyleMuted.Render("          Create at repo root, e.g.: ") +
+		theme.StyleTeal.Render("vendor/  *.generated.go")
 
 	cta := "\n" + theme.StyleTeal.Render("  → Sounds good, let me try it") +
 		"  " + theme.StyleMuted.Render("(enter)")
