@@ -161,8 +161,6 @@ func RunInit() error {
 		}
 	}
 
-	fmt.Printf("\n%s %s\n", theme.StyleLogSuccess.Render(theme.IconCheck), theme.StyleVal.Render("Created "+rinseConfigFile))
-	fmt.Println()
 	fmt.Println(theme.StyleLogSuccess.Render(fmt.Sprintf("%s Created %s", theme.IconCheck, rinseConfigFile)))
 	fmt.Println()
 	fmt.Println(theme.StyleMuted.Render("Tip: ") + theme.StyleTeal.Render("commit .rinse.json") + theme.StyleMuted.Render(" so your team shares the same settings."))
