@@ -342,6 +342,7 @@ type interactiveModel struct {
 	states      []reviewState // per-prediction decision
 	done        bool
 	termWidth   int
+	compactMode bool // true when termWidth < 60
 	sessionID   string
 	startedAt   time.Time
 	lastMsg     string // status message from last action
@@ -354,6 +355,7 @@ func newInteractiveModel(predictions []Prediction, termWidth int, sessionID stri
 		predictions: predictions,
 		states:      make([]reviewState, len(predictions)),
 		termWidth:   termWidth,
+		compactMode: termWidth > 0 && termWidth < 60,
 		sessionID:   sessionID,
 		startedAt:   time.Now(),
 		noColor:     noColor,
@@ -429,6 +431,7 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		m.termWidth = msg.Width
+		m.compactMode = msg.Width > 0 && msg.Width < 60
 	}
 	return m, nil
 }
@@ -509,6 +512,118 @@ func (m interactiveModel) advance() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// ── Compact / minimal render paths ───────────────────────────────────────────
+
+// renderMinimal renders the bare minimum when termWidth < 30.
+// Only shows "Prediction N/T" and the key hint "[y/n/e/q]".
+func (m interactiveModel) renderMinimal() string {
+	idx := m.cursor + 1
+	total := len(m.predictions)
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("\n  Prediction %d/%d\n", idx, total))
+	sb.WriteString("  [y/n/e/q]\n\n")
+	return sb.String()
+}
+
+// renderCompact renders a plain-indent layout (no rounded border) when
+// termWidth is in the range [30, 60).
+func (m interactiveModel) renderCompact() string {
+	p := m.predictions[m.cursor]
+	w := m.termWidth
+	if w <= 0 {
+		w = 59
+	}
+
+	idx := m.cursor + 1
+	total := len(m.predictions)
+	nApplied := m.countApplied()
+	state := m.states[m.cursor]
+
+	maxContent := w - 4 // leave 2-char indent each side
+	if maxContent < 10 {
+		maxContent = 10
+	}
+
+	var sb strings.Builder
+	sb.WriteString("\n")
+
+	// Separator + header: ─── Prediction N / T ───────
+	headerText := fmt.Sprintf(" Prediction %d / %d ", idx, total)
+	sepLen := w - 2 - len(headerText)
+	if sepLen < 0 {
+		sepLen = 0
+	}
+	sep := theme.StyleMuted.Render("  ──" + headerText + strings.Repeat("─", sepLen))
+	sb.WriteString(sep + "\n\n")
+
+	// File:line (truncated with … prefix if needed).
+	if p.File != "" {
+		loc := p.File
+		if p.Line > 0 {
+			loc = fmt.Sprintf("%s:%d", p.File, p.Line)
+		}
+		if len(loc) > maxContent {
+			loc = "…" + loc[len(loc)-maxContent+1:]
+		}
+		sb.WriteString("  " + theme.StyleMuted.Render(loc) + "\n")
+	}
+
+	// Diff preview.
+	if strings.TrimSpace(p.SuggestedDiff) != "" {
+		sb.WriteString("\n  " + theme.StyleMuted.Render("Suggested:") + "\n")
+		lines := strings.Split(p.SuggestedDiff, "\n")
+		limit := 6
+		if len(lines) < limit {
+			limit = len(lines)
+		}
+		for _, l := range lines[:limit] {
+			// Truncate long diff lines.
+			if len(l) > maxContent {
+				l = l[:maxContent-1] + "…"
+			}
+			var styled string
+			switch {
+			case strings.HasPrefix(l, "+"):
+				styled = lipgloss.NewStyle().Foreground(theme.Green).Render(l)
+			case strings.HasPrefix(l, "-"):
+				styled = lipgloss.NewStyle().Foreground(theme.Red).Render(l)
+			default:
+				styled = theme.StyleMuted.Render(l)
+			}
+			sb.WriteString("  " + styled + "\n")
+		}
+	}
+
+	// Last action message.
+	if m.lastMsg != "" {
+		sb.WriteString("\n  " + m.lastMsg + "\n")
+	}
+
+	// Key hints or badge.
+	sb.WriteString("\n")
+	if state != reviewNone {
+		sb.WriteString("  " + reviewedBadge(state, m.noColor) + "\n")
+	} else {
+		keyStyle := theme.StyleTeal
+		hint := fmt.Sprintf("  %s apply  %s skip  %s editor  %s quit",
+			keyStyle.Render("[y]"),
+			keyStyle.Render("[n]"),
+			keyStyle.Render("[e]"),
+			keyStyle.Render("[q]"),
+		)
+		sb.WriteString(hint + "\n")
+	}
+
+	// Progress text (replaces bar in compact mode).
+	progressText := theme.StyleMuted.Render(fmt.Sprintf("(%d/%d)", m.cursor, total))
+	if nApplied > 0 {
+		progressText += "  " + theme.StyleLogSuccess.Render(fmt.Sprintf("%d applied", nApplied))
+	}
+	sb.WriteString("\n  " + progressText + "\n\n")
+
+	return sb.String()
+}
+
 // ── Card renderer ─────────────────────────────────────────────────────────────
 
 // reviewedBadge returns the badge string for an already-reviewed prediction.
@@ -539,6 +654,14 @@ func reviewedBadge(s reviewState, noColor bool) string {
 func (m interactiveModel) View() string {
 	if m.done || len(m.predictions) == 0 {
 		return ""
+	}
+
+	// Narrow-terminal compact mode.
+	if m.termWidth > 0 && m.termWidth < 30 {
+		return m.renderMinimal()
+	}
+	if m.compactMode {
+		return m.renderCompact()
 	}
 
 	p := m.predictions[m.cursor]
@@ -842,6 +965,11 @@ type InteractiveOpts struct {
 
 	// SkipProCheck disables the pro gate (for tests).
 	SkipProCheck bool
+
+	// NoColor forces plain ASCII output regardless of the NO_COLOR env var or
+	// terminal type.  When false (default) the value is derived from
+	// theme.IsPlainTerminal() at runtime.
+	NoColor bool
 }
 
 // RunInteractive runs the Bubble Tea predict review loop.
@@ -853,7 +981,7 @@ func RunInteractive(opts InteractiveOpts) error {
 		out = os.Stdout
 	}
 
-	noColor := theme.IsPlainTerminal()
+	noColor := opts.NoColor || theme.IsPlainTerminal()
 
 	// Pro gate.
 	if !opts.SkipProCheck && !IsProEnabled() {

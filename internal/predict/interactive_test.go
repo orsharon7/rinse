@@ -212,7 +212,54 @@ func TestIsProEnabled_EnvVarNotSet(t *testing.T) {
 	_ = IsProEnabled()
 }
 
-// ── logInteractiveSession fallback tests ──────────────────────────────────────
+func TestRunInteractive_NoColorOpt_ASCIIOutput(t *testing.T) {
+	var buf strings.Builder
+	report := &Report{
+		Source: "staged changes",
+		Predictions: []Prediction{
+			{Pattern: "Missing error handling", Confidence: 0.88, File: "foo.go", Line: 10},
+		},
+	}
+	// Use the NoColor opt to force ASCII output without relying on env var.
+	m := newInteractiveModel(report.Predictions, 80, "test-nocolor", true)
+	view := m.View()
+	// ASCII border characters must appear, not Unicode rounded corners.
+	if !strings.Contains(view, "+") {
+		t.Errorf("expected ASCII border '+' in noColor view, got: %q", view)
+	}
+	if strings.Contains(view, "╭") || strings.Contains(view, "╰") {
+		t.Errorf("expected no Unicode rounded borders in noColor view, got: %q", view)
+	}
+	// Confidence bar must use ASCII brackets.
+	if !strings.Contains(view, "[") {
+		t.Errorf("expected ASCII confidence bar '[' in noColor view, got: %q", view)
+	}
+	_ = buf.String()
+}
+
+func TestRunInteractive_NOCOLOREnvVar_ASCIIOutput(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	var buf strings.Builder
+	report := &Report{
+		Source:      "staged changes",
+		Predictions: []Prediction{},
+	}
+	err := RunInteractive(InteractiveOpts{
+		Report:       report,
+		Out:          &buf,
+		SkipProCheck: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Empty predictions with NO_COLOR should emit ASCII "[y]" marker, not Unicode check.
+	out := buf.String()
+	if !strings.Contains(out, "[y]") {
+		t.Errorf("expected ASCII '[y]' icon with NO_COLOR set, got: %q", out)
+	}
+}
+
+
 
 // TestLogInteractiveSession_FallbackOnUnwritableDir simulates an unwritable
 // sessions directory and verifies that:
