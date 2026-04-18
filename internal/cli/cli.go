@@ -907,6 +907,34 @@ QUICK START
   RINSE auto-detects your repository and lists open PRs. Press Enter to
   launch the review cycle on the selected PR.
 
+FIRST RUN
+
+  The very first time you run rinse, it checks prerequisites and then
+  walks you through a short setup wizard (Steps 1–5, takes ~1 minute):
+
+    1. Prerequisites check
+       RINSE requires git and gh (GitHub CLI). If either is missing, it
+       prints a styled error with platform-specific install commands and
+       exits. If gh is installed but not authenticated, it prompts you to
+       run "gh auth login" and exits.
+
+    2. Onboarding wizard (shown once, auto-skippable)
+       ● Splash screen with the RINSE wordmark.
+       ● Welcome — choose "Get started" or "Skip setup — take me straight in".
+       ● Step A — Overview of how the review loop works.
+       ● Step B — Name your first session (e.g. "Frontend refactor").
+       ● Step C — Toggle three preferences (notifications, auto-advance,
+                  save history). Sensible defaults are pre-selected.
+       ● Step D — Preview your settings; press Enter to start your first cycle.
+       ● Step E — Confirmation screen with a link to the PR picker.
+
+    After the wizard (or if you skip it), RINSE drops directly into the
+    interactive PR picker — the same view you see on every subsequent run.
+
+    To re-run the wizard, delete the state file:
+      macOS:  ~/Library/Application Support/rinse/onboarding-state.json
+      Linux:  ~/.config/rinse/onboarding-state.json
+
 INTERACTIVE CONTROLS
 
   ↑ ↓ / j k    Navigate the PR list
