@@ -6,6 +6,39 @@ import (
 	"path/filepath"
 )
 
+// proConfig is the subset of ~/.rinse/config.json used for Pro status checks.
+// This file lives in the home directory (not os.UserConfigDir) to match the
+// upgrade and sessions directory convention.
+type proConfig struct {
+	Pro bool `json:"pro"`
+}
+
+// proConfigPath returns the path to ~/.rinse/config.json.
+func proConfigPath() string {
+	home := os.Getenv("HOME")
+	if home == "" {
+		if h, err := os.UserHomeDir(); err == nil {
+			home = h
+		}
+	}
+	return filepath.Join(home, ".rinse", "config.json")
+}
+
+// IsPro reports whether the current user has a Pro licence.
+// It reads the "pro" key from ~/.rinse/config.json. Returns false when the
+// file is missing, unreadable, or the key is absent or false.
+func IsPro() bool {
+	data, err := os.ReadFile(proConfigPath())
+	if err != nil {
+		return false
+	}
+	var cfg proConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return false
+	}
+	return cfg.Pro
+}
+
 // Config stores the last-used wizard settings so repeated runs need fewer keystrokes.
 type Config struct {
 	LastRepo      string `json:"last_repo"`

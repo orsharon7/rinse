@@ -116,6 +116,20 @@ func FormatTimeSaved(totalMin int) string {
 	return fmt.Sprintf("%dm", m)
 }
 
+// ShowPrompt prints the Pro gate upgrade prompt to stdout and exits 0.
+// Call this when a free-tier user attempts to use a Pro-only flag.
+func ShowPrompt() {
+	star := theme.StylePhaseDone.Render("✦")
+	line1 := "  " + star + " " +
+		theme.StyleMuted.Render("This flag requires") + " " +
+		theme.StyleVal.Render("RINSE Pro") + theme.StyleMuted.Render(".")
+	line2 := "    " + theme.StyleMuted.Render("Unlock --interactive and --doc-drift with a Pro licence.")
+	urlStyle := lipgloss.NewStyle().Foreground(theme.Overlay).Underline(true)
+	line3 := "    " + urlStyle.Render("rinse.sh/#pro")
+	fmt.Println(strings.Join([]string{line1, line2, line3}, "\n"))
+	os.Exit(0)
+}
+
 // RenderPrompt returns the styled upgrade prompt string.
 func RenderPrompt(totalMin, totalPRs int) string {
 	timeSaved := FormatTimeSaved(totalMin)
