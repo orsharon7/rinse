@@ -986,8 +986,8 @@ USAGE
   rinse stats        Show session history and time-saved metrics (30-day rolling)
   rinse stats --predict  Show prediction hit-rate dashboard (rolling 10-PR + all-time)
   rinse report       Show today's PR review dashboard (approval rate, time saved)
-  rinse predict      Scan staged diff or PR for predicted Copilot comments (v0.3)
-                     --interactive / --doc-drift require Pro
+  rinse predict      Scan staged diff or PR for predicted Copilot comments
+                     --interactive / --doc-drift require Pro (v0.4)
   rinse status       Print the Copilot review status of a PR (agent/CI use)
   rinse start        Start the review loop non-interactively (agent/CI use)
   rinse run          Start the native Go runner directly (no shell script)
@@ -1209,6 +1209,7 @@ COMMANDS
     --no-log              Do not persist this prediction event to the hit-rate log
     --interactive / -i    (Pro) Launch an interactive TUI to accept or reject each
                           predicted fix before it is applied.
+                          Keys: y apply  n/space skip  ←/→ navigate  q quit
                           Mutually exclusive with --json.
     --doc-drift           (Pro) Run LLM-backed documentation drift detection.
                           Requires opt-in: set {"doc_drift": true} in
@@ -1241,6 +1242,9 @@ STATS OPT-IN / OPT-OUT
 
 ENVIRONMENT VARIABLES
 
+  RINSE_PRO             Set to 1 to enable Pro features (--interactive, --doc-drift)
+                        without a config file. Useful for CI pipelines.
+                        Overrides pro:true in ~/.rinse/config.json.
   RINSE_SCRIPT_DIR      Override the directory where runner scripts are found.
   PR_REVIEW_SCRIPT_DIR  Fallback script directory (legacy alias).
   RINSE_API_URL         Override the pro backend URL used by the first-run
