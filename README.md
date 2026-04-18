@@ -54,11 +54,17 @@ Pre-built binaries are also available on the [Releases](https://github.com/orsha
 # Interactive TUI wizard — recommended first run
 rinse
 
-# One-time repo setup: create .rinse.json config
+# Create a per-repo config (.rinse.json) for shared team settings
 rinse init
 
 # Show session history and time-saved metrics
 rinse stats
+
+# Check the Copilot review status of a PR (great for CI scripts)
+rinse status 42 --repo owner/repo
+
+# Start the review loop non-interactively (no TTY required)
+rinse start 42 --repo owner/repo
 
 # Print version
 rinse --version
@@ -87,9 +93,34 @@ rinse init         # create a per-repo .rinse.json config (guided setup)
 rinse start        # start a review cycle non-interactively
 rinse status       # show current cycle status
 rinse stats        # show session history and time-saved metrics
+rinse status <pr>  # print Copilot review status (agent/CI use)
+rinse start <pr>   # start review loop non-interactively (no TTY)
 rinse --version    # print installed version
 rinse --help       # show full help
 ```
+
+### `rinse init`
+
+Scaffolds a `.rinse.json` config file in the current directory. Prompts for engine, model, reflection settings, and auto-merge preference. Commit this file to share consistent defaults with your team — every developer on the repo gets the same starting point.
+
+### `rinse status`
+
+```bash
+rinse status [<pr>] [--repo <owner/repo>] [--json]
+```
+
+Prints the current Copilot review status of a PR without launching the TUI. Suitable for CI pipelines and agent scripts. When `<pr>` is omitted, auto-detects from the current branch.
+
+Output statuses: `approved` / `pending` / `new_review` / `no_reviews` / `merged` / `closed` / `error`
+
+### `rinse start`
+
+```bash
+rinse start <pr> [--repo <owner/repo>] [--cwd <path>] [--runner opencode|claude] \
+            [--model <model>] [--reflect] [--auto-merge] [--notify] [--json]
+```
+
+Starts the PR review fix loop without the TUI — no TTY required. Suitable for agent pipelines and CI. Streaming output goes to stderr; use `--json` to get a machine-readable result on stdout after the run completes.
 
 ### Interactive TUI settings (press `s` inside the PR picker)
 
@@ -100,6 +131,7 @@ rinse --help       # show full help
 | `reflect` | on/off | Enable reflection agent to improve rules each cycle |
 | `branch` | branch name | Target branch for reflection commits (default: `main`) |
 | `auto-merge` | on/off | Auto-merge PR once Copilot approves |
+| `notify` | on/off | Send a desktop notification when the cycle completes (macOS: osascript, Linux: notify-send) |
 
 Interactive TUI preferences are saved in your user config directory under `rinse/config.json` (for example, `~/.config/rinse/config.json` on Linux). Other Rinse data such as session history or runtime state may still appear under `~/.rinse/`.
 
