@@ -723,11 +723,26 @@ REQUIREMENTS
 
 SESSION DATA
 
-  Each run is saved in ~/.rinse/rinse.db (SQLite). Legacy shell-script sessions
-  are stored as JSON files in ~/.rinse/sessions/ and are read automatically as
-  a fallback. Fields recorded: repo, PR number, runner, model, comments fixed,
-  iterations, approval status, and detected code patterns. No data leaves your
-  machine.
+  Each run is saved as a JSON file in ~/.rinse/sessions/. No data leaves
+  your machine. Use these files to build dashboards or custom reports.
+
+  File naming: <repo>-<owner>-PR<number>-<timestamp>.json
+
+  Schema:
+    {
+      "started_at":     "2026-04-18T10:23:01Z",  // RFC 3339
+      "ended_at":       "2026-04-18T10:31:44Z",
+      "repo":           "owner/repo",
+      "pr":             "42",
+      "runner":         "opencode",               // "opencode" or "claude"
+      "model":          "github-copilot/claude-sonnet-4.6",
+      "total_comments": 7,
+      "iterations":     2,
+      "approved":       true,
+      "patterns":       ["Missing error handling", "Unused imports"]
+    }
+
+  rinse stats reads all session files and aggregates them.
 
 EXAMPLES
 
