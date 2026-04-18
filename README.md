@@ -60,6 +60,9 @@ rinse init
 # Show session history and time-saved metrics
 rinse stats
 
+# Show today's PR review dashboard
+rinse report
+
 # Print version
 rinse --version
 ```
@@ -86,7 +89,8 @@ rinse              # launch interactive TUI (PR picker)
 rinse init         # create a per-repo .rinse.json config (guided setup)
 rinse start        # start a review cycle non-interactively
 rinse status       # show current cycle status
-rinse stats        # show session history and time-saved metrics
+rinse stats        # show session history and time-saved metrics (30-day rolling)
+rinse report       # show today's PR review dashboard (approval rate, time saved)
 rinse --version    # print installed version
 rinse --help       # show full help
 ```
