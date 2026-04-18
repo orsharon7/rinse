@@ -17,7 +17,7 @@
       --green-dim:#00cc6a;
       --text:     #f0f0f0;
       --muted:    #888888;
-      --amber:    #ffb800;
+      --amber:    #F59E0B;
       --red:      #ff4d4d;
       --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
       --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -793,26 +793,13 @@
   installBlock.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') copyInstall(); });
 
   /* ── Terminal animation ── */
+  const CMD = 'rinse run --pr 42';
   const lines = [
-    { text: '$ rinse --watch',                  cls: 't-green t-bold', delay: 0 },
-    { text: '',                                  cls: '',               delay: 600 },
-    { text: '  RINSE v1.0 · scanning 14 files', cls: 't-dim',          delay: 700 },
-    { text: '',                                  cls: '',               delay: 300 },
-    { text: '  ▸ src/auth/token.js',             cls: '',               delay: 900 },
-    { text: '    ✗ Missing rate-limit on /login  [HIGH]', cls: 't-red', delay: 600 },
-    { text: '',                                  cls: '',               delay: 200 },
-    { text: '  ▸ src/api/users.js',              cls: '',               delay: 700 },
-    { text: '    ✗ SQL query interpolation risk  [HIGH]',  cls: 't-red',    delay: 500 },
-    { text: '    ⚠ N+1 query in getUserPosts()   [MEDIUM]', cls: 't-amber', delay: 500 },
-    { text: '',                                  cls: '',               delay: 200 },
-    { text: '  ▸ src/utils/cache.js',            cls: '',               delay: 700 },
-    { text: '    ✓ No issues found',             cls: 't-green',        delay: 400 },
-    { text: '',                                  cls: '',               delay: 400 },
-    { text: '  ─────────────────────────────────', cls: 't-dim',        delay: 500 },
-    { text: '  2 HIGH · 1 MEDIUM · 11 PASSED',  cls: 't-bold',         delay: 400 },
-    { text: '  Time saved: ~34 min  ·  Run #47', cls: 't-green',        delay: 300 },
-    { text: '',                                  cls: '',               delay: 300 },
-    { text: '  Summary written to .rinse/run-47.json', cls: 't-dim',   delay: 400 },
+    { text: '● iteration 1  waiting for Copilot…',             cls: 't-dim',          delay: 700  },
+    { text: '● iteration 1  fixing 3 comments',                 cls: 't-amber',        delay: 1200 },
+    { text: '  ↳ pushed fix — re-requesting review',            cls: 't-dim',          delay: 500  },
+    { text: '● iteration 2  waiting for Copilot…',             cls: 't-dim',          delay: 1000 },
+    { text: '✓ Approved · saved you 6 min · fixed 3 comments', cls: 't-green t-bold', delay: 1400 },
   ];
 
   const termBody = document.getElementById('term-body');
