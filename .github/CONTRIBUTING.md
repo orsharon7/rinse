@@ -298,6 +298,7 @@ Use these to route issues and PRs to the right area. Apply one or more.
 | `milestone:v0.3` | `#c5def5` | Target: v0.3 release |
 | `milestone:v0.4` | `#c5def5` | Target: v0.4 release (shipped: `--doc-drift`, `--interactive`, `stats --predict`) |
 | `milestone:v1.0` | `#c5def5` | Target: v1.0 release |
+| `milestone:v1.1` | `#c5def5` | Target: v1.1 release (shipped: keyword-to-label pattern classifier) |
 
 #### Standard GitHub labels
 

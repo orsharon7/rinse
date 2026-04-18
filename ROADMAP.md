@@ -29,6 +29,27 @@ Make the value visible. After every cycle, you should know exactly what RINSE di
 
 ---
 
+## v0.4 — Predict and Prevent ✓
+
+Know what Copilot will say before you push. RINSE surfaces likely review patterns pre-flight.
+
+- `rinse predict` — scan a staged diff or PR for predicted review comments
+- `rinse predict --interactive` (Pro) — step through predictions and apply fixes in a TUI
+- `rinse predict --doc-drift` (Pro) — LLM-backed detection of stale or missing godoc
+- `rinse stats --predict` — hit-rate dashboard showing prediction accuracy over time
+- Pro gate — `--interactive` and `--doc-drift` require a Pro licence (`~/.rinse/config.json` or `RINSE_PRO=1`)
+
+---
+
+## v1.1 — Smarter Pattern Classification ✓
+
+Pattern labels go from raw comment text to a consistent, queryable taxonomy.
+
+- Keyword-to-label classifier — maps Copilot comment text to 15 snake_case categories (error_handling, nil_check, naming, security, etc.)
+- Session files and SQLite now store structured labels, enabling trend queries and dashboard tooling
+
+---
+
 ## v1.0 — Ship to the World
 
 RINSE becomes something you recommend to your team without caveats.
