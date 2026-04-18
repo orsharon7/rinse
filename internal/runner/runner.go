@@ -82,6 +82,10 @@ type Opts struct {
 
 	// Logger is an optional structured logger. Falls back to slog.Default().
 	Logger *slog.Logger
+
+	// Monitor receives lifecycle events during the run.
+	// When nil, events are silently discarded.
+	Monitor Monitor
 }
 
 // Result summarises the outcome of the complete run loop.
@@ -121,6 +125,8 @@ func Run(opts Opts) (Result, error) {
 	if log == nil {
 		log = slog.Default()
 	}
+
+	mon := safeMonitor(opts.Monitor)
 
 	// ── 1. Acquire lock ──────────────────────────────────────────────────────
 	l, err := lock.Acquire(opts.Repo, opts.PR)
@@ -199,6 +205,8 @@ func Run(opts Opts) (Result, error) {
 			"iteration", state.Iteration+1,
 			"max", opts.MaxIterations,
 		)
+		mon.OnPhase("applying_fixes", state.Iteration+1)
+		mon.OnIterationStart(state.Iteration+1, opts.MaxIterations)
 
 		agentResult, err := opts.Agent.Run(engine.RunOpts{
 			PR:                opts.PR,
@@ -212,6 +220,7 @@ func Run(opts Opts) (Result, error) {
 			state.LastAgentAction = "error"
 			_ = saveState(state)
 			finalizeSession("failed", state.Iteration)
+			mon.OnError("agent_error", err.Error())
 			return Result{
 				Iterations:           state.Iteration,
 				TotalComments:        totalComments,
@@ -229,6 +238,7 @@ func Run(opts Opts) (Result, error) {
 					"wait_polls", waitPolls,
 				)
 				finalizeSession("failed", state.Iteration)
+				mon.OnError("max_wait_polls", ErrMaxWaitPolls.Error())
 				return Result{
 					Iterations:           state.Iteration,
 					TotalComments:        totalComments,
@@ -241,6 +251,8 @@ func Run(opts Opts) (Result, error) {
 				"wait_poll", waitPolls,
 				"max_wait_polls", opts.MaxWaitPolls,
 			)
+			mon.OnPhase("waiting_for_copilot", state.Iteration+1)
+			mon.OnWaitPoll(state.Iteration+1, waitPolls, "waiting_for_copilot")
 			time.Sleep(opts.PollInterval)
 			continue
 		}
@@ -281,7 +293,11 @@ func Run(opts Opts) (Result, error) {
 				Iterations:           state.Iteration,
 				TotalComments:        totalComments,
 				ResumedFromIteration: resumedFrom,
-			}, nil
+			}
+			elapsed := int(time.Since(startedAt).Seconds())
+			mon.OnIterationComplete(state.Iteration, agentResult.Comments, totalComments)
+			mon.OnDone(res, 0, elapsed)
+			return res, nil
 		}
 
 		action := "fixed"
@@ -303,6 +319,7 @@ func Run(opts Opts) (Result, error) {
 			"iteration", state.Iteration,
 			"comments_addressed", agentResult.Comments,
 		)
+		mon.OnIterationComplete(state.Iteration, agentResult.Comments, totalComments)
 
 		// Wait before next poll only if another iteration will run.
 		if state.Iteration < opts.MaxIterations {
@@ -322,12 +339,15 @@ func Run(opts Opts) (Result, error) {
 		log.Warn("runner: post cycle summary", "error", err)
 	}
 	// Keep state on disk so a human or future run can inspect it.
-	return Result{
+	res := Result{
 		Approved:             false,
 		Iterations:           state.Iteration,
 		TotalComments:        totalComments,
 		ResumedFromIteration: resumedFrom,
-	}, ErrMaxIterations
+	}
+	elapsed := int(time.Since(startedAt).Seconds())
+	mon.OnDone(res, 1, elapsed)
+	return res, ErrMaxIterations
 }
 
 // sessionID returns a stable, unique session identifier for a run.
