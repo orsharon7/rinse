@@ -234,14 +234,24 @@
   <!-- SCREEN 4: post-cycle summary                                       -->
   <!-- ════════════════════════════════════════════════════════════════════ -->
   <g class="s4">
-    <text x="24" y="75" fill="#CAD3F5" font-size="13">RINSE approved ✓ — PR #42</text>
+    <!-- Fix 1: title styled to match PrintSummary Lip Gloss output -->
+    <text x="24" y="75" font-size="13">
+      <tspan fill="#8B5CF6" font-weight="bold">RINSE</tspan>
+      <tspan fill="#6E738D"> approved </tspan>
+      <tspan fill="#10B981" font-weight="bold">✓</tspan>
+      <tspan fill="#6E738D"> — PR #42</tspan>
+    </text>
     <text x="24" y="100" fill="#6E738D" font-size="12"> </text>
     <text x="24" y="120" fill="#A5ADCB" font-size="13">  Time saved:      <tspan fill="#CAD3F5">~4 min</tspan></text>
-    <text x="24" y="144" fill="#A5ADCB" font-size="13">  Comments fixed:  <tspan fill="#CAD3F5">4 across 2 Copilot review rounds (3, 1)</tspan></text>
+    <!-- Fix 2: comments fixed value in green bold when > 0 -->
+    <text x="24" y="144" fill="#A5ADCB" font-size="13">  Comments fixed:  <tspan fill="#10B981" font-weight="bold">4 across 2 Copilot review rounds (3, 1)</tspan></text>
     <text x="24" y="168" fill="#A5ADCB" font-size="13">  Iterations:      <tspan fill="#CAD3F5">2</tspan></text>
     <text x="24" y="192" fill="#A5ADCB" font-size="13">  Top patterns:    <tspan fill="#CAD3F5">error handling, named constants, context</tspan></text>
     <text x="24" y="220" fill="#6E738D" font-size="12"> </text>
-    <text x="24" y="240" fill="#6E738D" font-size="12">  Run `rinse stats` to see your history.</text>
+    <!-- Fix 3: "rinse stats" CTA — command in teal, surrounding text muted -->
+    <text x="24" y="240" font-size="12">
+      <tspan fill="#6E738D">  Run </tspan><tspan fill="#8BD5CA">rinse stats</tspan><tspan fill="#6E738D"> to see your history.</tspan>
+    </text>
     <text x="24" y="268" fill="#6E738D" font-size="12"> </text>
     <!-- shell prompt again -->
     <text x="24" y="292" fill="#8B5CF6" font-size="13" font-weight="bold">❯</text>

@@ -1,43 +1,32 @@
 # RINSE TUI demo — vhs tape
 # Usage: vhs demo/rinse.tape
 # Requirements:
-#   - vhs installed (brew install vhs)
-#   - rinse binary built and on PATH (make build && export PATH="$PWD:$PATH")
-#   - A real GitHub PR accessible (set RINSE_DEMO_PR env var, e.g. "orsharon7/rinse#42")
+#   vhs — install via: go install github.com/charmbracelet/vhs@latest
+#          or:         brew install vhs
+#   mock binary is self-contained — no Go build or GitHub auth needed.
 #
 # Output: website/demo.gif
 
 Output website/demo.gif
 
 Set Shell "bash"
-Set FontSize 13
+Set FontSize 14
+Set FontFamily "JetBrains Mono"
 Set Width 900
-Set Height 500
-Set Theme "Catppuccin Macchiato"
-Set TypingSpeed 80ms
+Set Height 420
+Set Theme "Catppuccin Mocha"
+Set TypingSpeed 60ms
 Set Padding 20
 
-# Start the demo
-Type "rinse run --pr orsharon7/rinse#42"
+# Put the mock binary first on PATH
+Env PATH "./demo:$PATH"
+
+# Show the prompt, then type the command
 Sleep 500ms
+Type "rinse run --pr 42"
+Sleep 300ms
 Enter
 
-Sleep 2s
-
-# TUI loads — cycle monitor
-Sleep 3s
-
-# Iteration 1 — fixing comments
-Sleep 4s
-
-# Iteration 2 — re-review
-Sleep 4s
-
-# Copilot approves
-Sleep 2s
-
-# Post-cycle summary visible
-Sleep 3s
-
-# End
-Sleep 2s
+# Let the mock script run — it controls its own timing via sleep
+# We just wait for it to finish (~18s of output)
+Sleep 18s
