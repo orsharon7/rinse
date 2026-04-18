@@ -111,7 +111,9 @@ After building the binary (`make build`), use these workflows to validate your c
 
 # With Pro enabled:
 # echo '{"pro":true}' > ~/.rinse/config.json
-# ./rinse predict --doc-drift   # runs doc-drift detector
+# ./rinse predict --interactive  # step through predictions with y/n/space/←→/q
+# ./rinse predict -i              # -i is an alias for --interactive
+# ./rinse predict --doc-drift     # runs doc-drift detector
 ```
 
 **Test rinse stats --predict (hit-rate dashboard):**
@@ -143,6 +145,7 @@ rm -f ~/.config/rinse/onboarding-state.json
 ```bash
 ./rinse opt-in      # enable session recording
 ./rinse stats       # show 30-day rolling summary (requires at least one session)
+./rinse report      # show today's PR review dashboard (falls back to all-time if no sessions today)
 ./rinse opt-out     # disable
 ```
 
@@ -172,6 +175,7 @@ rinse/
 │   ├── stats/                  # Stats + trends commands
 │   ├── theme/                  # TUI colour palette and shared styles
 │   └── tui/                    # Interactive TUI (PR picker, wizard, monitor)
+│       └── copilot_instructions.go  # Generates .github/copilot-instructions.md (rinse init)
 ├── scripts/
 │   ├── pr-review-opencode.sh   # opencode runner (GitHub Copilot, default)
 │   ├── pr-review-claude-v2.sh  # claude runner (requires Anthropic API key)
@@ -217,7 +221,11 @@ feat: add rinse report command with daily dashboard
 fix: clamp negative duration_seconds to 0 in opencode runner
 docs: document rinse init and rinse report in --help
 copy: fix first-run onboarding wizard — replace laundry placeholders
+refactor: extract renderConfBar into shared helper
+test: add predict label classifier coverage
 ```
+
+Common types: `feat`, `fix`, `docs`, `copy` (UI/wizard text changes), `refactor`, `test`, `chore`.
 
 ### PR checklist
 
