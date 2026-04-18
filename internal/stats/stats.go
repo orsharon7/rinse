@@ -11,11 +11,9 @@ package stats
 
 import (
 	"crypto/rand"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"math"
-	mrand "math/rand"
 	"os"
 	"path/filepath"
 	"sort"
@@ -23,9 +21,30 @@ import (
 	"time"
 
 	"github.com/orsharon7/rinse/internal/db"
+	"github.com/orsharon7/rinse/internal/quality"
 	"github.com/orsharon7/rinse/internal/theme"
 	"github.com/orsharon7/rinse/internal/upgrade"
 )
+
+// SchemaVersion is stamped on each saved session for forward-compat checks.
+const SchemaVersion = 1
+
+// sessionsDirOverride is set by tests to redirect session storage.
+var sessionsDirOverride string
+
+// loadConfig returns a minimal config with opt-in unset (prompts at runtime).
+// Stub until internal/config exposes a proper read path.
+func loadConfig() (struct{ StatsOptIn *bool }, error) {
+	return struct{ StatsOptIn *bool }{}, nil
+}
+
+// PromptOptIn shows an interactive TTY prompt asking whether the user wants to
+// opt in to session telemetry. Defaults to true; stub until full UI is wired.
+func PromptOptIn() (bool, error) { return true, nil }
+
+// SetOptIn persists the user's telemetry preference.
+// Stub until the config package exposes a write path.
+func SetOptIn(_ bool) error { return nil }
 
 // Outcome describes the terminal result of a RINSE cycle.
 type Outcome string
@@ -36,6 +55,9 @@ const (
 	OutcomeMaxIter  Outcome = "max_iterations"
 	OutcomeError    Outcome = "error"
 	OutcomeAborted  Outcome = "aborted"
+	OutcomeClosed   Outcome = "closed"
+	OutcomeDryRun   Outcome = "dry_run"
+	OutcomeClean    Outcome = "clean"
 )
 
 // newUUID generates a random UUID v4 string.
@@ -78,6 +100,9 @@ type Session struct {
 
 	// Quality metrics (populated when available)
 	Quality *quality.QualityDelta `json:"quality,omitempty"`
+
+	// SchemaVersion is set on write for forward-compat checks.
+	SchemaVersion int `json:"schema_version,omitempty"`
 }
 
 // NewSession creates a new Session with a generated UUID and the current time
@@ -152,7 +177,11 @@ func Save(s Session) error {
 	}
 
 	if s.SessionID == "" {
-		s.SessionID = newUUID()
+		id, err := newUUID()
+		if err != nil {
+			return fmt.Errorf("stats: generate session ID: %w", err)
+		}
+		s.SessionID = id
 	}
 
 	repoSlug := strings.ReplaceAll(s.Repo, "/", "-")
@@ -307,6 +336,9 @@ func loadFromDB() ([]Session, error) {
 
 // loadFromJSON reads legacy JSON session files from SessionsDir.
 func loadFromJSON() ([]Session, error) {
+	var sessions []Session
+	seen := make(map[string]bool)
+
 	dir, err := SessionsDir()
 	if err != nil {
 		return sortByStarted(sessions), nil
@@ -372,13 +404,14 @@ func sortByStarted(sessions []Session) []Session {
 
 // Summary holds aggregated metrics across a set of sessions.
 type Summary struct {
-	TotalSessions    int
-	TotalComments    int
-	TotalIterations  int
-	ApprovedSessions int
-	TotalDurationSec float64
-	PatternCounts    map[string]int
-	OutcomeCounts    map[Outcome]int
+	TotalSessions         int
+	TotalComments         int
+	TotalIterations       int
+	ApprovedSessions      int
+	TotalDurationSec      float64
+	TotalTimeSavedSeconds int
+	PatternCounts         map[string]int
+	OutcomeCounts         map[Outcome]int
 	// Last30Days is a filtered summary over the last 30 days.
 	// It is always populated by Summarize and is the zero value when no sessions match.
 	Last30Days *Summary
