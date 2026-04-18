@@ -979,9 +979,9 @@ func (m wizModel) renderStepD() string {
 
 	var actions string
 	if m.creatingCycle {
-		actions = "\n" + theme.StyleMuted.Render("  Creating cycle…")
+		actions = "\n" + theme.StyleMuted.Render("  Saving settings…")
 	} else {
-		actions = "\n" + theme.StyleTeal.Render("  enter Start cycle") +
+		actions = "\n" + theme.StyleTeal.Render("  enter Save and open PR picker") +
 			"  " + theme.StyleMuted.Render("a Adjust first")
 	}
 
@@ -991,7 +991,7 @@ func (m wizModel) renderStepD() string {
 			"\n" + theme.StyleMuted.Render("  press enter to try again")
 	}
 
-	footer := theme.StyleMuted.Render("  You can edit or delete this cycle any time.")
+	footer := theme.StyleMuted.Render("  You can always change these settings later.")
 	hints := "\n" + theme.StyleMuted.Render("  enter start  a adjust  q quit")
 
 	return box.Render(progress + "\n\n" + headline + "\n\n" + card + actions + errLine + "\n" + footer + hints)
@@ -1020,12 +1020,12 @@ func (m wizModel) renderStepE() string {
 		celebration = m.celebFrames[idx]
 	}
 
-	headline := theme.StyleStep.Render("All set. Pick a PR and let RINSE handle the rest.")
+	headline := theme.StyleStep.Render("You're set up. Pick a PR — RINSE does the rest.")
 	var body string
 	if m.remindOnComplete {
-		body = theme.StyleMuted.Render("You will get a desktop notification when the review cycle finishes.")
+		body = theme.StyleMuted.Render("You'll get a desktop notification when the review cycle finishes.")
 	} else {
-		body = theme.StyleMuted.Render("Your first cycle is ready. Select a PR from the list to start.")
+		body = theme.StyleMuted.Render("Select any open PR from the list and press Enter to start.")
 	}
 
 	var subBody string
