@@ -31,9 +31,11 @@ import (
 	"strings"
 	"time"
 
+	xterm "github.com/charmbracelet/x/term"
 	"github.com/orsharon7/rinse/internal/db"
 	"github.com/orsharon7/rinse/internal/engine/opencode"
 	"github.com/orsharon7/rinse/internal/notify"
+	"github.com/orsharon7/rinse/internal/predict"
 	"github.com/orsharon7/rinse/internal/runner"
 	"github.com/orsharon7/rinse/internal/theme"
 )
@@ -744,32 +746,12 @@ func runPredictCmd(args []string) {
 		os.Exit(0)
 	}
 
-	// Human-readable output.
-	fmt.Printf("RINSE Predict — %s\n", report.Source)
-	fmt.Printf("Generated: %s\n\n", report.GeneratedAt.Format("2006-01-02 15:04:05"))
-
-	if len(report.Predictions) == 0 {
-		fmt.Println("No predictions — looks clean!")
-		os.Exit(0)
+	// Human-readable styled output (Lip Gloss, theme.* tokens per RIN-179 spec).
+	termWidth := 80
+	if w, _, err2 := xterm.GetSize(os.Stdout.Fd()); err2 == nil && w > 0 {
+		termWidth = w
 	}
-
-	fmt.Printf("%-45s  %-10s  %s\n", "Pattern", "Confidence", "Location")
-	fmt.Println(strings.Repeat("─", 100))
-	for _, p := range report.Predictions {
-		loc := p.File
-		if p.Line > 0 {
-			loc = fmt.Sprintf("%s:%d", p.File, p.Line)
-		}
-		fmt.Printf("%-45s  %.0f%%         %s\n",
-			p.Pattern,
-			p.Confidence*100,
-			loc,
-		)
-		if p.Detail != "" {
-			fmt.Printf("  ↳ %s\n", p.Detail)
-		}
-	}
-	fmt.Printf("\n%d prediction(s) logged for hit-rate tracking.\n", len(report.Predictions))
+	predict.Render(os.Stdout, report, termWidth)
 	// Exit 0 even with predictions — non-blocking by design (v0.3).
 	os.Exit(0)
 }
