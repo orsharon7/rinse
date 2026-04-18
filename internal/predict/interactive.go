@@ -63,7 +63,15 @@ func IsProEnabled() bool {
 }
 
 // RenderUpgradePrompt prints the upgrade prompt for non-Pro users.
-func RenderUpgradePrompt(w io.Writer) {
+// When noColor is true (or when theme.IsPlainTerminal() reports a plain
+// terminal), it emits unstyled ASCII output instead of lipgloss-styled text.
+func RenderUpgradePrompt(w io.Writer, noColor bool) {
+	if noColor || theme.IsPlainTerminal() {
+		fmt.Fprintf(w, "\n  [*]  rinse predict --interactive  requires RINSE Pro\n\n")
+		fmt.Fprintf(w, "       Unlock interactive fix review, team dashboards, and unlimited patterns.\n")
+		fmt.Fprintf(w, "       rinse.sh/#pro\n\n")
+		return
+	}
 	star := lipgloss.NewStyle().Foreground(theme.Mauve).Bold(true).Render("✦")
 	link := lipgloss.NewStyle().Foreground(theme.Overlay).Underline(true).Render("rinse.sh/#pro")
 	fmt.Fprintf(w, "\n  %s  %s\n\n",
@@ -717,7 +725,7 @@ func RunInteractive(opts InteractiveOpts) error {
 
 	// Pro gate.
 	if !opts.SkipProCheck && !IsProEnabled() {
-		RenderUpgradePrompt(out)
+		RenderUpgradePrompt(out, false)
 		return nil
 	}
 
