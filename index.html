@@ -731,15 +731,18 @@
     const email = document.getElementById('waitlist-email').value.trim();
     if (!email) return;
 
-    // POST to placeholder; backend team can wire this up
-    fetch('/api/waitlist', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email })
-    }).catch(() => {/* ignore network errors in demo */});
+    const form = this;
+    const btn = form.querySelector('button[type="submit"]');
+    if (btn) btn.disabled = true;
 
-    this.style.display = 'none';
-    document.getElementById('waitlist-success').classList.add('visible');
+    fetch('https://formspree.io/f/xpwzgkdo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ email })
+    }).finally(() => {
+      form.style.display = 'none';
+      document.getElementById('waitlist-success').classList.add('visible');
+    });
   });
 </script>
 
