@@ -17,7 +17,6 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/orsharon7/rinse/internal/theme"
 )
 
@@ -117,69 +116,46 @@ func CheckGHAuth() {
 
 // ── Styled error printers ─────────────────────────────────────────────────────
 
-var (
-	depErrStyle  = lipgloss.NewStyle().Foreground(theme.Red).Bold(true)
-	depNameStyle = lipgloss.NewStyle().Foreground(theme.Red).Bold(true)
-	depDescStyle = theme.StyleMuted
-	hintStyle    = lipgloss.NewStyle().Foreground(theme.Teal)
-	docsStyle    = theme.StyleMuted
-	sepStyle     = theme.StyleMuted
-	labelStyle   = lipgloss.NewStyle().Foreground(theme.Overlay)
-	tipStyle     = lipgloss.NewStyle().Foreground(theme.Subtext)
-)
-
-func sep() string {
-	return sepStyle.Render(strings.Repeat("─", 60))
-}
-
 func printDepError(missing []missingDep) {
-	noun := "dependency"
-	if len(missing) != 1 {
-		noun = "dependencies"
-	}
-
 	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, sep())
-	fmt.Fprintln(os.Stderr, depErrStyle.Render(fmt.Sprintf("  rinse — missing required %s", noun)))
-	fmt.Fprintln(os.Stderr, sep())
 
-	for _, m := range missing {
+	for i, m := range missing {
+		if i > 0 {
+			fmt.Fprintln(os.Stderr)
+		}
+		fmt.Fprintln(os.Stderr, theme.StyleErr.Render("  ✗  "+m.spec.name))
 		fmt.Fprintln(os.Stderr)
-		fmt.Fprintln(os.Stderr, "  "+theme.IconCross+"  "+depNameStyle.Render(m.spec.name))
-		fmt.Fprintln(os.Stderr, "     "+depDescStyle.Render(m.spec.description))
+		fmt.Fprintln(os.Stderr, "     "+theme.StyleMuted.Render(m.spec.description))
 
 		if len(m.spec.installHint) > 0 {
 			fmt.Fprintln(os.Stderr)
-			fmt.Fprintln(os.Stderr, "     "+labelStyle.Render("Install:"))
+			fmt.Fprintln(os.Stderr, "     "+theme.StyleMuted.Render("Install:"))
 			for _, hint := range m.spec.installHint {
 				for _, line := range strings.Split(hint, "\n") {
-					fmt.Fprintln(os.Stderr, "       "+hintStyle.Render("$ "+strings.TrimSpace(line)))
+					fmt.Fprintln(os.Stderr, "       "+theme.StyleTeal.Render("$ "+strings.TrimSpace(line)))
 				}
 			}
 		}
-		fmt.Fprintln(os.Stderr, "     "+labelStyle.Render("Docs:    ")+docsStyle.Render(m.spec.installDocs))
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "     "+theme.StyleMuted.Render("Docs: "+m.spec.installDocs))
 	}
 
 	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, sep())
-	fmt.Fprintln(os.Stderr, tipStyle.Render("  After installing, re-run:  rinse"))
-	fmt.Fprintln(os.Stderr, sep())
+	fmt.Fprint(os.Stderr, "  "+theme.StyleMuted.Render("After installing, re-run:  "))
+	fmt.Fprintln(os.Stderr, theme.StyleVal.Render("rinse"))
 	fmt.Fprintln(os.Stderr)
 }
 
 func printAuthError() {
 	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, sep())
-	fmt.Fprintln(os.Stderr, depErrStyle.Render("  rinse — GitHub CLI is not authenticated"))
-	fmt.Fprintln(os.Stderr, sep())
+	fmt.Fprintln(os.Stderr, theme.StyleErr.Render("  ✗  GitHub CLI is not authenticated"))
 	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "  "+depDescStyle.Render("rinse needs GitHub CLI to be logged in."))
-	fmt.Fprintln(os.Stderr, "  "+depDescStyle.Render("Run the following command and follow the prompts:"))
+	fmt.Fprintln(os.Stderr, "     "+theme.StyleMuted.Render("RINSE needs GitHub CLI to be signed in to access your PRs."))
 	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "    "+hintStyle.Render("$ gh auth login"))
+	fmt.Fprintln(os.Stderr, "     "+theme.StyleMuted.Render("Run:"))
+	fmt.Fprintln(os.Stderr, "       "+theme.StyleTeal.Render("$ gh auth login"))
 	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, sep())
-	fmt.Fprintln(os.Stderr, tipStyle.Render("  Then re-run:  rinse"))
-	fmt.Fprintln(os.Stderr, sep())
+	fmt.Fprint(os.Stderr, "  "+theme.StyleMuted.Render("Then re-run:  "))
+	fmt.Fprintln(os.Stderr, theme.StyleVal.Render("rinse"))
 	fmt.Fprintln(os.Stderr)
 }
