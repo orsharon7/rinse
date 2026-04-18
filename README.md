@@ -14,6 +14,7 @@
 [![License: BSL 1.1](https://img.shields.io/badge/License-BSL_1.1-purple.svg)](./LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/orsharon7/rinse)](https://github.com/orsharon7/rinse/releases)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/orsharon7/rinse/pulls)
+[![Website](https://img.shields.io/badge/site-orsharon7.github.io%2Frinse-blue)](https://orsharon7.github.io/rinse)
 
 ---
 
@@ -26,25 +27,28 @@ Request review → wait → read comments → fix → repeat. Rinse handles ever
 ## ⚡ Install
 
 ```bash
+brew install rinse
+```
+
+That's it. No dependencies, no config files, no setup wizard.
+
+<details>
+<summary>Other install methods</summary>
+
+**Direct download (macOS/Linux):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/orsharon7/rinse/master/install.sh | sh
+```
+
+**Build from source (requires Go ≥ 1.24):**
+```bash
 git clone https://github.com/orsharon7/rinse.git
 cd rinse
 make install
 ```
 
-> **Note:** `make install` installs only the `rinse` binary. The runner scripts (`scripts/pr-review-*.sh`) are **not** installed automatically. To use `rinse` after installation, either:
-> - Copy the `scripts/` directory to a location next to the installed binary, **or**
-> - Set `RINSE_SCRIPT_DIR` (or the legacy alias `PR_REVIEW_SCRIPT_DIR`) to the path of your local `scripts/` directory.
-
-Or build and install manually (requires Go ≥ 1.24):
-
-```bash
-mkdir -p ~/.local/bin
-go build -ldflags "-X main.version=$(git describe --tags --always)" -o ~/.local/bin/rinse .
-```
-
-Without the `-ldflags` above, `rinse --version` will print `dev`.
-
 Pre-built binaries are also available on the [Releases](https://github.com/orsharon7/rinse/releases) page.
+</details>
 
 ---
 
