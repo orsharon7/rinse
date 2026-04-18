@@ -319,12 +319,10 @@ func Print(sessions []Session) {
 	}
 	fmt.Println()
 
-	// Show Pro upgrade prompt for users with meaningful usage history.
-	if sum.TotalSessions >= 3 {
-		cfg, err := upgrade.Load()
-		if err == nil && upgrade.ShouldShowPrompt(cfg) {
-			fmt.Print(upgrade.RenderPrompt())
-			upgrade.RecordShown(cfg)
-		}
+	// Show Pro upgrade prompt at proof-of-value thresholds (3, 5, 10, 20 sessions).
+	if upgrade.ShouldShowPrompt(sum.TotalSessions) {
+		totalMin := sum.TotalComments * 3
+		fmt.Println(upgrade.RenderPrompt(totalMin, sum.TotalSessions))
+		upgrade.RecordShown(sum.TotalSessions)
 	}
 }
