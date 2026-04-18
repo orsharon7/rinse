@@ -1307,9 +1307,22 @@ FILES
   .rinse.json     Per-repo config (created by rinse init). Commit to share
                   settings with your team.
 
-  .rinseignore    Optional file in your repo root. List path patterns (one per
-                  line) to exclude from RINSE review cycles — useful for
-                  generated files, vendored code, or large assets.
+  .rinseignore    Optional file in your repo root. Excludes paths from RINSE
+                  review cycles. Uses .gitignore syntax: glob patterns, one per
+                  line, # for comments.
+
+                  When RINSE encounters a Copilot review comment on an ignored
+                  file, it automatically posts a reply explaining the skip —
+                  so reviewers know why that comment was not auto-fixed.
+
+                  Common patterns:
+                    vendor/             # vendored dependencies
+                    *.pb.go             # protobuf generated files
+                    *.gen.go            # other generated files
+                    internal/mocks/     # auto-generated mocks
+
+                  Create manually or run 'rinse init' to see a full template
+                  with commented-out examples.
 
 EXAMPLES
 
