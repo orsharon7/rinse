@@ -638,6 +638,34 @@
         rinse predict · staged diff · 3 issues found before Copilot sees them
       </p>
     </div>
+
+    <div style="margin-top: 40px;">
+      <p class="section-label" style="margin-bottom: 8px;">// rinse predict --interactive — Pro</p>
+      <h3 style="font-size: 1.1rem; color: var(--text); margin-bottom: 16px; font-weight: 600;">Fix predictions in-terminal, one by one.</h3>
+      <div class="terminal" style="text-align: left; padding: 20px 24px;">
+        <pre style="margin: 0; font-size: 0.82rem; line-height: 1.7; color: var(--text); overflow-x: auto;"><span style="color:var(--muted)">$ </span><span style="color:var(--green)">rinse predict --interactive</span>
+
+<span style="color:#cba6f7">◇</span>  <span style="color:var(--green); font-weight:600">Prediction 1 / 3</span>  <span style="color:var(--muted)">91% confidence</span>
+
+  <span style="color:var(--text)">Missing error handling: os.WriteFile return discarded</span>
+  <span style="color:var(--muted)">internal/runner/runner.go:147</span>
+
+  <span style="color:var(--muted)">  y  apply fix    n  skip    e  mark edited    q  quit</span>
+
+<span style="color:var(--green)">✓</span>  <span style="color:var(--muted)">Fix applied · build verified · file staged</span>
+
+<span style="color:#cba6f7">◇</span>  <span style="color:var(--green); font-weight:600">Summary</span>
+
+   Reviewed        3 predictions
+   Applied         2 fixes
+   Time saved      ~4 min (est.)
+
+   <span style="color:var(--muted)">Run `rinse` to finish the review loop.</span></pre>
+      </div>
+      <p style="font-size: 0.78rem; color: var(--muted); margin-top: 12px; font-family: var(--font-mono);">
+        rinse predict --interactive · Pro · fix &amp; stage in-terminal before opening the PR
+      </p>
+    </div>
   </div>
 </section>
 
@@ -729,7 +757,7 @@
 
       <!-- Pro -->
       <div class="pricing-card featured">
-        <span class="featured-badge">Coming in v0.4</span>
+        <span class="featured-badge">v0.4 — Pro</span>
         <p class="plan-name">Pro</p>
         <p class="plan-price">$15 <span class="period">/dev/mo</span></p>
         <p class="plan-desc">For devs who want zero-comment PRs.</p>

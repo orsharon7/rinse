@@ -1194,7 +1194,7 @@ COMMANDS
     Note: --max-iterations and --poll-interval are reserved for a future release.
 
   rinse predict [<pr>] [--repo <owner/repo>] [--json] [--no-log]
-               [--interactive] [--doc-drift]   (Pro only)
+               [--interactive / -i] [--doc-drift]   (Pro only)
 
     Predict which review-comment patterns are likely to appear on a PR before
     running a full review cycle. Useful for deciding whether to invoke RINSE
@@ -1207,8 +1207,9 @@ COMMANDS
     --pr <number>         PR number (alternative to positional argument)
     --json                Emit a JSON result object instead of styled text
     --no-log              Do not persist this prediction event to the hit-rate log
-    --interactive         (Pro) Launch an interactive TUI to accept or reject each
+    --interactive / -i    (Pro) Launch an interactive TUI to accept or reject each
                           predicted fix before it is applied.
+                          Mutually exclusive with --json.
     --doc-drift           (Pro) Run LLM-backed documentation drift detection.
                           Requires opt-in: set {"doc_drift": true} in
                           ~/.rinse/config.json OR pass this flag explicitly.
