@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/orsharon7/rinse/internal/upgrade"
 )
 
 // minutesPerComment is the estimated developer time saved per Copilot comment
@@ -146,6 +148,20 @@ func LoadAll() ([]Session, error) {
 	return sessions, nil
 }
 
+// LoadAllTimeSaved reads all sessions and returns the total estimated time saved
+// (in minutes) and the total number of sessions (PRs).
+func LoadAllTimeSaved() (totalMin int, totalPRs int, err error) {
+	sessions, err := LoadAll()
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, s := range sessions {
+		totalMin += int(s.TimeSaved().Minutes())
+		totalPRs++
+	}
+	return totalMin, totalPRs, nil
+}
+
 // PrintSummary writes the post-cycle insight summary to stdout.
 // When jsonMode is true it emits JSON instead of the human-readable banner.
 func PrintSummary(s Session, jsonMode bool) {
@@ -199,6 +215,18 @@ func PrintSummary(s Session, jsonMode bool) {
 	}
 
 	fmt.Println()
+
+	// Show upgrade prompt after proof-of-value cycles (approved outcome only, no NO_COLOR/dumb terminal).
+	if s.Approved && os.Getenv("NO_COLOR") == "" && os.Getenv("TERM") != "dumb" {
+		if totalMin, totalPRs, err := LoadAllTimeSaved(); err == nil {
+			if upgrade.ShouldShowPrompt(totalPRs) {
+				fmt.Println(upgrade.RenderPrompt(totalMin, totalPRs))
+				fmt.Println()
+				upgrade.RecordShown(totalPRs)
+			}
+		}
+	}
+
 	fmt.Println("  Run `rinse stats` to see your history.")
 	fmt.Println()
 }
