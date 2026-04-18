@@ -18,9 +18,18 @@ func (f *fakeReader) ReadString(_ byte) (string, error) {
 
 func TestDetectPrimaryLanguage(t *testing.T) {
 	dir := t.TempDir()
-	orig, _ := os.Getwd()
-	defer os.Chdir(orig)
-	os.Chdir(dir)
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir to tempdir: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(orig); err != nil {
+			t.Logf("chdir restore: %v", err)
+		}
+	}()
 
 	// No marker files → unknown.
 	if lang := detectPrimaryLanguage(); lang != langUnknown {
@@ -28,13 +37,17 @@ func TestDetectPrimaryLanguage(t *testing.T) {
 	}
 
 	// go.mod → Go.
-	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x"), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
 	if lang := detectPrimaryLanguage(); lang != langGo {
 		t.Errorf("expected go, got %s", lang)
 	}
 
 	// tsconfig.json beats package.json (checked first).
-	os.WriteFile(filepath.Join(dir, "tsconfig.json"), []byte("{}"), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "tsconfig.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatalf("write tsconfig.json: %v", err)
+	}
 	os.Remove(filepath.Join(dir, "go.mod"))
 	if lang := detectPrimaryLanguage(); lang != langTypeScript {
 		t.Errorf("expected typescript, got %s", lang)
@@ -66,16 +79,26 @@ func TestCopilotInstructionsTemplate(t *testing.T) {
 
 func TestRunInitCopilotInstructions_UserAccepts(t *testing.T) {
 	dir := t.TempDir()
-	orig, _ := os.Getwd()
-	defer os.Chdir(orig)
-	os.Chdir(dir)
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir to tempdir: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(orig); err != nil {
+			t.Logf("chdir restore: %v", err)
+		}
+	}()
 
 	// Create go.mod so language detection returns Go.
-	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x"), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
 
 	// Simulate user pressing enter (default = yes).
-	err := RunInitCopilotInstructions(&fakeReader{""})
-	if err != nil {
+	if err := RunInitCopilotInstructions(&fakeReader{""}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -91,12 +114,20 @@ func TestRunInitCopilotInstructions_UserAccepts(t *testing.T) {
 
 func TestRunInitCopilotInstructions_UserDeclines(t *testing.T) {
 	dir := t.TempDir()
-	orig, _ := os.Getwd()
-	defer os.Chdir(orig)
-	os.Chdir(dir)
-
-	err := RunInitCopilotInstructions(&fakeReader{"n"})
+	orig, err := os.Getwd()
 	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir to tempdir: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(orig); err != nil {
+			t.Logf("chdir restore: %v", err)
+		}
+	}()
+
+	if err := RunInitCopilotInstructions(&fakeReader{"n"}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -107,17 +138,29 @@ func TestRunInitCopilotInstructions_UserDeclines(t *testing.T) {
 
 func TestRunInitCopilotInstructions_AlreadyExists(t *testing.T) {
 	dir := t.TempDir()
-	orig, _ := os.Getwd()
-	defer os.Chdir(orig)
-	os.Chdir(dir)
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir to tempdir: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(orig); err != nil {
+			t.Logf("chdir restore: %v", err)
+		}
+	}()
 
 	// Pre-create the file.
-	os.MkdirAll(filepath.Join(dir, ".github"), 0o755)
+	if err := os.MkdirAll(filepath.Join(dir, ".github"), 0o755); err != nil {
+		t.Fatalf("mkdir .github: %v", err)
+	}
 	existing := filepath.Join(dir, ".github", "copilot-instructions.md")
-	os.WriteFile(existing, []byte("existing content"), 0o644)
+	if err := os.WriteFile(existing, []byte("existing content"), 0o644); err != nil {
+		t.Fatalf("write existing: %v", err)
+	}
 
-	err := RunInitCopilotInstructions(&fakeReader{""})
-	if err != nil {
+	if err := RunInitCopilotInstructions(&fakeReader{""}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 

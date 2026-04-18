@@ -61,12 +61,8 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // aborts the wizard with ctrl+c).
 func CreateCycle(ctx context.Context, name string, d Defaults) (*Cycle, error) {
 	req := CycleRequest{
-		Name: name,
-		Settings: CycleSettings{
-			RemindOnComplete: d.RemindOnComplete,
-			AutoAdvance:      d.AutoAdvance,
-			SaveHistory:      d.SaveHistory,
-		},
+		Name:     name,
+		Settings: CycleSettings(d),
 	}
 
 	body, err := json.Marshal(req)

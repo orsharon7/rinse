@@ -18,7 +18,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/orsharon7/rinse/internal/notify"
 	"github.com/orsharon7/rinse/internal/session"
-	"github.com/orsharon7/rinse/internal/stats"
 	"github.com/orsharon7/rinse/internal/theme"
 )
 
@@ -623,7 +622,7 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					sub = sub[idx:]
 				}
 				if m := commentCountRe.FindStringSubmatch(sub); len(m) == 2 {
-					fmt.Sscanf(m[1], "%d", &n)
+					_, _ = fmt.Sscanf(m[1], "%d", &n)
 				}
 			}
 			if n > 0 {
@@ -1274,15 +1273,6 @@ func (m monitorModel) View() string {
 	return header + "\n" + breadcrumb + "\n" + tooltipLine + historyBlock + body + "\n" + statusBar
 }
 
-// lastStateChangedAtForDisplay returns the last state change timestamp on the
-// same clock basis used for ETA/elapsed calculations.
-func (m monitorModel) lastStateChangedAtForDisplay() time.Time {
-	if m.clockOffset == 0 {
-		return m.lastStateChangedAt
-	}
-	return m.lastStateChangedAt.Add(m.clockOffset)
-}
-
 // renderTimingTooltip renders the last-state-change tooltip overlay.
 // Shows timestamp in UTC and local timezone, matching the UX spec (RIN-42 §3).
 func (m monitorModel) renderTimingTooltip() string {
@@ -1776,44 +1766,4 @@ func (m channelMonitor) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m channelMonitor) View() string {
 	return m.monitorModel.View()
-}
-
-// sessionOutcome maps the final monitor state to a stats.Outcome string.
-func sessionOutcome(m monitorModel) stats.Outcome {
-	if !m.done {
-		return stats.OutcomeAborted
-	}
-	// Scan final log lines for terminal signals before falling back to exit code
-	// or iterHistory, because some runner outcomes are communicated via logs.
-	for i := len(m.lines) - 1; i >= 0 && i >= len(m.lines)-10; i-- {
-		plain := stripANSI(m.lines[i])
-		lower := strings.ToLower(plain)
-		if strings.Contains(lower, "[dry run] exiting") {
-			return stats.OutcomeDryRun
-		}
-		if strings.Contains(lower, "pr merged") || strings.Contains(plain, "🎉") {
-			return stats.OutcomeMerged
-		}
-		if strings.Contains(lower, "pr closed") || strings.Contains(plain, "📕") {
-			return stats.OutcomeClosed
-		}
-		if strings.Contains(lower, "max iterations") || strings.Contains(lower, "max iteration") {
-			return stats.OutcomeMaxIter
-		}
-	}
-	if m.exitCode != 0 {
-		return stats.OutcomeError
-	}
-	if len(m.iterHistory) == 0 {
-		return stats.OutcomeClean
-	}
-	last := m.iterHistory[len(m.iterHistory)-1].result
-	switch last {
-	case iterApproved:
-		return stats.OutcomeApproved
-	case iterClean:
-		return stats.OutcomeClean
-	default:
-		return stats.OutcomeError
-	}
 }
