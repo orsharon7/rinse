@@ -683,6 +683,11 @@ ENVIRONMENT VARIABLES
   PR_REVIEW_SCRIPT_DIR  Fallback script directory (legacy alias).
   RINSE_WEBHOOK_URL     When set, POST a JSON payload to this URL after each
                         completed review cycle.
+  RINSE_API_URL         Override the pro backend URL used by the first-run
+                        onboarding wizard (default: http://localhost:7433).
+                        Set this when running a non-standard backend.
+  NO_COLOR              When set to any non-empty value, RINSE disables all
+                        ANSI colour output. Follows the no-color.org standard.
 
 REQUIREMENTS
 
