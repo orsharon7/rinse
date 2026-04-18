@@ -107,7 +107,7 @@ _stats_exit_trap() {
 
   stats_record "$_RINSE_OUTCOME"
 }
-trap _stats_exit_trap EXIT
+trap '_exit_code=$?; _stats_exit_trap "$_exit_code"' EXIT
 
 log "🚀 Claude PR review loop starting"
 log "   PR:          ${REPO}#${PR_NUMBER}"

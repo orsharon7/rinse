@@ -102,6 +102,12 @@ _rinse_config_set() {
 # Called during stats_init. If the user hasn't answered yet, asks interactively.
 # Sets and exports RINSE_STATS_ENABLED=true|false.
 _stats_check_optin() {
+  # jq is required to read/write the config; without it stats cannot be persisted.
+  if ! command -v jq >/dev/null 2>&1; then
+    export RINSE_STATS_ENABLED="false"
+    return
+  fi
+
   local saved
   saved=$(_rinse_config_get "stats_enabled")
 
@@ -239,16 +245,15 @@ _cli_show() {
     esac
   done
 
+  # Validate --limit as a positive integer; fall back to default on invalid input
+  if ! [[ "$limit" =~ ^[0-9]+$ ]] || (( limit < 1 )); then
+    >&2 echo "Warning: --limit must be a positive integer; using default (20)."
+    limit=20
+  fi
+
   if [[ ! -f "$RINSE_STATS_FILE" ]]; then
     echo "No stats yet. Run RINSE at least once with stats enabled."
     return
-  fi
-
-  local filter
-  if [[ -n "$repo_filter" ]]; then
-    filter="[.[] | select(.repo == \$repo_filter)] | .[-${limit}:][]"
-  else
-    filter=".[-(${limit}):][]"
   fi
 
   echo "RINSE run stats (last ${limit}):"
@@ -257,17 +262,47 @@ _cli_show() {
     "timestamp" "repo" "pr" "dur(s)" "iters" "comments" "outcome" "model"
   echo "$(printf '%.0s─' {1..110})"
 
-  jq -rs --arg repo_filter "$repo_filter" "$filter | [
-    .timestamp,
-    .repo,
-    (.pr_number | tostring),
-    (.duration_seconds | tostring),
-    (.iterations | tostring),
-    (.comments_resolved | tostring),
-    .outcome,
-    (.model // "")
-  ] | @tsv" "$RINSE_STATS_FILE" 2>/dev/null | \
-  awk -F'\t' '{ printf "%-24s %-30s %-5s %-8s %-6s %-10s %-10s %s\n", $1, $2, $3, $4, $5, $6, $7, $8 }'
+  if [[ -n "$repo_filter" ]]; then
+    awk -v limit="$limit" -v repo_filter="$repo_filter" '
+      BEGIN {
+        pattern = "\"repo\":\"" repo_filter "\""
+      }
+      index($0, pattern) {
+        buf[count % limit] = $0
+        count++
+      }
+      END {
+        start = (count > limit ? count - limit : 0)
+        for (i = start; i < count; i++) {
+          print buf[i % limit]
+        }
+      }
+    ' "$RINSE_STATS_FILE" 2>/dev/null | \
+    jq -r '[
+      .timestamp,
+      .repo,
+      (.pr_number | tostring),
+      (.duration_seconds | tostring),
+      (.iterations | tostring),
+      (.comments_resolved | tostring),
+      .outcome,
+      (.model // "")
+    ] | @tsv' 2>/dev/null | \
+    awk -F'\t' '{ printf "%-24s %-30s %-5s %-8s %-6s %-10s %-10s %s\n", $1, $2, $3, $4, $5, $6, $7, $8 }'
+  else
+    tail -n "$limit" "$RINSE_STATS_FILE" 2>/dev/null | \
+    jq -r '[
+      .timestamp,
+      .repo,
+      (.pr_number | tostring),
+      (.duration_seconds | tostring),
+      (.iterations | tostring),
+      (.comments_resolved | tostring),
+      .outcome,
+      (.model // "")
+    ] | @tsv' 2>/dev/null | \
+    awk -F'\t' '{ printf "%-24s %-30s %-5s %-8s %-6s %-10s %-10s %s\n", $1, $2, $3, $4, $5, $6, $7, $8 }'
+  fi
 }
 
 _cli_clear() {
@@ -304,11 +339,25 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     show)     _cli_show "$@" ;;
     clear)    _cli_clear ;;
     opt-in)
-      _rinse_config_set "stats_enabled" "true"
+      if ! command -v jq >/dev/null 2>&1; then
+        >&2 echo "jq is required for stats opt-in"
+        exit 1
+      fi
+      if ! _rinse_config_set "stats_enabled" "true"; then
+        >&2 echo "Failed to update stats preference in ${RINSE_CONFIG_FILE}"
+        exit 1
+      fi
       echo "RINSE stats enabled. Records will be saved to ${RINSE_STATS_FILE}"
       ;;
     opt-out)
-      _rinse_config_set "stats_enabled" "false"
+      if ! command -v jq >/dev/null 2>&1; then
+        >&2 echo "jq is required for stats opt-out"
+        exit 1
+      fi
+      if ! _rinse_config_set "stats_enabled" "false"; then
+        >&2 echo "Failed to update stats preference in ${RINSE_CONFIG_FILE}"
+        exit 1
+      fi
       echo "RINSE stats disabled. Existing records kept at ${RINSE_STATS_FILE}"
       ;;
     status)   _cli_status ;;

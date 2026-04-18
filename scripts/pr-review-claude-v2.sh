@@ -48,8 +48,18 @@ source "${SCRIPT_DIR}/pr-review-session.sh"
 
 # ─── Insights ─────────────────────────────────────────────────────────────────
 
+# Guard: pr-review-insights.sh requires Bash 4+ (associative arrays).
+# On Bash 3.x (e.g. macOS default), define no-op stubs and continue.
 # shellcheck source=pr-review-insights.sh
-source "${SCRIPT_DIR}/pr-review-insights.sh"
+if [[ "${BASH_VERSINFO[0]}" -ge 4 ]]; then
+  source "${SCRIPT_DIR}/pr-review-insights.sh"
+else
+  >&2 echo "Warning: Bash 4+ required for insights — disabling (current: ${BASH_VERSION})"
+  insights_init()             { :; }
+  insights_record_iteration() { :; }
+  insights_finalize()         { :; }
+  insights_print()            { :; }
+fi
 
 # ─── Args ─────────────────────────────────────────────────────────────────────
 
@@ -413,7 +423,15 @@ _insights_exit_trap() {
     insights_print
   fi
 }
-trap '_insights_exit_trap $?' EXIT
+if [[ "$USE_WORKTREE" == true ]]; then
+  trap '_exit_code=$?; cleanup_pr_worktree; _insights_exit_trap "$_exit_code"' EXIT
+else
+  _cleanup_session_lock() {
+    session_clear
+    gh_lock_release
+  }
+  trap '_exit_code=$?; _cleanup_session_lock; _insights_exit_trap "$_exit_code"' EXIT
+fi
 
 if session_recover; then
   log "⚠️  Previous session crashed (iter ${RECOVER_ITER}, last review: ${RECOVER_REVIEW_ID:-none})"
