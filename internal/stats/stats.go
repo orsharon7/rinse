@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/orsharon7/rinse/internal/db"
+	"github.com/orsharon7/rinse/internal/upgrade"
 )
 
 // Session records the outcome of a single rinse PR-review run.
@@ -317,4 +318,13 @@ func Print(sessions []Session) {
 		}
 	}
 	fmt.Println()
+
+	// Show Pro upgrade prompt for users with meaningful usage history.
+	if sum.TotalSessions >= 3 {
+		cfg, err := upgrade.Load()
+		if err == nil && upgrade.ShouldShowPrompt(cfg) {
+			fmt.Print(upgrade.RenderPrompt())
+			upgrade.RecordShown(cfg)
+		}
+	}
 }
