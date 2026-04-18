@@ -115,6 +115,32 @@ Configure any valid model string via the TUI `model` setting (or by invoking the
 
 ---
 
+## 📁 Config file (`.rinse.json`)
+
+Run `rinse init` to create a per-repo config file. Commit it so your whole team shares the same defaults.
+
+```json
+{
+  "engine":         "opencode",
+  "model":          "",
+  "reflect":        false,
+  "reflect_branch": "main",
+  "auto_merge":     false
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `engine` | string | `"opencode"` | Runner to use: `"opencode"` or `"claude"` |
+| `model` | string | `""` | AI model string. Empty = runner default (`github-copilot/claude-sonnet-4.6` for opencode) |
+| `reflect` | bool | `false` | Enable the reflection agent to update `AGENTS.md` / `CLAUDE.md` after each cycle |
+| `reflect_branch` | string | `"main"` | Branch where reflection rules are committed |
+| `auto_merge` | bool | `false` | Auto-merge the PR once Copilot approves |
+
+Settings in `.rinse.json` are shared team defaults. Individual overrides can be set in the TUI settings panel (`s`) or passed as flags to `rinse start`.
+
+---
+
 ## 🪞 Reflection agent
 
 The `reflect` setting runs a reflection pass in parallel with each fix cycle.
