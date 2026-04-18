@@ -893,6 +893,10 @@ USAGE
   rinse predict      Scan staged diff or PR for predicted Copilot comments (v0.3)
   rinse status       Print the Copilot review status of a PR (agent/CI use)
   rinse start        Start the review loop non-interactively (agent/CI use)
+  rinse run          Start the native Go runner directly (no shell script)
+  rinse predict      Predict which review patterns a PR is likely to trigger
+  rinse opt-in       Enable session stats collection
+  rinse opt-out      Disable session stats collection
   rinse --version    Print the installed version
   rinse --help       Show this help
 
@@ -1044,38 +1048,62 @@ COMMANDS
       {"ok":true,"pr":"42","repo":"owner/repo","runner":"opencode","model":"github-copilot/claude-sonnet-4.6","exit_code":0}
       {"ok":false,"pr":"42","repo":"owner/repo","runner":"opencode","model":"","exit_code":1,"error":"runner failed"}
 
-  rinse predict [--pr <N>] [--repo <owner/repo>] [--json] [--no-log]
+  rinse run <pr> [options]
 
-    Scan the staged diff (or a PR diff) for patterns that GitHub Copilot is
-    likely to comment on, before you submit for review. Non-blocking — exits 0
-    even when predictions exist so it can be used as a pre-push hook without
-    breaking your workflow.
+    Start the native Go runner directly, without the shell-script wrapper used
+    by rinse start. Preferred for CI pipelines that want structured NDJSON
+    lifecycle events on stdout. Automatically switches to JSON output when
+    stdout is not a TTY.
 
-    With no flags: reads staged changes from the current git repository.
-    --pr <N>              Scan a specific PR diff (requires gh CLI)
-    --repo <owner/repo>   Override repository detection (use with --pr)
-    --json                Machine-readable output; no colour, structured JSON
-    --no-log              Skip writing prediction events to ~/.rinse/sessions/
-
-    Output (human-readable):
-      ◇  rinse predict  —  3 likely Copilot comments detected
-      ──────────────────────────────────────────────────
-        ◇  missing error handling           88%   internal/runner/runner.go:225
-        ◇  hardcoded secret / credential    93%   config/settings.go:14
-        ◇  naked return in long function    72%   internal/tui/monitor.go:1781
-
-    JSON output (--json):
-      {"ok":true,"count":3,"scanned":"staged changes","predictions":[
-        {"confidence":"high","description":"Missing error handling: ...","file":"...","line":42},
-        ...
-      ]}
-
-    Prediction events are logged to ~/.rinse/sessions/predict-*.json for
-    hit-rate tracking. The target hit rate for v0.3 is ≥70%.
+    --repo <owner/repo>           Override repository detection
+    --cwd  <path>                 Local checkout path (default: current directory)
+    --model <model>               AI model string (overrides runner default)
+    --runner opencode             Runner to use (currently only opencode is supported)
+    --json                        Emit NDJSON lifecycle events to stdout throughout
+                                  the run, then a final result object on exit.
 
     Exit codes:
-      0   success (even when predictions exist — non-blocking by design)
-      1   fatal error (diff fetch failed, no git repo, etc.)
+      0   PR approved
+      1   Max iterations reached without approval
+      2   Unexpected error
+
+    Note: --max-iterations and --poll-interval are reserved for a future release.
+
+  rinse predict [<pr>] [--repo <owner/repo>] [--json] [--no-log]
+
+    Predict which review-comment patterns are likely to appear on a PR before
+    running a full review cycle. Useful for deciding whether to invoke RINSE
+    or for triaging PR readiness in CI.
+
+    When <pr> is omitted, prediction is based on local git diff only (no GitHub
+    API call). Pass a PR number to include the PR diff and open comments.
+
+    --repo <owner/repo>   Override repository detection (required when using --pr)
+    --pr <number>         PR number (alternative to positional argument)
+    --json                Emit a JSON result object instead of styled text
+    --no-log              Do not persist this prediction event to the hit-rate log
+
+    JSON output (--json):
+      {
+        "ok": true,
+        "source": "git-diff",
+        "predictions": [
+          {"pattern": "Missing error handling", "confidence": 0.87, "file": "main.go", "line": 42}
+        ]
+      }
+
+STATS OPT-IN / OPT-OUT
+
+  rinse opt-in
+
+    Enable session stats collection. Each completed review cycle is saved as a
+    JSON file in ~/.rinse/sessions/. No data leaves your machine. Required for
+    rinse stats and rinse report to show data.
+
+  rinse opt-out
+
+    Disable session stats collection. No new session files will be written.
+    Existing session files are not deleted.
 
 ENVIRONMENT VARIABLES
 
