@@ -977,13 +977,6 @@ func (m monitorModel) renderFailedScreen(w int) string {
 	return lipgloss.NewStyle().Width(w).Align(lipgloss.Center).Render(box)
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func inferPhase(plain string, current phase) phase {
 	switch {
 	case current == phaseDone || current == phaseStalled || current == phaseCancelled:
