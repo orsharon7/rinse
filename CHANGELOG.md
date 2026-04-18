@@ -24,8 +24,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **SQLite telemetry DB** — optional local telemetry written to `~/.rinse/rinse.db` for richer future analytics.
 - **Distributed lock** — prevents concurrent RINSE cycles on the same PR via file-based locking under `~/.pr-review/locks/`.
 - **Crash recovery** — state machine in the runner detects interrupted cycles and resumes cleanly.
-- **`.rinseignore` support** (pending PR #80) — exclude files and paths from RINSE review cycles, same syntax as `.gitignore`.
-- **Onboarding tip for `.rinseignore`** — Step A of the wizard mentions `.rinseignore` when the feature is available (merged in PR #91).
 - **`RINSE_WEBHOOK_URL` env var** — when set, POSTs a JSON payload to the URL after each completed review cycle.
 - **`RINSE_SCRIPT_DIR` env var** — override where runner scripts are found; `PR_REVIEW_SCRIPT_DIR` accepted as legacy alias.
 - **`rinse --version`** — prints the installed version (set at build time via `-ldflags`).
