@@ -164,6 +164,7 @@ func RunInit() error {
 	fmt.Println(theme.StyleLogSuccess.Render(fmt.Sprintf("%s Created %s", theme.IconCheck, rinseConfigFile)))
 	fmt.Println()
 	fmt.Println(theme.StyleMuted.Render("Tip: ") + theme.StyleTeal.Render("commit .rinse.json") + theme.StyleMuted.Render(" so your team shares the same settings."))
+	fmt.Println(theme.StyleMuted.Render("Tip: Add ") + theme.StyleTeal.Render(".rinseignore") + theme.StyleMuted.Render(" at repo root to exclude paths from cycles (gitignore-style)."))
 
 	// Offer to generate .github/copilot-instructions.md to reduce Copilot noise.
 	fmt.Println()
