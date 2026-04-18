@@ -1341,6 +1341,24 @@ EXAMPLES
   # Agent pipeline: stream output, capture JSON result
   rinse start 42 --repo owner/repo --reflect --json
 
+  # Preview likely review comments before running a full cycle
+  rinse predict 42 --repo owner/repo
+
+  # Predict from local staged diff only (no PR number needed)
+  rinse predict --json
+
+  # Interactive fix review — step through predictions and apply fixes (Pro)
+  RINSE_PRO=1 rinse predict 42 --repo owner/repo --interactive
+
+  # Check doc drift before merging (Pro)
+  RINSE_PRO=1 rinse predict 42 --repo owner/repo --doc-drift
+
+  # View prediction hit-rate dashboard
+  rinse stats --predict
+
+  # Native Go runner — NDJSON lifecycle events on stdout (CI)
+  rinse run 42 --repo owner/repo --json
+
 MORE
 
   GitHub:    https://github.com/orsharon7/rinse
