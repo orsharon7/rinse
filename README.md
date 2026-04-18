@@ -7,11 +7,11 @@
  ██╔══██╗██║██║╚████║╚════██║██╔══╝  
  ██║  ██║██║██║  ███║███████║███████╗
  ╚═╝  ╚═╝╚═╝╚═╝  ╚══╝╚══════╝╚══════╝
-  AI PR review · proves it saved you time
+  PR reviews without the mess.
 ```
 
 [![Go version](https://img.shields.io/github/go-mod/go-version/orsharon7/rinse)](https://go.dev/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![License: BSL 1.1](https://img.shields.io/badge/License-BSL_1.1-purple.svg)](./LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/orsharon7/rinse)](https://github.com/orsharon7/rinse/releases)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/orsharon7/rinse/pulls)
 
@@ -155,4 +155,4 @@ Enable reflection via the TUI settings (press `s` inside the PR picker and toggl
 
 ## 📄 License
 
-MIT — see [LICENSE](LICENSE)
+BSL 1.1 — see [LICENSE](LICENSE). Or Sharon's IP.

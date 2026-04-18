@@ -16,6 +16,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/orsharon7/rinse/internal/notify"
 	"github.com/orsharon7/rinse/internal/session"
 	"github.com/orsharon7/rinse/internal/theme"
 )
@@ -1360,7 +1361,8 @@ func extractPatterns(reflectLines []string, maxPatterns int) []string {
 // ── RunMonitor ────────────────────────────────────────────────────────────────
 
 // RunMonitor starts the runner script and displays the live TUI monitor.
-func RunMonitor(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge bool, runnerArgs []string) error {
+// When sendNotify is true, a native desktop notification is sent on cycle completion.
+func RunMonitor(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge, sendNotify bool, runnerArgs []string) error {
 	cmd := exec.Command(runnerArgs[0], runnerArgs[1:]...)
 	cmd.Stdin = os.Stdin
 
@@ -1459,6 +1461,29 @@ func RunMonitor(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge 
 			// Print the summary only on successful completion.
 			if mm.exitCode == 0 {
 				session.PrintSummary(sess, false)
+			}
+
+			// Send desktop notification (best-effort, opt-in via --notify).
+			if sendNotify {
+				elapsed := sess.EndedAt.Sub(sess.StartedAt)
+				var result notify.CycleResult
+				switch {
+				case sess.Approved:
+					result = notify.ResultApproved
+				case mm.exitCode != 0:
+					result = notify.ResultError
+				default:
+					result = notify.ResultMaxIterations
+				}
+				notify.CycleNotification(true, notify.CycleParams{
+					PR:            pr,
+					Repo:          repo,
+					Result:        result,
+					Iterations:    sess.Iterations,
+					CommentsFixed: sess.TotalComments,
+					CommentsLeft:  mm.currentComments,
+					Elapsed:       elapsed,
+				})
 			}
 		}
 	}

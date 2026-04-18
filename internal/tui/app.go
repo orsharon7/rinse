@@ -122,6 +122,7 @@ const (
 	sfReflect
 	sfReflectBranch
 	sfAutoMerge
+	sfNotify
 	sfSave
 	sfCancel
 )
@@ -182,7 +183,7 @@ func Run(ver string) error {
 	rName := shortRunnerName(fm.runnerIdx)
 	runnerCmd := append(fm.finalCmd, "--no-interactive")
 
-	return RunMonitor(fm.prNum, fm.repo, strings.TrimSpace(rName), fm.modelOverride, fm.prTitle, fm.path, fm.autoMerge, runnerCmd)
+	return RunMonitor(fm.prNum, fm.repo, strings.TrimSpace(rName), fm.modelOverride, fm.prTitle, fm.path, fm.autoMerge, fm.notify, runnerCmd)
 }
 
 // initialModel builds a fresh wizard model with settings loaded from disk.

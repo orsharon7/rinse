@@ -15,6 +15,7 @@ type Config struct {
 	LastReflect   bool   `json:"last_reflect"`
 	LastBranch    string `json:"last_reflect_branch"`
 	LastAutoMerge bool   `json:"last_auto_merge"`
+	LastNotify    bool   `json:"last_notify"`
 }
 
 // RepoConfig stores per-repository settings so switching repos restores the right values.
@@ -25,6 +26,7 @@ type RepoConfig struct {
 	Reflect   bool   `json:"reflect"`
 	Branch    string `json:"reflect_branch"`
 	AutoMerge bool   `json:"auto_merge"`
+	Notify    bool   `json:"notify"`
 }
 
 // FullConfig is the on-disk structure combining global + per-repo settings.
@@ -95,6 +97,7 @@ func LoadConfig(numRunners int) Config {
 			cfg.LastReflect = rc.Reflect
 			cfg.LastBranch = rc.Branch
 			cfg.LastAutoMerge = rc.AutoMerge
+			cfg.LastNotify = rc.Notify
 		}
 		cfg.LastRunner = clampRunner(cfg.LastRunner)
 		return cfg
@@ -154,6 +157,7 @@ func SaveConfig(cfg Config) {
 		Reflect:   cfg.LastReflect,
 		Branch:    cfg.LastBranch,
 		AutoMerge: cfg.LastAutoMerge,
+		Notify:    cfg.LastNotify,
 	}
 
 	data, err := json.MarshalIndent(full, "", "  ")

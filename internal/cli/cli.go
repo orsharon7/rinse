@@ -28,6 +28,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/orsharon7/rinse/internal/notify"
 )
 
 // ── Runner registry ───────────────────────────────────────────────────────────
@@ -265,6 +268,7 @@ func runStartCmd(args []string) {
 		doReflect   bool
 		reflectMain string
 		autoMerge   bool
+		doNotify    bool
 		asJSON      bool
 	)
 
@@ -321,6 +325,8 @@ func runStartCmd(args []string) {
 			reflectMain = args[i]
 		case "--auto-merge":
 			autoMerge = true
+		case "--notify":
+			doNotify = true
 		case "--json":
 			asJSON = true
 		default:
@@ -396,11 +402,27 @@ func runStartCmd(args []string) {
 	if asJSON {
 		// Run with streaming output redirected to stderr so stdout remains
 		// exclusively for the final JSON envelope (machine-readable).
+		start := time.Now()
 		exitCode := execInherited(cmdArgs, os.Stderr)
 		ok := exitCode == 0
 		errMsg := ""
 		if !ok {
 			errMsg = fmt.Sprintf("runner exited with code %d", exitCode)
+		}
+		// Send desktop notification when --notify is set (best-effort).
+		if doNotify {
+			var result notify.CycleResult
+			if ok {
+				result = notify.ResultApproved
+			} else {
+				result = notify.ResultError
+			}
+			notify.CycleNotification(true, notify.CycleParams{
+				PR:      prNum,
+				Repo:    repo,
+				Result:  result,
+				Elapsed: time.Since(start),
+			})
 		}
 		emitJSON(StartResult{
 			OK:       ok,
@@ -415,6 +437,7 @@ func runStartCmd(args []string) {
 	}
 
 	// Plain mode: replace the process so the runner owns the terminal.
+	// Notification is not available in exec-replace mode; use --json or the TUI.
 	execReplace(cmdArgs)
 }
 
@@ -648,6 +671,9 @@ COMMANDS
     --reflect                     Enable reflection agent to update AGENTS.md
     --reflect-main-branch <br>    Target branch for reflection commits (default: main)
     --auto-merge                  Auto-merge when Copilot approves
+    --notify                      Send a desktop notification when the cycle completes.
+                                  macOS: osascript, Linux: notify-send. No-op in CI/headless.
+                                  Only fires in --json mode (exec-replace mode cannot notify).
     --json                        Emit a JSON result after the runner exits.
                                   Streaming output goes to stderr throughout.
 
