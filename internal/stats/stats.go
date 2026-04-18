@@ -321,7 +321,7 @@ func Print(sessions []Session) {
 
 	// Show Pro upgrade prompt at proof-of-value thresholds (3, 5, 10, 20 sessions).
 	if upgrade.ShouldShowPrompt(sum.TotalSessions) {
-		totalMin := sum.TotalComments * 3
+		totalMin := int(sum.EstTimeSavedHours() * 60)
 		fmt.Println(upgrade.RenderPrompt(totalMin, sum.TotalSessions))
 		upgrade.RecordShown(sum.TotalSessions)
 	}
