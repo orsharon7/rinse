@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/orsharon7/rinse/internal/config"
 	"github.com/orsharon7/rinse/internal/db"
 	"github.com/orsharon7/rinse/internal/quality"
 	"github.com/orsharon7/rinse/internal/theme"
@@ -966,16 +967,6 @@ func PromptOptIn() (bool, error) {
 	return optIn, nil
 }
 
-// IsPro reports whether the user has a Pro licence.
-// It checks the "pro" field in ~/.rinse/config.json, falling back to false.
-func IsPro() bool {
-	cfg, err := loadConfig()
-	if err != nil {
-		return false
-	}
-	return cfg.Pro
-}
-
 // ── Predict hit-rate stats ────────────────────────────────────────────────────
 
 // predictEvent is the on-disk structure for a predict_generated event file
@@ -1115,7 +1106,7 @@ const predictGateThreshold = 0.85 // 85% hit rate unlocks auto-fix
 // PrintPredictStats renders the `rinse stats --predict` dashboard.
 // Pro status is read from ~/.rinse/config.json.
 func PrintPredictStats() {
-	isPro := IsPro()
+	isPro := config.IsPro()
 
 	sessions, _ := Load()
 	events, _ := loadPredictEvents()

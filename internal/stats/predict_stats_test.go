@@ -227,35 +227,3 @@ func TestPatternID(t *testing.T) {
 		}
 	}
 }
-
-// TestIsPro_NoConfig ensures IsPro returns false when no config file exists.
-func TestIsPro_NoConfig(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
-	t.Setenv("RINSE_STATS_OPTIN", "")
-
-	if IsPro() {
-		t.Error("IsPro: want false when no config, got true")
-	}
-}
-
-// TestIsPro_ConfigTrue ensures IsPro returns true when config has "pro": true.
-func TestIsPro_ConfigTrue(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
-	t.Setenv("RINSE_STATS_OPTIN", "")
-
-	dir := filepath.Join(tmp, ".rinse")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	cfg := map[string]interface{}{"pro": true}
-	data, _ := json.Marshal(cfg)
-	if err := os.WriteFile(filepath.Join(dir, "config.json"), data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	if !IsPro() {
-		t.Error("IsPro: want true when config has pro:true, got false")
-	}
-}
