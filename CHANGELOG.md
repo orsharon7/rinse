@@ -6,6 +6,51 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **`rinse` Go binary** — full rewrite of the TUI as a native Go CLI; replaces the `pr-review-launch.sh` entry point. Built with Bubble Tea + Lip Gloss.
+- **`rinse init`** — guided per-repo setup wizard; scaffolds `.rinse.json` with engine, model, reflection, and auto-merge preferences. Commit `.rinse.json` to share defaults with your team.
+- **`rinse start`** — non-interactive review loop for agent pipelines and CI (no TTY required). Accepts `--repo`, `--cwd`, `--model`, `--runner`, `--reflect`, `--reflect-main-branch`, `--auto-merge`, `--json`.
+- **`rinse status`** — machine-readable Copilot review status for a PR (`approved`, `pending`, `new_review`, `no_reviews`, `merged`, `closed`, `error`). Supports `--json` for structured output.
+- **`rinse stats`** — reads local session history and prints PRs reviewed, comments fixed, avg iterations, estimated time saved, and top recurring code patterns.
+- **First-run onboarding wizard** — multi-step TUI (Steps A–E) shown on first launch: overview, session naming, defaults picker, cycle preview, and celebration animation. Fully `$NO_COLOR`-aware.
+- **PR picker TUI** — interactive list of open PRs with vim keybindings (`j/k`, `g/G`), PR number jump (`#`), settings panel (`s`), refresh (`r`), and keyboard shortcuts overlay (`?`).
+- **Settings panel** — per-repo persistence of runner (`opencode`/`claude`), model, reflect toggle, reflect branch, and auto-merge; saved under `~/.rinse/`.
+- **Reflection agent integration** — `--reflect` / TUI toggle runs a second AI agent after each fix cycle to extract coding rules and push them to `AGENTS.md` + `CLAUDE.md` on the main branch via a git worktree.
+- **Post-cycle insights** — session summary printed after each completed cycle: PR, runner, model, iterations, comments fixed, patterns detected.
+- **Session persistence** — each run saved as JSON to `~/.rinse/sessions/`; feeds `rinse stats`.
+- **SQLite telemetry DB** — optional local telemetry written to `~/.rinse/rinse.db` for richer future analytics.
+- **Distributed lock** — prevents concurrent RINSE cycles on the same PR via file-based locking under `~/.pr-review/locks/`.
+- **Crash recovery** — state machine in the runner detects interrupted cycles and resumes cleanly.
+- **`RINSE_WEBHOOK_URL` env var** — when set, POSTs a JSON payload to the URL after each completed review cycle.
+- **`RINSE_SCRIPT_DIR` env var** — override where runner scripts are found; `PR_REVIEW_SCRIPT_DIR` accepted as legacy alias.
+- **`rinse --version`** — prints the installed version (set at build time via `-ldflags`).
+- **`.github/CONTRIBUTING.md`** — full contributor guide: prerequisites, build steps, test workflow, repo layout, env vars, PR workflow, label system, and code style.
+- **`.github/copilot-instructions.md`** — Copilot review instructions tuned for RINSE: focus on bugs, error handling, security, races; skip style/formatting.
+- **ROADMAP.md** — phase-by-phase product plan.
+- **GitHub Actions hardening** — bot filter, author-association check, job-level concurrency, and timeout on the PR review workflow.
+
+### Changed
+
+- **License**: MIT → BSL 1.1 (Business Source License) to protect Or Sharon's IP (PR #74 pending merge).
+- **`--help` source of truth**: unified into `cli.PrintHelp()` in `internal/cli/cli.go`; removed duplicate `helpText` from `main.go`.
+- **README**: rewritten to lead with the `rinse` binary — install, quick start, options, env vars, contributing. Shell scripts demoted to context.
+- **Reflection agent**: refactored from `reflect-optimize` into a practice-based rule rewriter for higher signal-to-noise output.
+- **TUI theme**: Catppuccin-inspired Lip Gloss palette with gradient titles, teal accents, and `$NO_COLOR` fallback throughout.
+
+### Fixed
+
+- **First-run onboarding copy**: replaced laundry-app placeholder text ("Weekly laundry", "Delicates") with PR-review–specific copy.
+- **Dead `rinse trends` command**: removed from `--help` — the command was documented but unimplemented on master, causing silent fallback to the TUI.
+- **`rinse init` / `rinse status` / `rinse start` missing from docs**: all three commands existed but were absent from `--help` and README.
+- **LICENSE badge**: README badge corrected from MIT to BSL 1.1.
+- **Stale log path in README**: clarified that shell script logs go to `~/.pr-review/logs/` and Go binary session data goes to `~/.rinse/sessions/`.
+- **`isProcessAlive` on Unix and Windows**: fixed platform-specific lock correctness.
+
+---
+
 ## [1.0.0] — 2026-04-16
 
 ### Added
@@ -45,4 +90,5 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+[Unreleased]: https://github.com/orsharon7/rinse/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/orsharon7/rinse/releases/tag/v1.0.0
