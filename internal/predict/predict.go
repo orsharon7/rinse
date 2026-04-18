@@ -46,6 +46,11 @@ type Prediction struct {
 
 	// Detail is an optional one-sentence explanation.
 	Detail string
+
+	// SuggestedDiff is an optional unified diff string representing the
+	// suggested fix for this prediction. Used by --interactive to display
+	// and apply the fix. May be empty when no automated fix is available.
+	SuggestedDiff string
 }
 
 // Report is the full output of a predict run.
