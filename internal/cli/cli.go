@@ -889,6 +889,7 @@ USAGE
   rinse              Launch the interactive PR picker (recommended)
   rinse init         Create a per-repo .rinse.json config (guided setup)
   rinse stats        Show session history and time-saved metrics (30-day rolling)
+  rinse stats --predict  Show prediction hit-rate dashboard (rolling 10-PR + all-time)
   rinse report       Show today's PR review dashboard (approval rate, time saved)
   rinse predict      Scan staged diff or PR for predicted Copilot comments (v0.3)
   rinse status       Print the Copilot review status of a PR (agent/CI use)
@@ -1174,6 +1175,23 @@ SESSION DATA
     }
 
   rinse stats reads all session files and aggregates them.
+
+  rinse stats --predict
+    Shows prediction accuracy over time by correlating predict_generated events
+    (logged by rinse predict) with actual session patterns.
+
+    Output includes:
+      • Rolling 10-PR hit rate   — accuracy over the last 10 predict runs
+      • All-time hit rate         — accuracy across all recorded events
+      • Gate to auto-fix          — 85% threshold for unlocking auto-fix mode
+      • Recent sessions table    — per-session breakdown (last 5 / last 3 for Free)
+
+    Pro users see the full session table. Free users see 3 sessions + an upgrade
+    teaser. Upgrade at rinse.sh/#pro.
+
+    Hit rate is computed by matching predict_generated events to the session
+    that started within 10 minutes of the prediction run, then counting how many
+    predicted patterns appeared in that session's Patterns list.
 
 FILES
 
