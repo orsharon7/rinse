@@ -57,8 +57,11 @@ rinse
 # Create a per-repo config (.rinse.json) for shared team settings
 rinse init
 
-# Show session history and time-saved metrics
+# Show session history and time-saved metrics (30-day rolling)
 rinse stats
+
+# Show today's PR review dashboard (approval rate, fastest/longest cycle)
+rinse report
 
 # Check the Copilot review status of a PR (great for CI scripts)
 rinse status 42 --repo owner/repo
@@ -89,10 +92,9 @@ The interactive TUI walks you through setup — pick a PR, configure the runner,
 
 ```
 rinse              # launch interactive TUI (PR picker)
-rinse init         # create a per-repo .rinse.json config (guided setup)
-rinse start        # start a review cycle non-interactively
-rinse status       # show current cycle status
-rinse stats        # show session history and time-saved metrics
+rinse init         # scaffold a per-repo .rinse.json config (guided setup)
+rinse stats        # show session history and time-saved metrics (30-day)
+rinse report       # show today's PR review dashboard (approval rate, timing)
 rinse status <pr>  # print Copilot review status (agent/CI use)
 rinse start <pr>   # start review loop non-interactively (no TTY)
 rinse --version    # print installed version
@@ -102,6 +104,27 @@ rinse --help       # show full help
 ### `rinse init`
 
 Scaffolds a `.rinse.json` config file in the current directory. Prompts for engine, model, reflection settings, and auto-merge preference. Commit this file to share consistent defaults with your team — every developer on the repo gets the same starting point.
+
+### `rinse report`
+
+Shows a today-focused PR review dashboard. Falls back to all-time data if no sessions were recorded today.
+
+```
+● RINSE  Today's Report · April 18, 2026
+
+Cycles run              3
+PRs reviewed            3
+PRs approved            2 (67%)
+
+Time saved              ~1.2 hours (est.)
+Comments fixed          14
+Avg per PR              5 comments, 2.1 iters
+
+Fastest cycle           4 min  PR #42
+Longest cycle           18 min  PR #38
+```
+
+Use `rinse stats` instead for a 30-day rolling summary.
 
 ### `rinse status`
 
