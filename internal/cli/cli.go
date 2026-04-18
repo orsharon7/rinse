@@ -853,7 +853,7 @@ COMMANDS
 
     Print the current Copilot review status of a PR. Suitable for agents
     and CI pipelines. When <pr> is omitted, auto-detects from the current
-    git branch.
+    git branch. --pr is an alias for the positional PR number argument.
 
     Output statuses:
       approved   — Copilot approved the PR
@@ -894,8 +894,6 @@ ENVIRONMENT VARIABLES
 
   RINSE_SCRIPT_DIR      Override the directory where runner scripts are found.
   PR_REVIEW_SCRIPT_DIR  Fallback script directory (legacy alias).
-  RINSE_WEBHOOK_URL     When set, POST a JSON payload to this URL after each
-                        completed review cycle.
   RINSE_API_URL         Override the pro backend URL used by the first-run
                         onboarding wizard (default: http://localhost:7433).
                         Set this when running a non-standard backend.
@@ -933,6 +931,15 @@ SESSION DATA
     }
 
   rinse stats reads all session files and aggregates them.
+
+FILES
+
+  .rinse.json     Per-repo config (created by rinse init). Commit to share
+                  settings with your team.
+
+  .rinseignore    Optional file in your repo root. List path patterns (one per
+                  line) to exclude from RINSE review cycles — useful for
+                  generated files, vendored code, or large assets.
 
 EXAMPLES
 

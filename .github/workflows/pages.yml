@@ -6,6 +6,7 @@ on:
     paths:
       - 'index.html'
       - 'style.css'
+      - 'main.js'
       - '.nojekyll'
   workflow_dispatch:
 

@@ -776,8 +776,8 @@ func (m wizModel) renderWelcome() string {
 		Width(52)
 
 	title := theme.GradientString("RINSE", theme.Mauve, theme.Lavender, true)
-	headline := theme.StyleStep.Render("Hey! Let's get your first cycle going.")
-	sub := theme.StyleMuted.Render("It only takes a minute to set up.")
+	headline := theme.StyleStep.Render("Automate your PR review loop.")
+	sub := theme.StyleMuted.Render("Takes one minute. Works with your existing GitHub workflow.")
 
 	opts := []string{
 		renderWizChoice(m.welcomeChoice == 0, "Get started"),
@@ -826,7 +826,7 @@ func (m wizModel) renderStepA() string {
 
 func (m wizModel) renderStepB(w, h int) string {
 	progress := renderProgress(2)
-	headline := theme.StyleStep.Render("Name your first review session")
+	headline := theme.StyleStep.Render("Name your first cycle")
 	sub := theme.StyleMuted.Render("You can always rename it later.")
 
 	var b strings.Builder
@@ -887,9 +887,9 @@ func (m wizModel) renderStepC() string {
 		val     bool
 		focusID int
 	}{
-		{"Remind me when a cycle is done", "A gentle nudge so nothing sits too long.", m.remindOnComplete, cFocusRemind},
-		{"Move to the next step automatically", "Handy if you follow the same routine every time.", m.autoAdvance, cFocusAuto},
-		{"Save my cycle history", "See patterns and track what you have run.", m.saveHistory, cFocusHist},
+		{"Desktop notifications", "Get a macOS/Linux alert when your review cycle finishes.", m.remindOnComplete, cFocusRemind},
+		{"Auto-advance between PRs", "Automatically start the next PR in your list when one finishes.", m.autoAdvance, cFocusAuto},
+		{"Save cycle history", "Track PRs reviewed, comments fixed, and time saved in ~/.rinse/rinse.db.", m.saveHistory, cFocusHist},
 	}
 
 	var rows []string
@@ -1018,21 +1018,21 @@ func (m wizModel) renderStepE() string {
 		celebration = m.celebFrames[idx]
 	}
 
-	headline := theme.StyleStep.Render("You are in!")
+	headline := theme.StyleStep.Render("All set. Pick a PR and let RINSE handle the rest.")
 	var body string
 	if m.remindOnComplete {
-		body = theme.StyleMuted.Render("Your first cycle is ready. We will let you know when it is done.")
+		body = theme.StyleMuted.Render("You will get a desktop notification when the review cycle finishes.")
 	} else {
-		body = theme.StyleMuted.Render("Your first cycle is ready.")
+		body = theme.StyleMuted.Render("Your first cycle is ready. Select a PR from the list to start.")
 	}
 
 	var subBody string
 	if !m.autoAdvance {
-		subBody = "\n" + theme.StyleMuted.Render("Hit Start whenever you are ready.")
+		subBody = "\n" + theme.StyleMuted.Render("Press Enter on any PR to launch the review loop.")
 	}
 
-	cta := "\n" + theme.StyleTeal.Render("  → Go to my cycles") + "  " + theme.StyleMuted.Render("(enter)")
-	hints := "\n" + theme.StyleMuted.Render("  enter go to cycles")
+	cta := "\n" + theme.StyleTeal.Render("  → Open the PR picker") + "  " + theme.StyleMuted.Render("(enter)")
+	hints := "\n" + theme.StyleMuted.Render("  enter open PR picker")
 
 	return box.Render(progress + "\n\n" + celebration + "\n\n" + headline + "\n" + body + subBody + cta + hints)
 }
