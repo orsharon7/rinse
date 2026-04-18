@@ -33,6 +33,11 @@ func main() {
 			}
 			os.Exit(0)
 		case "stats":
+			// rinse stats --predict
+			if len(os.Args) > 2 && os.Args[2] == "--predict" {
+				stats.PrintPredictStats()
+				os.Exit(0)
+			}
 			sessions, err := session.LoadAll()
 			if err != nil {
 				fmt.Fprintln(os.Stderr, "error reading sessions:", err)
