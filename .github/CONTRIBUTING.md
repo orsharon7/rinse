@@ -272,6 +272,7 @@ Use these to route issues and PRs to the right area. Apply one or more.
 | `db` | `#0052CC` | SQLite session storage (`internal/db`) |
 | `docs` | `#0075ca` | Documentation files (README, CONTRIBUTING, --help copy) |
 | `engine` | `#0075ca` | Review cycle engine and runner scripts |
+| `predict` | `#7057ff` | Pattern prediction, doc-drift detection, hit-rate tracking (`internal/predict`) |
 | `tui` | `#1d76db` | Interactive TUI (PR picker, onboarding wizard, monitor) |
 | `brand` | `#8B5CF6` | Brand assets, visual identity |
 | `legal` | `#cfd3d7` | License, legal notices |
@@ -295,6 +296,7 @@ Use these to route issues and PRs to the right area. Apply one or more.
 |-------|-------|---------|
 | `milestone:v0.2` | `#c5def5` | Target: v0.2 release |
 | `milestone:v0.3` | `#c5def5` | Target: v0.3 release |
+| `milestone:v0.4` | `#c5def5` | Target: v0.4 release (shipped: `--doc-drift`, `--interactive`, `stats --predict`) |
 | `milestone:v1.0` | `#c5def5` | Target: v1.0 release |
 
 #### Standard GitHub labels
