@@ -54,6 +54,9 @@ Pre-built binaries are also available on the [Releases](https://github.com/orsha
 # Interactive TUI wizard — recommended first run
 rinse
 
+# One-time repo setup: create .rinse.json config
+rinse init
+
 # Show session history and time-saved metrics
 rinse stats
 
@@ -79,10 +82,13 @@ The interactive TUI walks you through setup — pick a PR, configure the runner,
 ## 🛠 Options
 
 ```
-rinse              # launch interactive TUI
+rinse              # launch interactive TUI (PR picker)
+rinse init         # create a per-repo .rinse.json config (guided setup)
+rinse start        # start a review cycle non-interactively
+rinse status       # show current cycle status
 rinse stats        # show session history and time-saved metrics
 rinse --version    # print installed version
-rinse --help       # show help
+rinse --help       # show full help
 ```
 
 ### Interactive TUI settings (press `s` inside the PR picker)
@@ -149,7 +155,7 @@ Enable reflection via the TUI settings (press `s` inside the PR picker and toggl
 
 - TUI source is in `internal/tui/` (Go + Charm Bubble Tea)
 - Run `make` to build, `make install` to install locally
-- Logs: `~/.pr-review/logs/<owner_repo>-pr-<n>.log` (and related reflect logs in `~/.pr-review/logs/`)
+- Logs: shell script runner logs land in `~/.pr-review/logs/<owner_repo>-pr-<n>.log`; Go binary session data is stored in `~/.rinse/sessions/`
 
 ---
 
