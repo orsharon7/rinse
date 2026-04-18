@@ -739,6 +739,7 @@ SESSION DATA
       "approved":       true,
       "iterations":     2,
       "total_comments": 7,
+      "comments_by_round": [3, 2],                // optional: comments per iteration
       "patterns":       ["Missing error handling", "Unused imports"]
     }
 
