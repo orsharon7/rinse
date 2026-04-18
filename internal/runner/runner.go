@@ -14,6 +14,7 @@ import (
 	"github.com/orsharon7/rinse/internal/db"
 	"github.com/orsharon7/rinse/internal/engine"
 	"github.com/orsharon7/rinse/internal/engine/lock"
+	"github.com/orsharon7/rinse/internal/summary"
 )
 
 // DefaultMaxIterations is used when Opts.MaxIterations is 0.
@@ -270,7 +271,11 @@ func Run(opts Opts) (Result, error) {
 			)
 			// Terminal success — clear the checkpoint.
 			_ = clearState(opts.Repo, opts.PR)
-			finalizeSession("merged", state.Iteration)
+			finalizeSession("approved", state.Iteration)
+			// Post cycle summary (non-fatal).
+			if err := summary.Post(opts.Repo, opts.PR, summary.OutcomeApproved, state.Iteration, totalComments, time.Since(startedAt)); err != nil {
+				log.Warn("runner: post cycle summary", "error", err)
+			}
 			return Result{
 				Approved:             true,
 				Iterations:           state.Iteration,
@@ -312,6 +317,10 @@ func Run(opts Opts) (Result, error) {
 		"iterations", state.Iteration,
 	)
 	finalizeSession("failed", state.Iteration)
+	// Post cycle summary (non-fatal).
+	if err := summary.Post(opts.Repo, opts.PR, summary.OutcomeMaxIter, state.Iteration, totalComments, time.Since(startedAt)); err != nil {
+		log.Warn("runner: post cycle summary", "error", err)
+	}
 	// Keep state on disk so a human or future run can inspect it.
 	return Result{
 		Approved:             false,

@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   estimated_time_saved_seconds  INTEGER,
   iterations                    INTEGER DEFAULT 0,
   total_comments_fixed          INTEGER DEFAULT 0,
-  outcome TEXT CHECK(outcome IN ('merged','closed','open','failed')),
+  outcome TEXT CHECK(outcome IN ('merged','closed','open','failed','approved')),
   created_at                    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

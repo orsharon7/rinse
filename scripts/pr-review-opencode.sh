@@ -174,6 +174,64 @@ if [[ "$USE_WORKTREE" == true ]]; then
   log "   Worktree ready: ${WORKTREE_DIR}"
 fi
 
+# ─── Cycle summary ────────────────────────────────────────────────────────────
+
+# post_cycle_summary <outcome_label> <iterations> <total_comments> <duration_min>
+# Posts a single PR comment summarising the RINSE cycle.
+# outcome_label: human-readable string (e.g. "✅ Merged", "⚠️ Max iterations reached")
+# Does NOT post on dry-run (caller must guard).
+post_cycle_summary() {
+  local outcome_label="$1"
+  local iterations="$2"
+  local total_comments="$3"
+  local duration_min="$4"
+  local est_saved=$(( total_comments * 4 ))
+
+  # Build pattern section: list each unique comment type (first word) and count.
+  local patterns_section=""
+  if [[ "$total_comments" -gt 0 ]]; then
+    patterns_section=$'\n'"**Comments addressed:** ${total_comments} across ${iterations} iteration(s)"
+  fi
+
+  local body
+  body=$(cat <<EOF
+🔁 **RINSE cycle complete**
+
+| | |
+|---|---|
+| Outcome | ${outcome_label} |
+| Iterations | ${iterations} |
+| Comments fixed | ${total_comments} |
+| Duration | ${duration_min} min |
+| Est. time saved | ~${est_saved} min |
+${patterns_section}
+
+*Reviewed by [RINSE](https://github.com/orsharon7/rinse)*
+EOF
+)
+
+  gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+    -X POST -f body="$body" >/dev/null 2>&1 \
+    && log "📝 Posted RINSE cycle summary comment on PR #${PR_NUMBER}" \
+    || log "⚠️  Could not post cycle summary comment (non-fatal)"
+}
+
+# _cycle_duration_min returns elapsed minutes since SESSION_STARTED_EPOCH.
+_cycle_duration_min() {
+  local now
+  now=$(date +%s)
+  echo $(( (now - SESSION_STARTED_EPOCH) / 60 ))
+}
+
+# _total_comments sums SESSION_COMMENTS_BY_ITER.
+_total_comments() {
+  local total=0
+  for c in "${SESSION_COMMENTS_BY_ITER[@]+"${SESSION_COMMENTS_BY_ITER[@]}"}"; do
+    total=$(( total + c ))
+  done
+  echo "$total"
+}
+
 # ─── GitHub helpers ───────────────────────────────────────────────────────────
 
 copilot_is_pending() {
@@ -393,6 +451,8 @@ echo ""
 # ─── Main loop ────────────────────────────────────────────────────────────────
 
 iter=0
+SESSION_STARTED_EPOCH=$(date +%s)
+SESSION_COMMENTS_BY_ITER=()
 
 while true; do
   iter=$(( iter + 1 ))
@@ -442,7 +502,12 @@ while true; do
   merged_at=$(echo "$_pr_json" | jq -r '.merged_at // ""')
   base_branch=$(echo "$_pr_json" | jq -r '.base.ref // "main"')
   if [[ "$pr_state" == "closed" ]]; then
-    [[ -n "$merged_at" ]] && log "🎉 PR merged!" || log "📕 PR closed."
+    if [[ -n "$merged_at" ]]; then
+      log "🎉 PR merged!"
+      post_cycle_summary "✅ Merged" "$iter" "$(_total_comments)" "$(_cycle_duration_min)"
+    else
+      log "📕 PR closed."
+    fi
     exit 0
   fi
 
@@ -454,6 +519,7 @@ while true; do
       log "🔀 Auto-merging and deleting branch..."
       local_branch=$(git -C "$CWD" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
       gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch
+      SESSION_OUTCOME="merged"
       _local_deleted=false
       if [[ -n "$local_branch" && "$local_branch" != "$base_branch" ]]; then
         if git -C "$CWD" checkout "$base_branch" 2>/dev/null; then
@@ -473,8 +539,10 @@ while true; do
       else
         log "✅ Merged, remote branch deleted."
       fi
+      post_cycle_summary "✅ Merged" "$iter" "$(_total_comments)" "$(_cycle_duration_min)"
       [[ "$REFLECT_OPTIMIZE" == true ]] && run_reflect_optimize
     else
+      post_cycle_summary "✅ Approved — ready to merge" "$iter" "$(_total_comments)" "$(_cycle_duration_min)"
       ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
     fi
     exit 0
@@ -491,6 +559,7 @@ while true; do
       log "🔀 Auto-merging and deleting branch..."
       local_branch=$(git -C "$CWD" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
       gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch
+      SESSION_OUTCOME="merged"
       _local_deleted=false
       if [[ -n "$local_branch" && "$local_branch" != "$base_branch" ]]; then
         if git -C "$CWD" checkout "$base_branch" 2>/dev/null; then
@@ -510,8 +579,10 @@ while true; do
       else
         log "✅ Merged, remote branch deleted."
       fi
+      post_cycle_summary "✅ Merged" "$iter" "$(_total_comments)" "$(_cycle_duration_min)"
       [[ "$REFLECT_OPTIMIZE" == true ]] && run_reflect_optimize
     else
+      post_cycle_summary "✅ Approved — PR already clean, ready to merge" "$iter" "$(_total_comments)" "$(_cycle_duration_min)"
       ui_merge_menu "$PR_NUMBER" "$REPO" "$CWD"
     fi
     exit 0
@@ -618,6 +689,7 @@ PROMPT_EOF
   fi
 
   echo "$rid" > "$STATE_FILE"
+  SESSION_COMMENTS_BY_ITER+=("$comment_count")
   log "💾 Saved last-known review ID: ${rid}"
 
   if [[ "$REFLECT_OPTIMIZE" == true ]] && (( iter % 3 == 0 )); then
@@ -629,3 +701,8 @@ PROMPT_EOF
   echo ""
   sleep 5
 done
+
+# ── Max iterations reached ────────────────────────────────────────────────────
+log "⚠️  RINSE stopped after ${iter} iterations — manual review needed."
+post_cycle_summary "⚠️ Max iterations reached — manual review needed" "$iter" "$(_total_comments)" "$(_cycle_duration_min)"
+
