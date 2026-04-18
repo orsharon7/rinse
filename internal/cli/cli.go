@@ -28,6 +28,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/orsharon7/rinse/internal/predict"
 )
 
 // ── Runner registry ───────────────────────────────────────────────────────────
@@ -68,6 +70,23 @@ type StartResult struct {
 	Error    string `json:"error,omitempty"`
 }
 
+// PredictResult is the JSON envelope for `rinse predict --json`.
+type PredictResult struct {
+	OK          bool               `json:"ok"`
+	Source      string             `json:"source"`
+	Predictions []PredictItemJSON  `json:"predictions"`
+	Error       string             `json:"error,omitempty"`
+}
+
+// PredictItemJSON is a single prediction in JSON output.
+type PredictItemJSON struct {
+	Pattern    string  `json:"pattern"`
+	Confidence float64 `json:"confidence"`
+	File       string  `json:"file,omitempty"`
+	Line       int     `json:"line,omitempty"`
+	Detail     string  `json:"detail,omitempty"`
+}
+
 // ── TryDispatch ───────────────────────────────────────────────────────────────
 
 // TryDispatch inspects os.Args[1] for a known CLI subcommand.
@@ -83,6 +102,9 @@ func TryDispatch() bool {
 		return true
 	case "start":
 		runStartCmd(os.Args[2:])
+		return true
+	case "predict":
+		runPredictCmd(os.Args[2:])
 		return true
 	case "help", "--help", "-h":
 		PrintHelp()
@@ -418,6 +440,136 @@ func runStartCmd(args []string) {
 	execReplace(cmdArgs)
 }
 
+// ── predict ───────────────────────────────────────────────────────────────────
+
+func runPredictCmd(args []string) {
+	var (
+		prNum  string
+		repo   string
+		asJSON bool
+		noLog  bool
+	)
+
+	// Pre-scan for --json.
+	for _, a := range args {
+		if a == "--json" {
+			asJSON = true
+			break
+		}
+	}
+
+	rest := args
+	// Optional positional PR number.
+	if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+		prNum = rest[0]
+		rest = rest[1:]
+	}
+
+	for i := 0; i < len(rest); i++ {
+		switch rest[i] {
+		case "--repo":
+			i++
+			if i >= len(rest) || strings.HasPrefix(rest[i], "-") {
+				fatalf(asJSON, "--repo requires a value (e.g. --repo owner/repo)")
+			}
+			repo = rest[i]
+		case "--pr":
+			i++
+			if i >= len(rest) || strings.HasPrefix(rest[i], "-") {
+				fatalf(asJSON, "--pr requires a value (e.g. --pr 42)")
+			}
+			prNum = rest[i]
+		case "--json":
+			asJSON = true
+		case "--no-log":
+			noLog = true
+		default:
+			fatalf(asJSON, "unknown flag: %s", rest[i])
+		}
+	}
+
+	// Resolve PR number.
+	pr := 0
+	if prNum != "" {
+		n, err := strconv.Atoi(prNum)
+		if err != nil || n <= 0 {
+			fatalf(asJSON, "PR number must be a positive integer, got: %s", prNum)
+		}
+		pr = n
+	}
+
+	// Resolve repo when PR mode is requested.
+	if pr > 0 && repo == "" {
+		repo = detectRepo()
+		if repo == "" {
+			fatalf(asJSON, "no repository detected — run from inside a git checkout or pass --repo")
+		}
+	}
+
+	report, err := predict.Run(pr, repo)
+	if err != nil {
+		if asJSON {
+			emitJSON(PredictResult{OK: false, Error: err.Error()})
+		} else {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		}
+		os.Exit(1)
+	}
+
+	// Log prediction events for hit-rate tracking (fire-and-forget).
+	if !noLog {
+		_ = predict.LogEvent(report)
+	}
+
+	if asJSON {
+		items := make([]PredictItemJSON, len(report.Predictions))
+		for i, p := range report.Predictions {
+			items[i] = PredictItemJSON{
+				Pattern:    p.Pattern,
+				Confidence: p.Confidence,
+				File:       p.File,
+				Line:       p.Line,
+				Detail:     p.Detail,
+			}
+		}
+		emitJSON(PredictResult{
+			OK:          true,
+			Source:      report.Source,
+			Predictions: items,
+		})
+		os.Exit(0)
+	}
+
+	// Human-readable output.
+	fmt.Printf("RINSE Predict — %s\n", report.Source)
+	fmt.Printf("Generated: %s\n\n", report.GeneratedAt.Format("2006-01-02 15:04:05"))
+
+	if len(report.Predictions) == 0 {
+		fmt.Println("No predictions — looks clean!")
+		os.Exit(0)
+	}
+
+	fmt.Printf("%-45s  %-10s  %s\n", "Pattern", "Confidence", "Location")
+	fmt.Println(strings.Repeat("─", 100))
+	for _, p := range report.Predictions {
+		loc := p.File
+		if p.Line > 0 {
+			loc = fmt.Sprintf("%s:%d", p.File, p.Line)
+		}
+		fmt.Printf("%-45s  %.0f%%         %s\n",
+			p.Pattern,
+			p.Confidence*100,
+			loc,
+		)
+		if p.Detail != "" {
+			fmt.Printf("  ↳ %s\n", p.Detail)
+		}
+	}
+	fmt.Printf("\n%d prediction(s) logged for hit-rate tracking.\n", len(report.Predictions))
+	// Exit 0 even with predictions — non-blocking by design (v0.3).
+	os.Exit(0)
+}
+
 // ── Script resolution ─────────────────────────────────────────────────────────
 
 // resolveScript locates a runner script relative to the binary.
@@ -573,6 +725,30 @@ SUBCOMMANDS
       --auto-merge                  Auto-merge when Copilot approves
       --json                        Emit a JSON result after the runner exits.
                                     Streaming output goes to stderr throughout.
+
+  predict [<pr>] [--repo <owner/repo>] [--json] [--no-log]
+      Predict which Copilot patterns are likely to be flagged in a PR or in
+      staged changes. Report Mode only (v0.3) — no auto-fix.
+
+      When <pr> is omitted, analyses git staged changes (git diff --cached).
+      When <pr> is provided, fetches the full PR diff via gh.
+
+      Output: list of predicted patterns with confidence scores (0–100%).
+      Exit 0 even when predictions exist — non-blocking by design.
+
+      --repo <owner/repo>  Override repository detection (required for PR mode
+                           when not inside a git checkout)
+      --pr <number>        PR number (alternative to positional argument)
+      --json               Emit a machine-readable JSON result
+      --no-log             Skip writing prediction events to ~/.rinse/predict-events.log
+
+      Patterns detected (v0.3):
+        • Missing error handling        (confidence ~75–88%)
+        • Unused variable               (confidence ~82%)
+        • Naked return in long function (confidence ~72%)
+        • TODO/FIXME left in code       (confidence ~65%)
+        • Hardcoded secret / credential (confidence ~93%)
+        • Overly long function / block  (confidence ~60%)
 
   help | --help | -h
       Show this help.

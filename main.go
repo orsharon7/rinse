@@ -79,6 +79,18 @@ COMMANDS
         1. Missing error handling  (41x)
         2. Unused imports          (28x)
 
+  rinse predict [<pr>] [--repo owner/repo] [--json]
+
+    Analyses staged changes or a PR diff and lists predicted Copilot patterns
+    with confidence scores. Exits 0 even when predictions exist (non-blocking).
+    No auto-fix in v0.3.
+
+    Example (staged diff):
+      rinse predict
+
+    Example (PR diff):
+      rinse predict 42 --repo owner/repo
+
 ENVIRONMENT VARIABLES
 
   RINSE_SCRIPT_DIR      Override the directory where runner scripts are found.
