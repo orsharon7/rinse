@@ -32,12 +32,14 @@ import (
 	"time"
 
 	xterm "github.com/charmbracelet/x/term"
+	"github.com/orsharon7/rinse/internal/config"
 	"github.com/orsharon7/rinse/internal/db"
 	"github.com/orsharon7/rinse/internal/engine/opencode"
 	"github.com/orsharon7/rinse/internal/notify"
 	"github.com/orsharon7/rinse/internal/predict"
 	"github.com/orsharon7/rinse/internal/runner"
 	"github.com/orsharon7/rinse/internal/theme"
+	"github.com/orsharon7/rinse/internal/upgrade"
 )
 
 // ── Runner registry ───────────────────────────────────────────────────────────
@@ -115,11 +117,30 @@ func TryDispatch() bool {
 		runRunCmd(os.Args[2:])
 		return true
 	case "predict":
-		runPredictCmd(os.Args[2:])
+		// Pro gate: --interactive and --doc-drift are Pro-only flags.
+		// Enforce at dispatch so the gate lives in the CLI layer, not feature code.
+		args := os.Args[2:]
+		if hasFlag(args, "--interactive") || hasFlag(args, "--doc-drift") {
+			if !config.IsPro() {
+				upgrade.ShowPrompt()
+				return true
+			}
+		}
+		runPredictCmd(args)
 		return true
 	case "help", "--help", "-h":
 		PrintHelp()
 		return true
+	}
+	return false
+}
+
+// hasFlag reports whether flag appears in args.
+func hasFlag(args []string, flag string) bool {
+	for _, a := range args {
+		if a == flag {
+			return true
+		}
 	}
 	return false
 }
@@ -653,10 +674,12 @@ func runStartCmd(args []string) {
 
 func runPredictCmd(args []string) {
 	var (
-		prNum  string
-		repo   string
-		asJSON bool
-		noLog  bool
+		prNum       string
+		repo        string
+		asJSON      bool
+		noLog       bool
+		interactive bool
+		docDrift    bool
 	)
 
 	// Pre-scan for --json.
@@ -692,6 +715,10 @@ func runPredictCmd(args []string) {
 			asJSON = true
 		case "--no-log":
 			noLog = true
+		case "--interactive":
+			interactive = true
+		case "--doc-drift":
+			docDrift = true
 		default:
 			fatalf(asJSON, "unknown flag: %s", rest[i])
 		}
@@ -706,6 +733,12 @@ func runPredictCmd(args []string) {
 		}
 		pr = n
 	}
+
+	// Pro-only flags are gated at dispatch (TryDispatch); reaching here means
+	// the user is Pro. Suppress "declared and not used" errors until the
+	// feature implementations land in later issues.
+	_ = interactive
+	_ = docDrift
 
 	// Resolve repo when PR mode is requested.
 	if pr > 0 && repo == "" {
