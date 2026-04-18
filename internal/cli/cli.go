@@ -31,7 +31,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/orsharon7/rinse/internal/db"
+	"github.com/orsharon7/rinse/internal/engine/opencode"
 	"github.com/orsharon7/rinse/internal/notify"
+	"github.com/orsharon7/rinse/internal/runner"
 )
 
 // ── Runner registry ───────────────────────────────────────────────────────────
