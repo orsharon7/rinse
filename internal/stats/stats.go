@@ -363,92 +363,104 @@ func PrintReport(sessions []Session) {
 	today := time.Now().UTC()
 
 	target := todaySessions
-	dateLabel := "Today's Report (" + today.Format("January 2, 2006") + ")"
+	dateLabel := "Today's Report · " + today.Format("January 2, 2006")
 	if len(target) == 0 {
 		target = sessions
 		dateLabel = "All-Time Report"
 	}
 
 	if len(target) == 0 {
-		fmt.Println("\n  No sessions recorded yet. Run rinse on a PR to start tracking.\n")
+		fmt.Println()
+		fmt.Println("  " + theme.StyleMuted.Render("No sessions recorded yet. Run ") +
+			theme.StyleTeal.Render("rinse") +
+			theme.StyleMuted.Render(" on a PR to start tracking."))
+		fmt.Println()
 		return
 	}
 
 	r := SummarizeReport(target)
-	bar := strings.Repeat("━", 42)
 
+	// Title
 	fmt.Println()
-	fmt.Printf("RINSE — %s\n", dateLabel)
-	fmt.Println(bar)
+	icon := theme.StyleStep.Render(theme.IconRadioOn + " ")
+	label := theme.GradientString("RINSE", theme.Mauve, theme.Lavender, true)
+	date := theme.StyleMuted.Render("  " + dateLabel)
+	fmt.Println("  " + icon + label + date)
 	fmt.Println()
 
-	row := func(label, value string) {
-		fmt.Printf("  %-22s %s\n", label+":", value)
-	}
+	// Key column — 22 chars wide
+	key := func(s string) string { return theme.StyleKey.Copy().Width(22).Render(s) }
 
-	row("Cycles run", fmt.Sprintf("%d", r.TotalSessions))
-	row("PRs reviewed", fmt.Sprintf("%d", r.TotalSessions))
+	// Cycles / PRs reviewed / approved
+	fmt.Println("  " + key("Cycles run") + theme.StyleMuted.Render(fmt.Sprintf("%d", r.TotalSessions)))
+	fmt.Println("  " + key("PRs reviewed") + theme.StyleMuted.Render(fmt.Sprintf("%d", r.TotalSessions)))
 	if r.TotalSessions > 0 {
 		pct := int(math.Round(float64(r.ApprovedSessions) / float64(r.TotalSessions) * 100))
-		row("PRs approved", fmt.Sprintf("%d (%d%%)", r.ApprovedSessions, pct))
+		fmt.Println("  " + key("PRs approved") + theme.StyleVal.Render(fmt.Sprintf("%d (%d%%)", r.ApprovedSessions, pct)))
 	}
 	fmt.Println()
 
+	// Time / comments / avg
+	timeSaved := r.EstTimeSavedHours()
 	avgComments := 0.0
 	if r.TotalSessions > 0 {
 		avgComments = float64(r.TotalComments) / float64(r.TotalSessions)
 	}
-	timeSaved := r.EstTimeSavedHours()
-	row("Time saved", fmt.Sprintf("~%.1f hours (est.)", timeSaved))
-	row("Comments fixed", fmt.Sprintf("%d", r.TotalComments))
-	row("Avg per PR", fmt.Sprintf("%.0f comments, %.1f iterations", avgComments, r.AvgIterations()))
+	fmt.Println("  " + key("Time saved") + theme.StyleVal.Render(fmt.Sprintf("~%.1f hours (est.)", timeSaved)))
+	fmt.Println("  " + key("Comments fixed") + theme.StyleLogSuccess.Render(fmt.Sprintf("%d", r.TotalComments)))
+	fmt.Println("  " + key("Avg per PR") + theme.StyleMuted.Render(fmt.Sprintf("%.0f comments, %.1f iters", avgComments, r.AvgIterations())))
 	fmt.Println()
 
+	// Fastest / longest (conditional)
 	if r.FastestSec > 0 {
-		fastMins := int(math.Round(r.FastestSec / 60))
-		var fastStr string
-		if fastMins < 1 {
-			fastStr = "<1 min"
-		} else {
-			fastStr = fmt.Sprintf("%d min", fastMins)
-		}
+		fastStr := formatMinutes(int(math.Round(r.FastestSec / 60)))
+		prStr := ""
 		if r.FastestPR != "" {
-			fastStr += fmt.Sprintf(" (PR #%s)", r.FastestPR)
+			prStr = "  " + theme.StylePRNum.Render("PR #"+r.FastestPR)
 		}
-		row("Fastest cycle", fastStr)
+		fmt.Println("  " + key("Fastest cycle") + theme.StyleMuted.Render(fastStr) + prStr)
 	}
 	if r.LongestSec > 0 {
-		longMins := int(math.Round(r.LongestSec / 60))
-		var longStr string
-		if longMins < 1 {
-			longStr = "<1 min"
-		} else {
-			longStr = fmt.Sprintf("%d min", longMins)
-		}
+		longStr := formatMinutes(int(math.Round(r.LongestSec / 60)))
+		prStr := ""
 		if r.LongestPR != "" {
-			longStr += fmt.Sprintf(" (PR #%s)", r.LongestPR)
+			prStr = "  " + theme.StylePRNum.Render("PR #"+r.LongestPR)
 		}
-		row("Longest cycle", longStr)
+		fmt.Println("  " + key("Longest cycle") + theme.StyleMuted.Render(longStr) + prStr)
 	}
 
+	// Top patterns
 	top := r.TopPatterns(3)
 	if len(top) > 0 {
 		fmt.Println()
-		fmt.Println("  Top patterns:")
+		fmt.Println("  " + theme.StyleStep.Render("Top patterns"))
+		fmt.Println()
 		for i, p := range top {
-			fmt.Printf("    %d. %-32s (%dx)\n", i+1, p.Pattern, p.Count)
+			num := theme.StyleMuted.Render(fmt.Sprintf("%d.", i+1))
+			name := theme.StyleMuted.Render(fmt.Sprintf("  %-34s", p.Pattern))
+			count := theme.StyleVal.Render(fmt.Sprintf("%dx", p.Count))
+			fmt.Println("    " + num + name + count)
 		}
 	}
 
+	// Footer
 	fmt.Println()
-	fmt.Println(bar)
+	fmt.Println("  " + theme.StyleMuted.Render(strings.Repeat("─", 41)))
 	dir, err := SessionsDir()
 	if err != nil {
-		fmt.Println("  Sessions: (unknown)")
+		fmt.Println("  " + theme.StyleMuted.Render("Sessions: (unknown)"))
 	} else {
-		fmt.Printf("  Sessions: %s\n", dir)
+		fmt.Println("  " + theme.StyleMuted.Render("Sessions: "+dir))
 	}
 	fmt.Println()
+}
+
+// formatMinutes renders a duration in minutes as a human string.
+func formatMinutes(mins int) string {
+	if mins < 1 {
+		return "<1 min"
+	}
+	return fmt.Sprintf("%d min", mins)
 }
 
 // Print writes a formatted stats report to stdout.
