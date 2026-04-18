@@ -36,7 +36,7 @@ func RunInit() error {
 		if !fi.Mode().IsRegular() {
 			return fmt.Errorf("%s exists but is not a regular file (mode: %s); remove it manually and re-run", rinseConfigFile, fi.Mode())
 		}
-		fmt.Print(theme.StyleMuted.Render("Config already exists. Overwrite? (y/N) "))
+		fmt.Printf("Config already exists. Overwrite? (y/N) ")
 		line, _ := reader.ReadString('\n')
 		line = strings.TrimSpace(strings.ToLower(line))
 		if line != "y" && line != "yes" {
@@ -53,15 +53,12 @@ func RunInit() error {
 	// Prompt for engine.
 	fmt.Println(theme.StyleStep.Render("Select engine:"))
 	for i, r := range runners {
-		fmt.Printf("  %s %s\n",
-			theme.StyleMuted.Render(fmt.Sprintf("[%d]", i+1)),
-			theme.StyleVal.Render(r.name)+theme.StyleMuted.Render(" — "+r.desc),
-		)
+		fmt.Printf("  [%d] %s — %s\n", i+1, theme.StyleVal.Render(r.name), theme.StyleMuted.Render(r.desc))
 	}
 
 	runnerIdx := 0
 	for {
-		fmt.Print(theme.StyleMuted.Render(fmt.Sprintf("Engine (1-%d) [1]: ", len(runners))))
+		fmt.Printf(theme.StyleMuted.Render("Engine (1-%d) [1]: "), len(runners))
 		engineLine, _ := reader.ReadString('\n')
 		engineLine = strings.TrimSpace(engineLine)
 
@@ -82,17 +79,14 @@ func RunInit() error {
 			break
 		}
 
-		fmt.Println(theme.StyleErr.Render(fmt.Sprintf("Invalid engine selection %q. Please enter a number from 1-%d or a valid engine name.", engineLine, len(runners))))
+		fmt.Printf(theme.StyleErr.Render("Invalid engine selection %q. Please enter a number from 1-%d or a valid engine name.\n"), engineLine, len(runners))
 	}
 
 	selectedRunner := runners[runnerIdx]
-	fmt.Println(theme.StyleMuted.Render("→ Using: ") + theme.StyleVal.Render(selectedRunner.name))
-	fmt.Println()
+	fmt.Printf("→ Using: %s\n\n", theme.StyleVal.Render(selectedRunner.name))
 
 	// Prompt for model override.
-	fmt.Print(theme.StyleMuted.Render("Model override (leave blank for default: ") +
-		theme.StyleVal.Render(selectedRunner.defaultModel) +
-		theme.StyleMuted.Render("): "))
+	fmt.Printf(theme.StyleMuted.Render("Model override (leave blank for default: %s): "), selectedRunner.defaultModel)
 	modelLine, _ := reader.ReadString('\n')
 	modelOverride := strings.TrimSpace(modelLine)
 
@@ -167,6 +161,7 @@ func RunInit() error {
 		}
 	}
 
+	fmt.Printf("\n%s %s\n", theme.StyleLogSuccess.Render(theme.IconCheck), theme.StyleVal.Render("Created "+rinseConfigFile))
 	fmt.Println()
 	fmt.Println("Tip: commit .rinse.json so your team shares the same settings.")
 
