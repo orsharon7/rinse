@@ -63,13 +63,16 @@ The `--model` flag accepts any valid opencode model string (e.g. `github-copilot
 # Interactive TUI wizard — recommended first run
 rinse
 
+# Predict what Copilot will comment on — before you open the PR
+rinse predict
+
 # Create a per-repo config (.rinse.json) for shared team settings
 rinse init
 
 # Show session history and time-saved metrics (30-day rolling)
 rinse stats
 
-# Show today's PR review dashboard (approval rate, fastest/longest cycle)
+# Show today's PR review dashboard (approval rate, timing)
 rinse report
 
 # Check the Copilot review status of a PR (great for CI scripts)
@@ -101,6 +104,7 @@ The interactive TUI walks you through setup — pick a PR, configure the runner,
 
 ```
 rinse              # launch interactive TUI (PR picker)
+rinse predict      # predict Copilot comments before you push (new in v0.3)
 rinse init         # scaffold a per-repo .rinse.json config (guided setup)
 rinse stats        # show session history and time-saved metrics (30-day)
 rinse report       # show today's PR review dashboard (approval rate, timing)
@@ -109,6 +113,31 @@ rinse start <pr>   # start review loop non-interactively (no TTY)
 rinse --version    # print installed version
 rinse --help       # show full help
 ```
+
+### `rinse predict`
+
+Flags what Copilot will likely comment on **before you open the PR** — from your staged diff, locally, in under a second.
+
+```
+$ rinse predict
+
+◇  rinse predict  —  3 likely Copilot comments detected
+
+  ◇ Missing error handling: os.WriteFile return discarded         91%
+   internal/runner/runner.go:147
+
+  ◇ Unused variable: 'ctx' declared but not referenced            85%
+   internal/runner/runner.go:203
+
+  ◇ Naked return in named-return function                         72%
+   internal/engine/engine.go:89
+
+   3 predictions · run `rinse` to fix automatically
+```
+
+AST-based analysis — no network call, no LLM. Confidence scores tell you which issues Copilot is most likely to flag. Fix the high-confidence ones before review, ship cleaner PRs.
+
+**Pro (v0.4):** `rinse predict --interactive` opens a TUI review loop so you can fix predictions in-terminal. `rinse predict --doc-drift` uses an LLM to detect where your docs have drifted from your code.
 
 ### `rinse init`
 
