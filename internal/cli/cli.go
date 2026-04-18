@@ -732,7 +732,8 @@ USAGE
 
   rinse              Launch the interactive PR picker (recommended)
   rinse init         Create a per-repo .rinse.json config (guided setup)
-  rinse stats        Show session history and time-saved metrics
+  rinse stats        Show session history and time-saved metrics (30-day rolling)
+  rinse report       Show today's PR review dashboard (approval rate, time saved)
   rinse status       Print the Copilot review status of a PR (agent/CI use)
   rinse start        Start the review loop non-interactively (agent/CI use)
   rinse --version    Print the installed version
@@ -810,7 +811,7 @@ COMMANDS
 
   rinse stats
 
-    Reads session history and prints:
+    Reads session history and prints a 30-day rolling summary:
 
       RINSE Stats (last 30 days)
       PRs reviewed:     23
@@ -821,6 +822,29 @@ COMMANDS
       Top patterns:
         1. Missing error handling  (41x)
         2. Unused imports          (28x)
+
+  rinse report
+
+    Prints a today-focused PR review dashboard. Falls back to all-time data
+    if no sessions were recorded today.
+
+      ● RINSE  Today's Report · April 18, 2026
+
+      Cycles run              3
+      PRs reviewed            3
+      PRs approved            2 (67%)
+
+      Time saved              ~1.2 hours (est.)
+      Comments fixed          14
+      Avg per PR              5 comments, 2.1 iters
+
+      Fastest cycle           4 min  PR #42
+      Longest cycle           18 min  PR #38
+
+      Top patterns
+
+        1.  Missing error handling           3x
+        2.  Unused imports                   2x
 
   rinse status [<pr>] [--repo <owner/repo>] [--json]
 
