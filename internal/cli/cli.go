@@ -601,6 +601,23 @@ COMMANDS
     Prompts for engine, model, reflection settings, and auto-merge preference.
     Commit .rinse.json to share consistent defaults with your team.
 
+    .rinse.json schema:
+      {
+        "engine":         "opencode",  // "opencode" (default) or "claude"
+        "model":          "",          // AI model string; empty = engine default
+        "reflect":        false,       // enable reflection agent
+        "reflect_branch": "main",      // branch where reflection rules are pushed
+        "auto_merge":     false        // auto-merge PR once Copilot approves
+      }
+
+    Example:
+      {
+        "engine": "opencode",
+        "reflect": true,
+        "reflect_branch": "main",
+        "auto_merge": false
+      }
+
   rinse stats
 
     Reads session history and prints:
