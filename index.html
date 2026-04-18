@@ -541,6 +541,7 @@
     <a class="wordmark" href="/">RINSE</a>
     <div class="links">
       <a href="#demo" class="hide-mobile">Demo</a>
+      <a href="#how" class="hide-mobile">How it works</a>
       <a href="#pricing" class="hide-mobile">Pricing</a>
       <a href="https://github.com/orsharon7/rinse" target="_blank" rel="noopener" class="hide-mobile">GitHub</a>
       <a href="#waitlist" class="btn btn-primary">Join waitlist</a>
@@ -636,6 +637,37 @@
       <p style="font-size: 0.78rem; color: var(--muted); margin-top: 12px; font-family: var(--font-mono);">
         rinse predict · staged diff · 3 issues found before Copilot sees them
       </p>
+    </div>
+  </div>
+</section>
+
+<!-- ───────── HOW IT WORKS ───────── -->
+<section id="how">
+  <div class="container">
+    <p class="section-label">// under the hood</p>
+    <h2>No ML. No network calls. Just AST.</h2>
+
+    <div class="why-grid" style="margin-top: 32px;">
+      <div class="why-card">
+        <div class="why-icon">🌳</div>
+        <h3>AST-based analysis</h3>
+        <p><code>rinse predict</code> parses your staged diff into an AST and runs deterministic heuristics — the same patterns Copilot flags most often. No model inference, no latency.</p>
+      </div>
+      <div class="why-card">
+        <div class="why-icon">📈</div>
+        <h3>Confidence scoring</h3>
+        <p>Each prediction is ranked by empirical hit-rate. ≥70% means Copilot will almost certainly comment. Lower scores are shown but de-emphasised. You decide what to fix.</p>
+      </div>
+      <div class="why-card">
+        <div class="why-icon">🔁</div>
+        <h3>Autonomous review loop</h3>
+        <p>RINSE calls the GitHub Copilot review API, reads every unresolved comment, hands them to your AI fix agent, pushes, and loops — until the PR is approved or you quit.</p>
+      </div>
+      <div class="why-card">
+        <div class="why-icon">📦</div>
+        <h3>Single Go binary</h3>
+        <p>One binary, no daemon, no Docker. Installs in seconds with brew. Config lives in <code>.rinse.json</code> — commit it to share defaults with your team.</p>
+      </div>
     </div>
   </div>
 </section>
