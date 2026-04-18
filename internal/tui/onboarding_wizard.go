@@ -889,8 +889,8 @@ func (m wizModel) renderStepC() string {
 		val     bool
 		focusID int
 	}{
-		{"Desktop notifications", "Save your preference — enable per-run with --notify on rinse start.", m.remindOnComplete, cFocusRemind},
-		{"Auto-advance between PRs", "Save your preference for when auto-advance is available (coming soon).", m.autoAdvance, cFocusAuto},
+		{"Desktop notifications", "When on, pass --notify to rinse start and you'll get an alert when a cycle finishes.", m.remindOnComplete, cFocusRemind},
+		{"Auto-advance between PRs", "Move to the next PR automatically after approval. Coming soon — saved for when it ships.", m.autoAdvance, cFocusAuto},
 		{"Save cycle history", "Track PRs reviewed, comments fixed, and time saved in ~/.rinse/rinse.db.", m.saveHistory, cFocusHist},
 	}
 
@@ -979,7 +979,7 @@ func (m wizModel) renderStepD() string {
 
 	var actions string
 	if m.creatingCycle {
-		actions = "\n" + theme.StyleMuted.Render("  Saving settings…")
+		actions = "\n" + theme.StyleMuted.Render("  Setting up your first cycle…")
 	} else {
 		actions = "\n" + theme.StyleTeal.Render("  enter Save and open PR picker") +
 			"  " + theme.StyleMuted.Render("a Adjust first")
@@ -1025,7 +1025,7 @@ func (m wizModel) renderStepE() string {
 
 	var subBody string
 	if m.remindOnComplete {
-		subBody = "\n" + theme.StyleMuted.Render("Add --notify to rinse start to get a desktop alert when a cycle finishes.")
+		subBody = "\n" + theme.StyleMuted.Render("You enabled notifications — add --notify to rinse start to activate them.")
 	}
 
 	cta := "\n" + theme.StyleTeal.Render("  → Open the PR picker") + "  " + theme.StyleMuted.Render("(enter)")
