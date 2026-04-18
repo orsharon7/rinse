@@ -563,7 +563,7 @@ func PrintReport(sessions []Session) {
 	fmt.Println()
 
 	// Key column — 22 chars wide
-	key := func(s string) string { return theme.StyleKey.Copy().Width(22).Render(s) }
+	key := func(s string) string { return theme.StyleKey.Width(22).Render(s) }
 
 	// Cycles / PRs reviewed / approved
 	fmt.Println("  " + key("Cycles run") + theme.StyleMuted.Render(fmt.Sprintf("%d", r.TotalSessions)))
