@@ -21,6 +21,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -28,10 +29,16 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	xterm "github.com/charmbracelet/x/term"
 
+	"github.com/orsharon7/rinse/internal/db"
+	"github.com/orsharon7/rinse/internal/engine/opencode"
+	"github.com/orsharon7/rinse/internal/notify"
 	"github.com/orsharon7/rinse/internal/predict"
+	"github.com/orsharon7/rinse/internal/runner"
+	"github.com/orsharon7/rinse/internal/theme"
 )
 
 // ── Runner registry ───────────────────────────────────────────────────────────
@@ -75,14 +82,13 @@ type StartResult struct {
 // PredictResult is the JSON envelope for `rinse predict --json`.
 type PredictResult struct {
 	OK          bool              `json:"ok"`
-	Source      string            `json:"source,omitempty"`
 	Predictions []PredictItemJSON `json:"predictions"`
 	Count       int               `json:"count"`
 	Scanned     string            `json:"scanned"` // "staged" | "pr" | "none"
 	Error       string            `json:"error,omitempty"`
 }
 
-// PredictItemJSON is a single prediction in JSON output.
+// PredictItemJSON is a single prediction in JSON output (UX spec from RIN-177).
 type PredictItemJSON struct {
 	Confidence  string `json:"confidence"` // "high" | "med" | "low"
 	Description string `json:"description"`
@@ -106,8 +112,8 @@ func TryDispatch() bool {
 	case "start":
 		runStartCmd(os.Args[2:])
 		return true
-	case "predict":
-		runPredictCmd(os.Args[2:])
+	case "run":
+		runRunCmd(os.Args[2:])
 		return true
 	case "help", "--help", "-h":
 		PrintHelp()
@@ -191,9 +197,29 @@ func runStatusCmd(args []string) {
 	if asJSON {
 		emitJSON(StatusResult{OK: true, PR: prNum, Repo: repo, Status: status})
 	} else {
-		fmt.Printf("pr:     #%s\n", prNum)
-		fmt.Printf("repo:   %s\n", repo)
-		fmt.Printf("status: %s\n", status)
+		fmt.Println(theme.StyleKey.Render("pr:") + "     " + theme.StyleVal.Render("#"+prNum))
+		fmt.Println(theme.StyleKey.Render("repo:") + "   " + theme.StyleMuted.Render(repo))
+		fmt.Println(theme.StyleKey.Render("status:") + " " + renderStatusBadge(status))
+	}
+}
+
+// renderStatusBadge returns a Lip Gloss styled badge for the given PR status.
+func renderStatusBadge(status string) string {
+	switch status {
+	case "approved":
+		return theme.StyleLogSuccess.Render(theme.IconCheck + " approved")
+	case "merged":
+		return theme.StyleLogSuccess.Render(theme.IconCheck + " merged")
+	case "pending":
+		return theme.StylePhaseWaiting.Render(theme.IconRunning + " pending")
+	case "new_review":
+		return theme.StylePhaseWaiting.Render(theme.IconRunning + " new_review")
+	case "no_reviews":
+		return theme.StyleMuted.Render(theme.IconCircle + " no_reviews")
+	case "closed":
+		return theme.StyleMuted.Render(theme.IconCross + " closed")
+	default:
+		return theme.StyleErr.Render(theme.IconCross + " " + status)
 	}
 }
 
@@ -278,6 +304,161 @@ func detectCurrentPR(repo string) string {
 	return strconv.Itoa(prs[0].Number)
 }
 
+// ── run ───────────────────────────────────────────────────────────────────────
+
+// stdoutIsTerminal reports whether os.Stdout is connected to a TTY.
+func stdoutIsTerminal() bool {
+	fi, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return (fi.Mode() & os.ModeCharDevice) != 0
+}
+
+// runRunCmd implements `rinse run` — the native Go runner with optional NDJSON
+// output. It calls runner.Run directly (no shell script) and streams lifecycle
+// events when --json is passed or stdout is not a TTY.
+func runRunCmd(args []string) {
+	var (
+		prNum      string
+		repo       string
+		cwd        string
+		model      string
+		runnerName string
+		asJSON     bool
+		// Future flags — accepted but not yet wired up.
+		// --max-iterations and --poll-interval are reserved; do not block on these.
+	)
+
+	// Pre-scan for --json before any validation so errors are emitted in the
+	// right format.
+	for _, a := range args {
+		if a == "--json" {
+			asJSON = true
+			break
+		}
+	}
+
+	// Auto-detect non-TTY: if stdout is not a terminal, force JSON mode.
+	if !asJSON && !stdoutIsTerminal() {
+		asJSON = true
+	}
+
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		fatalf(asJSON, "usage: rinse run <pr_number> [options]\nRun 'rinse help' for full usage.")
+	}
+	prNum = args[0]
+	if n, err := strconv.Atoi(prNum); err != nil || n <= 0 {
+		fatalf(asJSON, "PR number must be a positive integer, got: %s", prNum)
+	}
+
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--repo":
+			i++
+			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+				fatalf(asJSON, "--repo requires a value (e.g. --repo owner/repo)")
+			}
+			repo = args[i]
+		case "--cwd":
+			i++
+			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+				fatalf(asJSON, "--cwd requires a value (e.g. --cwd /path/to/repo)")
+			}
+			cwd = args[i]
+		case "--model":
+			i++
+			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+				fatalf(asJSON, "--model requires a value (e.g. --model claude-sonnet-4-6)")
+			}
+			model = args[i]
+		case "--runner":
+			i++
+			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+				fatalf(asJSON, "--runner requires a value (e.g. --runner opencode)")
+			}
+			runnerName = args[i]
+		case "--json":
+			asJSON = true
+		case "--max-iterations":
+			// Future flag — consume the value but do not wire up yet.
+			i++
+			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+				fatalf(asJSON, "--max-iterations requires a value")
+			}
+			// Intentionally not wired: see RIN-23 spec.
+		case "--poll-interval":
+			// Future flag — consume the value but do not wire up yet.
+			i++
+			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+				fatalf(asJSON, "--poll-interval requires a value")
+			}
+			// Intentionally not wired: see RIN-23 spec.
+		default:
+			fatalf(asJSON, "unknown flag: %s", args[i])
+		}
+	}
+
+	// Defaults.
+	if repo == "" {
+		repo = detectRepo()
+		if repo == "" {
+			fatalf(asJSON, "no repository detected — run from inside a git checkout or pass --repo")
+		}
+	}
+	if cwd == "" {
+		cwd = detectCWD()
+	}
+
+	// Resolve runner (only opencode is wired into the Go runner for now).
+	if runnerName != "" && !strings.EqualFold(runnerName, "opencode") {
+		fatalf(asJSON, "rinse run currently only supports --runner opencode")
+	}
+	if model == "" {
+		model = opencode.DefaultModel
+	}
+
+	// Build runner opts.
+	opts := runner.Opts{
+		Repo:       repo,
+		PR:         prNum,
+		CWD:        cwd,
+		Model:      model,
+		RunnerName: "opencode",
+		Agent:      &opencode.Agent{},
+		DB:         openRunDB(),
+	}
+
+	result, err := runner.Run(opts)
+
+	exitCode := 0
+	switch {
+	case err == nil && result.Approved:
+		exitCode = 0
+	case err != nil && isMaxIterationsErr(err):
+		exitCode = 1
+	case err != nil:
+		exitCode = 2
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+	}
+
+	os.Exit(exitCode)
+}
+
+// openRunDB tries to open the telemetry DB. Non-fatal on failure.
+func openRunDB() *db.DB {
+	d, err := db.OpenDefault()
+	if err != nil {
+		return nil
+	}
+	return d
+}
+
+// isMaxIterationsErr reports whether err wraps runner.ErrMaxIterations.
+func isMaxIterationsErr(err error) bool {
+	return errors.Is(err, runner.ErrMaxIterations)
+}
+
 // ── start ─────────────────────────────────────────────────────────────────────
 
 func runStartCmd(args []string) {
@@ -290,6 +471,7 @@ func runStartCmd(args []string) {
 		doReflect   bool
 		reflectMain string
 		autoMerge   bool
+		doNotify    bool
 		asJSON      bool
 	)
 
@@ -346,6 +528,8 @@ func runStartCmd(args []string) {
 			reflectMain = args[i]
 		case "--auto-merge":
 			autoMerge = true
+		case "--notify":
+			doNotify = true
 		case "--json":
 			asJSON = true
 		default:
@@ -421,11 +605,27 @@ func runStartCmd(args []string) {
 	if asJSON {
 		// Run with streaming output redirected to stderr so stdout remains
 		// exclusively for the final JSON envelope (machine-readable).
+		start := time.Now()
 		exitCode := execInherited(cmdArgs, os.Stderr)
 		ok := exitCode == 0
 		errMsg := ""
 		if !ok {
 			errMsg = fmt.Sprintf("runner exited with code %d", exitCode)
+		}
+		// Send desktop notification when --notify is set (best-effort).
+		if doNotify {
+			var result notify.CycleResult
+			if ok {
+				result = notify.ResultApproved
+			} else {
+				result = notify.ResultError
+			}
+			notify.CycleNotification(true, notify.CycleParams{
+				PR:      prNum,
+				Repo:    repo,
+				Result:  result,
+				Elapsed: time.Since(start),
+			})
 		}
 		emitJSON(StartResult{
 			OK:       ok,
@@ -440,6 +640,7 @@ func runStartCmd(args []string) {
 	}
 
 	// Plain mode: replace the process so the runner owns the terminal.
+	// Notification is not available in exec-replace mode; use --json or the TUI.
 	execReplace(cmdArgs)
 }
 
@@ -548,32 +749,12 @@ func runPredictCmd(args []string) {
 		os.Exit(0)
 	}
 
-	// Human-readable styled output.
-	// Detect terminal width; default 80 for non-TTY.
+	// Human-readable styled output (Lip Gloss, theme.* tokens per RIN-177 spec).
 	termWidth := 80
 	if w, _, err2 := xterm.GetSize(os.Stdout.Fd()); err2 == nil && w > 0 {
 		termWidth = w
 	}
-
-	// Empty diff — nothing staged, no PR.
-	if strings.TrimSpace(report.Source) == "" || (len(report.Predictions) == 0 && report.Source == "staged changes" && pr == 0) {
-		// Distinguish truly-empty diff from clean diff.
-		// Run() returns Source="staged changes" for staged diffs regardless of
-		// whether predictions exist. The empty-diff case is detected by the CLI
-		// because Run returns no error but also no predictions AND the diff was
-		// empty (pr==0 and no staged changes). We call RenderEmpty only when
-		// report source is explicitly "staged changes" AND there are no lines in
-		// the diff — but since Run doesn't expose raw diff length, we use a
-		// conservative heuristic: if pr==0, no staged diff produced predictions,
-		// and the diff was truly empty, Run still returns an empty Predictions
-		// slice but Source is set to "staged changes". We can't distinguish
-		// "staged but clean" from "nothing staged" here, so we always call
-		// RenderClean for the zero-predictions case. RenderEmpty is reserved
-		// for future callers that detect empty diffs explicitly.
-		predict.Render(os.Stdout, report, termWidth)
-	} else {
-		predict.Render(os.Stdout, report, termWidth)
-	}
+	predict.Render(os.Stdout, report, termWidth)
 	// Exit 0 even with predictions — non-blocking by design (v0.3).
 	os.Exit(0)
 }
@@ -719,73 +900,225 @@ func fatalf(asJSON bool, format string, a ...any) {
 
 // PrintHelp prints the CLI usage text to stdout.
 func PrintHelp() {
-	fmt.Print(`rinse — Autonomous Copilot PR review lifecycle manager
+	fmt.Print(`rinse — AI-powered PR review that fixes your code automatically.
+
+RINSE drives an AI agent in a loop to resolve GitHub Copilot review comments
+until your PR is approved. You pick the PR; RINSE handles the rest.
 
 USAGE
-  rinse [subcommand] [flags]
 
-  Without a subcommand, rinse launches the interactive TUI.
+  rinse              Launch the interactive PR picker (recommended)
+  rinse init         Create a per-repo .rinse.json config (guided setup)
+  rinse stats        Show session history and time-saved metrics (30-day rolling)
+  rinse report       Show today's PR review dashboard (approval rate, time saved)
+  rinse status       Print the Copilot review status of a PR (agent/CI use)
+  rinse start        Start the review loop non-interactively (agent/CI use)
+  rinse --version    Print the installed version
+  rinse --help       Show this help
 
-SUBCOMMANDS
+QUICK START
 
-  status [<pr>] [--repo <owner/repo>] [--json]
-      Print the current Copilot review status of a PR.
-      When <pr> is omitted, auto-detects from the current git branch.
+  cd your-repo
+  rinse
 
-      Output statuses:
-        approved   — Copilot approved the PR
-        pending    — Copilot review is in progress
-        new_review — new review with comments ready to fix
-        no_reviews — no Copilot reviews yet
-        merged     — PR already merged
-        closed     — PR closed without merge
-        error      — could not determine status
+  RINSE auto-detects your repository and lists open PRs. Press Enter to
+  launch the review cycle on the selected PR.
 
-  start <pr> [options] [--json]
-      Start the PR review fix loop non-interactively (no TUI, no TTY required).
-      Suitable for agent pipelines and CI.
+INTERACTIVE CONTROLS
 
-      --repo <owner/repo>           Override repository detection
-      --cwd  <path>                 Local checkout path (default: current directory)
-      --model <model>               AI model string (overrides runner default)
-      --runner opencode|claude      Runner to use (default: opencode)
-      --reflect                     Enable reflection agent to update AGENTS.md
-      --reflect-main-branch <br>    Target branch for reflection commits (default: main)
-      --auto-merge                  Auto-merge when Copilot approves
-      --json                        Emit a JSON result after the runner exits.
-                                    Streaming output goes to stderr throughout.
+  ↑ ↓ / j k    Navigate the PR list
+  Enter         Launch review cycle on the selected PR
+  g / G         Jump to top / bottom of list
+  #             Enter a PR number manually
+  s             Open settings (runner, model, reflect, auto-merge, notify)
+  r             Refresh PR list from GitHub
+  ?             Toggle keyboard shortcuts overlay
+  q / Ctrl+C    Quit
 
-  predict [<pr>] [--repo <owner/repo>] [--json] [--no-log]
-      Predict which Copilot patterns are likely to be flagged in a PR or in
-      staged changes. Report Mode only (v0.3) — no auto-fix.
+SETTINGS  (press s inside the PR picker)
 
-      When <pr> is omitted, analyses git staged changes (git diff --cached).
-      When <pr> is provided, fetches the full PR diff via gh.
+  runner        opencode  GitHub Copilot, no API key required (default)
+                claude    Claude Code, requires an Anthropic API key
 
-      Output: list of predicted patterns with confidence scores (0–100%).
-      Exit 0 even when predictions exist — non-blocking by design.
+  model         AI model to use. Leave blank for the runner's default.
+                opencode default: github-copilot/claude-sonnet-4.6
+                claude default:   claude-sonnet-4-6
 
-      --repo <owner/repo>  Override repository detection (required for PR mode
-                           when not inside a git checkout)
-      --pr <number>        PR number (alternative to positional argument)
-      --json               Emit a machine-readable JSON result
-      --no-log             Skip writing prediction events to ~/.rinse/predict-events.log
+  reflect       When on, a second AI agent extracts generalizable coding
+                rules from review comments and pushes them to AGENTS.md
+                and CLAUDE.md on your main branch. Each future cycle
+                starts with those rules loaded — fewer comments over time.
 
-      Patterns detected (v0.3):
-        • Missing error handling        (confidence ~75–88%)
-        • Unused variable               (confidence ~82%)
-        • Naked return in long function (confidence ~72%)
-        • TODO/FIXME left in code       (confidence ~65%)
-        • Hardcoded secret / credential (confidence ~93%)
-        • Overly long function / block  (confidence ~60%)
+  branch        The branch where reflection rules are pushed (default: main)
 
-  help | --help | -h
-      Show this help.
+  auto-merge    When on, RINSE merges the PR automatically once approved.
 
-  --version | -v
-      Print version string.
+  notify        When on, RINSE sends a desktop notification when the review
+                cycle completes. macOS uses osascript; Linux uses notify-send.
+                No-op in headless/CI environments.
+
+  Settings are saved per-repo in:
+    macOS:  ~/Library/Application Support/rinse/config.json
+    Linux:  ~/.config/rinse/config.json
+
+COMMANDS
+
+  rinse init
+
+    Scaffolds a per-repo .rinse.json config in the current directory.
+    Prompts for engine, model, reflection settings, and auto-merge preference.
+    Commit .rinse.json to share consistent defaults with your team.
+
+    .rinse.json schema:
+      {
+        "engine":         "opencode",  // "opencode" (default) or "claude"
+        "model":          "",          // AI model string; empty = engine default
+        "reflect":        false,       // enable reflection agent
+        "reflect_branch": "main",      // branch where reflection rules are pushed
+        "auto_merge":     false        // auto-merge PR once Copilot approves
+      }
+
+    Example:
+      {
+        "engine": "opencode",
+        "reflect": true,
+        "reflect_branch": "main",
+        "auto_merge": false
+      }
+
+  rinse stats
+
+    Reads session history and prints a 30-day rolling summary:
+
+      RINSE Stats (last 30 days)
+      PRs reviewed:     23
+      Comments fixed:   187
+      Avg iterations:   2.1
+      Est. time saved:  ~9.4 hours
+
+      Top patterns:
+        1. Missing error handling  (41x)
+        2. Unused imports          (28x)
+
+  rinse report
+
+    Prints a today-focused PR review dashboard. Falls back to all-time data
+    if no sessions were recorded today.
+
+      ● RINSE  Today's Report · April 18, 2026
+
+      Cycles run              3
+      PRs reviewed            3
+      PRs approved            2 (67%)
+
+      Time saved              ~1.2 hours (est.)
+      Comments fixed          14
+      Avg per PR              5 comments, 2.1 iters
+
+      Fastest cycle           4 min  PR #42
+      Longest cycle           18 min  PR #38
+
+      Top patterns
+
+        1.  Missing error handling           3x
+        2.  Unused imports                   2x
+
+  rinse status [<pr>] [--repo <owner/repo>] [--json]
+
+    Print the current Copilot review status of a PR. Suitable for agents
+    and CI pipelines. When <pr> is omitted, auto-detects from the current
+    git branch. --pr is an alias for the positional PR number argument.
+
+    Output statuses:
+      approved   — Copilot approved the PR
+      pending    — Copilot review is in progress
+      new_review — new review with comments ready to fix
+      no_reviews — no Copilot reviews yet
+      merged     — PR already merged
+      closed     — PR closed without merge
+      error      — could not determine status
+
+    JSON output (--json):
+      {"ok":true,"pr":"42","repo":"owner/repo","status":"approved"}
+      {"ok":false,"pr":"42","repo":"owner/repo","status":"error","error":"..."}
+
+  rinse start <pr> [options] [--json]
+
+    Start the PR review fix loop non-interactively (no TUI, no TTY required).
+    Suitable for agent pipelines and CI.
+
+    --repo <owner/repo>           Override repository detection
+    --cwd  <path>                 Local checkout path (default: current directory)
+    --model <model>               AI model string (overrides runner default)
+    --runner opencode|claude      Runner to use (default: opencode)
+    --reflect                     Enable reflection agent to update AGENTS.md
+    --reflect-main-branch <br>    Target branch for reflection commits (default: main)
+    --auto-merge                  Auto-merge when Copilot approves
+    --notify                      Send a desktop notification when the cycle completes.
+                                  macOS: osascript, Linux: notify-send. No-op in CI/headless.
+                                  Only fires in --json mode (exec-replace mode cannot notify).
+    --json                        Emit a JSON result after the runner exits.
+                                  Streaming output goes to stderr throughout.
+
+    JSON output (--json):
+      {"ok":true,"pr":"42","repo":"owner/repo","runner":"opencode","model":"github-copilot/claude-sonnet-4.6","exit_code":0}
+      {"ok":false,"pr":"42","repo":"owner/repo","runner":"opencode","model":"","exit_code":1,"error":"runner failed"}
+
+ENVIRONMENT VARIABLES
+
+  RINSE_SCRIPT_DIR      Override the directory where runner scripts are found.
+  PR_REVIEW_SCRIPT_DIR  Fallback script directory (legacy alias).
+  RINSE_API_URL         Override the pro backend URL used by the first-run
+                        onboarding wizard (default: http://localhost:7433).
+                        Set this when running a non-standard backend.
+  NO_COLOR              When set to any non-empty value, RINSE disables all
+                        ANSI colour output. Follows the no-color.org standard.
+
+REQUIREMENTS
+
+  gh v2.88+   GitHub CLI — used by all runners
+  opencode    Required for the opencode runner
+  claude      Required for the claude runner
+  jq          Required by shell scripts
+  git         Required by the reflection agent
+
+SESSION DATA
+
+  Each run is saved as a JSON file in ~/.rinse/sessions/. No data leaves
+  your machine. Use these files to build dashboards or custom reports.
+
+  File naming: <repo_underscored>-pr<number>-<timestamp>-<nanoseconds>.json
+  Example:     orsharon7_rinse-pr42-20260418-102301-000000000.json
+
+  Schema:
+    {
+      "pr":             "42",
+      "repo":           "owner/repo",
+      "runner_name":    "opencode",               // "opencode" or "claude"
+      "started_at":     "2026-04-18T10:23:01Z",  // RFC 3339
+      "ended_at":       "2026-04-18T10:31:44Z",
+      "approved":       true,
+      "iterations":     2,
+      "total_comments": 7,
+      "comments_by_round": [3, 2],                // optional: comments per iteration
+      "patterns":       ["Missing error handling", "Unused imports"]
+    }
+
+  rinse stats reads all session files and aggregates them.
+
+FILES
+
+  .rinse.json     Per-repo config (created by rinse init). Commit to share
+                  settings with your team.
+
+  .rinseignore    Optional file in your repo root. List path patterns (one per
+                  line) to exclude from RINSE review cycles — useful for
+                  generated files, vendored code, or large assets.
 
 EXAMPLES
+
+  # Interactive TUI — recommended first run
+  rinse
 
   # Check status of the PR for the current branch (machine-readable)
   rinse status --json
@@ -799,5 +1132,9 @@ EXAMPLES
   # Agent pipeline: stream output, capture JSON result
   rinse start 42 --repo owner/repo --reflect --json
 
+MORE
+
+  GitHub:    https://github.com/orsharon7/rinse
+  Pro tier:  https://rinse.sh
 `)
 }
