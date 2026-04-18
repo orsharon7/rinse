@@ -11,10 +11,11 @@
 #   --dry-run                  Print what would be written without writing
 #
 # How it works:
-#   1. Scans log files in ~/.pr-review/logs/ matching *-pr-*.log
+#   1. Scans .log files in ~/.pr-review/logs/
 #   2. Extracts PR number, start/end timestamps, iteration count, and comment
-#      counts per iteration from log lines emitted by pr-review-opencode.sh
-#   3. Writes one JSON session file per log into ~/.rinse/sessions/
+#      counts per iteration from PR-review log lines emitted by
+#      pr-review-opencode.sh
+#   3. Writes one JSON session file per matching log into ~/.rinse/sessions/
 #      (skips if a session file for that repo+PR+start already exists)
 #
 set -euo pipefail
@@ -49,7 +50,10 @@ if [[ -z "$REPO" ]]; then
 fi
 
 SESSIONS_DIR="${HOME}/.rinse/sessions"
-[[ "$DRY_RUN" == false ]] && mkdir -p "$SESSIONS_DIR"
+if [[ "$DRY_RUN" == false ]]; then
+  mkdir -p "$SESSIONS_DIR"
+  chmod 700 "$SESSIONS_DIR"
+fi
 
 # UUID generator (same approach as pr-review-opencode.sh)
 _gen_uuid() {
@@ -68,48 +72,101 @@ _gen_uuid() {
 processed=0
 skipped=0
 
+shopt -s nullglob
 for logfile in "${LOGS_DIR}"/*.log; do
   [[ -f "$logfile" ]] || continue
+
+  log_basename=$(basename "$logfile")
+
+  # Only backfill main cycle logs. Skip known auxiliary logs (for example
+  # *-reflect.log) and require the PR review loop start marker to be present.
+  [[ "$log_basename" == *-reflect.log ]] && continue
+  grep -qE 'Starting .*PR review loop' "$logfile" 2>/dev/null || continue
 
   # Extract PR number from filename: <repo_slug>-pr-<N>.log
   pr_num=$(basename "$logfile" .log | grep -oE 'pr-[0-9]+' | grep -oE '[0-9]+' | head -1 || echo "")
   [[ -z "$pr_num" ]] && continue
 
+  # ── Handle multi-run log files ────────────────────────────────────────────
+  # pr-review-opencode.sh appends to the same log file across runs (via tee -a),
+  # so a single .log file can contain multiple sessions separated by the start
+  # marker.  Backfilling the whole file as one session would produce incorrect
+  # duration/iteration/comment counts.  Instead, detect multiple markers, emit
+  # a warning, and process only the most-recent segment.
+  marker_count=$(grep -cE 'Starting .*PR review loop' "$logfile" 2>/dev/null || echo "0")
+  if [[ "$marker_count" -gt 1 ]]; then
+    >&2 echo "⚠️  ${log_basename}: ${marker_count} session starts found — backfilling only the most recent segment."
+    # Find the line number of the last occurrence of the start marker.
+    last_marker_line=$(grep -nE 'Starting .*PR review loop' "$logfile" 2>/dev/null | tail -1 | cut -d: -f1)
+    # Build a temp file containing only that last segment.
+    segment_file=$(mktemp /tmp/rinse_segment_XXXXXX.log)
+    tail -n +"$last_marker_line" "$logfile" > "$segment_file"
+    logfile="$segment_file"
+    _cleanup_segment() { rm -f "$segment_file"; }
+    trap '_cleanup_segment' EXIT
+  fi
+
   # ── Parse log timestamps ──────────────────────────────────────────────────
   # Log lines typically start with a timestamp pattern like:
   #   [2026-04-17 14:00:01] 🚀 Starting opencode PR review loop
-  # We extract the first and last ISO-like timestamp from the file.
-  first_ts=$(grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}:[0-9]{2}' "$logfile" 2>/dev/null | head -1 || echo "")
-  last_ts=$(grep  -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}:[0-9]{2}' "$logfile" 2>/dev/null | tail -1 || echo "")
+  # Only extract leading bracketed timestamps written by the logger so we
+  # don't accidentally pick up ISO-like timestamps from arbitrary command output.
+  first_ts=$(grep -oE '^\[[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}:[0-9]{2}\]' "$logfile" 2>/dev/null | sed 's/^\[//; s/\]$//' | head -1 || echo "")
+  last_ts=$(grep  -oE '^\[[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}:[0-9]{2}\]' "$logfile" 2>/dev/null | sed 's/^\[//; s/\]$//' | tail -1 || echo "")
 
   # Fallback to file mtime when timestamps not in log.
   if [[ -z "$first_ts" ]]; then
-    first_ts=$(date -r "$logfile" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || date "+%Y-%m-%d %H:%M:%S")
+    first_ts=$(stat -f "%Sm" -t "%Y-%m-%d %H:%M:%S" "$logfile" 2>/dev/null \
+      || stat -c "%y" "$logfile" 2>/dev/null | cut -c1-19 \
+      || date "+%Y-%m-%d %H:%M:%S")
     last_ts="$first_ts"
   fi
 
-  # Normalise: replace space separator with T and append Z.
-  started_at="${first_ts/ /T}Z"
-  ended_at="${last_ts/ /T}Z"
+  # Convert local timestamps to UTC before formatting as RFC-3339Z.
+  # Log lines are written with local time (date '+%Y-%m-%d %H:%M:%S'), so we
+  # must convert through an epoch to get an accurate UTC representation.
+  _ts_to_utc() {
+    local ts="$1"
+    local epoch
+    epoch=$(date -j -f "%Y-%m-%d %H:%M:%S" "$ts" "+%s" 2>/dev/null) \
+      || epoch=$(date --date="$ts" "+%s" 2>/dev/null) \
+      || { echo "${ts/ /T}Z"; return; }
+    date -u -r "$epoch" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null \
+      || date -u --date="@${epoch}" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null \
+      || echo "${ts/ /T}Z"
+  }
+  started_at=$(_ts_to_utc "$first_ts")
+  ended_at=$(_ts_to_utc "$last_ts")
 
-  # Compute file-slug for session filename (matches pattern used in Go/shell).
+  # Compute session filename using the Go stats convention:
+  # YYYYMMDD-HHMMSS-<repo>-PR<N>-<session_id>.json
+  session_id="$(_gen_uuid)"
   repo_slug="${REPO//\//-}"
-  started_slug="${started_at:0:10}-${started_at:11:8}"
-  started_slug="${started_slug//:/-}"
-  session_fname="${SESSIONS_DIR}/${started_slug}-${repo_slug}-pr-${pr_num}.json"
+  date_part="${started_at:0:10}"
+  date_part="${date_part//-/}"
+  time_part="${started_at:11:8}"
+  time_part="${time_part//:/}"
+  started_slug="${date_part}-${time_part}"
+  session_prefix="${SESSIONS_DIR}/${started_slug}-${repo_slug}-PR${pr_num}"
+  legacy_session_fname="${session_prefix}.json"
+  session_fname="${session_prefix}-${session_id}.json"
 
-  if [[ -f "$session_fname" ]]; then
+  if [[ -f "$legacy_session_fname" ]] || compgen -G "${session_prefix}-*.json" > /dev/null; then
     (( skipped++ )) || true
     continue
   fi
 
   # ── Parse iteration/comment counts from log ───────────────────────────────
-  # Look for lines like: "💬 N comment(s) in review"
+  # Look for lines like: "💬 N comment(s) in review", and also terminal
+  # success lines that imply a completed review with zero comments.
   declare -a comments_arr=()
   while IFS= read -r line; do
-    cnt=$(echo "$line" | grep -oE '^[0-9]+' || echo "")
-    [[ -n "$cnt" ]] && comments_arr+=("$cnt")
-  done < <(grep -oE '[0-9]+ comment\(s\) in review' "$logfile" 2>/dev/null | grep -oE '^[0-9]+' || true)
+    if [[ "$line" =~ ([0-9]+)[[:space:]]+comment\(s\)[[:space:]]+in[[:space:]]+review ]]; then
+      comments_arr+=("${BASH_REMATCH[1]}")
+    elif [[ "$line" =~ Clean[[:space:]]+review.*0[[:space:]]+comments ]] || [[ "$line" =~ Copilot[[:space:]]+APPROVED ]]; then
+      comments_arr+=("0")
+    fi
+  done < "$logfile"
 
   total_comments=0
   for c in "${comments_arr[@]+"${comments_arr[@]}"}"; do
@@ -129,12 +186,24 @@ for logfile in "${LOGS_DIR}"/*.log; do
 
   # ── Determine outcome from log ────────────────────────────────────────────
   outcome="aborted"
-  if grep -q "APPROVED\|merged\|Clean review" "$logfile" 2>/dev/null; then
-    if grep -q "Auto-merg\|squash" "$logfile" 2>/dev/null; then
-      outcome="merged"
-    else
-      outcome="approved"
-    fi
+  review_approved=false
+  merge_confirmed=false
+
+  if grep -Eq 'APPROVED|Clean review' "$logfile" 2>/dev/null; then
+    review_approved=true
+  fi
+
+  # Only treat terminal success messages as proof that the PR was merged.
+  # Pre-merge intent lines such as "Auto-merging..." or "squash" may be
+  # emitted before `gh pr merge` runs and therefore cannot confirm success.
+  if grep -Eq '✅ Merged, remote branch deleted|🎉 PR merged!|PR merged!' "$logfile" 2>/dev/null; then
+    merge_confirmed=true
+  fi
+
+  if [[ "$merge_confirmed" == true ]]; then
+    outcome="merged"
+  elif [[ "$review_approved" == true ]]; then
+    outcome="approved"
   elif grep -q "max iterations" "$logfile" 2>/dev/null; then
     outcome="max_iterations"
   elif grep -q "opencode exited with code" "$logfile" 2>/dev/null; then
@@ -152,8 +221,6 @@ for logfile in "${LOGS_DIR}"/*.log; do
   [[ $duration_seconds -lt 0 ]] && duration_seconds=0
   estimated_saved=$(( total_comments * 240 ))
 
-  session_id="$(_gen_uuid)"
-
   if [[ "$DRY_RUN" == true ]]; then
     echo "[DRY RUN] Would write: ${session_fname}"
     echo "          PR #${pr_num}  iterations=${iterations}  comments=${total_comments}  outcome=${outcome}"
@@ -161,15 +228,21 @@ for logfile in "${LOGS_DIR}"/*.log; do
     continue
   fi
 
-  jq -n \
+  bk_approved="false"
+  [[ "$outcome" == "approved" || "$outcome" == "merged" ]] && bk_approved="true"
+
+  tmp_session_fname="$(mktemp "$(dirname "$session_fname")/.tmp_session_XXXXXX.json")"
+  if jq -n \
     --arg session_id     "$session_id" \
     --arg repo           "$REPO" \
     --arg pr             "$pr_num" \
+    --arg pr_title       "" \
     --arg started_at     "$started_at" \
     --arg ended_at       "$ended_at" \
     --arg runner         "opencode" \
     --arg model          "unknown" \
     --arg outcome        "$outcome" \
+    --argjson approved   "$bk_approved" \
     --argjson iterations "$iterations" \
     --argjson comments   "$comments_json" \
     --argjson total      "$total_comments" \
@@ -179,17 +252,26 @@ for logfile in "${LOGS_DIR}"/*.log; do
       session_id:                    $session_id,
       repo:                          $repo,
       pr:                            $pr,
+      pr_title:                      $pr_title,
       started_at:                    $started_at,
       ended_at:                      $ended_at,
       duration_seconds:              $duration,
       runner:                        $runner,
       model:                         $model,
       outcome:                       $outcome,
+      approved:                      $approved,
       iterations:                    $iterations,
       copilot_comments_by_iteration: $comments,
       total_comments:                $total,
       estimated_time_saved_seconds:  $saved
-    }' > "$session_fname"
+    }' > "$tmp_session_fname"; then
+    mv "$tmp_session_fname" "$session_fname"
+    chmod 600 "$session_fname"
+  else
+    rm -f "$tmp_session_fname"
+    >&2 echo "⚠️  jq failed — skipping ${session_fname}"
+    continue
+  fi
 
   echo "✅ Backfilled: ${session_fname}  (PR #${pr_num}, ${outcome}, ${total_comments} comments)"
   (( processed++ )) || true

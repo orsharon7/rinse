@@ -152,6 +152,11 @@ func Run(opts Opts) (Result, error) {
 	}
 	resumedFrom := state.Iteration
 
+	// Keep session iteration data scoped to the current run so it stays
+	// consistent with per-iteration session fields such as
+	// CopilotCommentsByIteration. Resume progress is tracked separately via
+	// resumedFrom / Result.ResumedFromIteration.
+
 	if resumedFrom > 0 {
 		log.Info("runner: resuming from checkpoint",
 			"repo", opts.Repo,

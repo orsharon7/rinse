@@ -8,6 +8,7 @@ import (
 
 	"github.com/orsharon7/rinse/internal/engine"
 	"github.com/orsharon7/rinse/internal/engine/lock"
+	"github.com/orsharon7/rinse/internal/stats"
 )
 
 // stubAgent is a configurable test double for engine.Agent.
@@ -53,6 +54,11 @@ func tempLockDir(t *testing.T) {
 	lock.Dir = t.TempDir()
 }
 
+func tempSessionsDir(t *testing.T) {
+	t.Helper()
+	t.Setenv("RINSE_SESSIONS_DIR", t.TempDir())
+}
+
 func baseOpts(agent engine.Agent) Opts {
 	return Opts{
 		Repo:          "owner/repo",
@@ -72,6 +78,7 @@ func t_tempDir() string { return os.TempDir() }
 func TestRun_ApprovedFirstIteration(t *testing.T) {
 	tempStateDir(t)
 	tempLockDir(t)
+	tempSessionsDir(t)
 
 	agent := &stubAgent{
 		name:    "stub",
@@ -87,11 +94,40 @@ func TestRun_ApprovedFirstIteration(t *testing.T) {
 	if res.Iterations != 1 {
 		t.Fatalf("expected 1 iteration, got %d", res.Iterations)
 	}
+	// Session field assertions.
+	if res.Session.Outcome != stats.OutcomeApproved {
+		t.Fatalf("expected session Outcome=approved, got %q", res.Session.Outcome)
+	}
+	if res.Session.TotalComments != 2 {
+		t.Fatalf("expected session TotalComments=2, got %d", res.Session.TotalComments)
+	}
+	if len(res.Session.CopilotCommentsByIteration) != 1 {
+		t.Fatalf("expected 1 entry in CopilotCommentsByIteration, got %d", len(res.Session.CopilotCommentsByIteration))
+	}
+	if res.Session.CopilotCommentsByIteration[0] != 2 {
+		t.Fatalf("expected CopilotCommentsByIteration[0]=2, got %d", res.Session.CopilotCommentsByIteration[0])
+	}
+	// Assert exactly one session file was written to the temp sessions dir.
+	sessionsDir := os.Getenv("RINSE_SESSIONS_DIR")
+	entries, err := os.ReadDir(sessionsDir)
+	if err != nil {
+		t.Fatalf("reading sessions dir: %v", err)
+	}
+	var jsonFiles []os.DirEntry
+	for _, e := range entries {
+		if !e.IsDir() && len(e.Name()) > 5 && e.Name()[len(e.Name())-5:] == ".json" {
+			jsonFiles = append(jsonFiles, e)
+		}
+	}
+	if len(jsonFiles) != 1 {
+		t.Fatalf("expected exactly 1 session file, got %d", len(jsonFiles))
+	}
 }
 
 func TestRun_MaxIterationsReached(t *testing.T) {
 	tempStateDir(t)
 	tempLockDir(t)
+	tempSessionsDir(t)
 
 	// Agent never approves.
 	agent := &stubAgent{name: "stub"}
@@ -108,11 +144,30 @@ func TestRun_MaxIterationsReached(t *testing.T) {
 	if res.Iterations != 3 {
 		t.Fatalf("expected 3 iterations, got %d", res.Iterations)
 	}
+	if res.Session.Outcome != stats.OutcomeMaxIter {
+		t.Fatalf("expected session Outcome=%q, got %q", stats.OutcomeMaxIter, res.Session.Outcome)
+	}
+	// Assert exactly one session file was written to the temp sessions dir.
+	sessionsDir := os.Getenv("RINSE_SESSIONS_DIR")
+	entries, err := os.ReadDir(sessionsDir)
+	if err != nil {
+		t.Fatalf("reading sessions dir: %v", err)
+	}
+	var jsonFiles []os.DirEntry
+	for _, e := range entries {
+		if !e.IsDir() && len(e.Name()) > 5 && e.Name()[len(e.Name())-5:] == ".json" {
+			jsonFiles = append(jsonFiles, e)
+		}
+	}
+	if len(jsonFiles) != 1 {
+		t.Fatalf("expected exactly 1 session file, got %d", len(jsonFiles))
+	}
 }
 
 func TestRun_AgentError_PropagatesWithContext(t *testing.T) {
 	tempStateDir(t)
 	tempLockDir(t)
+	tempSessionsDir(t)
 
 	sentinel := errors.New("copilot API timeout")
 	agent := &stubAgent{
@@ -131,6 +186,7 @@ func TestRun_AgentError_PropagatesWithContext(t *testing.T) {
 func TestRun_AlreadyRunning(t *testing.T) {
 	tempStateDir(t)
 	tempLockDir(t)
+	tempSessionsDir(t)
 
 	// Acquire the lock manually to simulate another process.
 	l, err := lock.Acquire("owner/repo", "1")
@@ -172,6 +228,7 @@ func TestRun_MissingRequiredOpts(t *testing.T) {
 func TestRun_WaitingDoesNotCountAsIteration(t *testing.T) {
 	tempStateDir(t)
 	tempLockDir(t)
+	tempSessionsDir(t)
 
 	// First two calls return Waiting, third call approves.
 	agent := &stubAgent{
@@ -204,6 +261,7 @@ func TestRun_WaitingDoesNotCountAsIteration(t *testing.T) {
 func TestRun_ReviewIDPassedOnSubsequentCall(t *testing.T) {
 	tempStateDir(t)
 	tempLockDir(t)
+	tempSessionsDir(t)
 
 	const wantReviewID = "review-abc-123"
 
@@ -240,6 +298,7 @@ func TestRun_ReviewIDPassedOnSubsequentCall(t *testing.T) {
 func TestRun_MaxWaitPollsReached(t *testing.T) {
 	tempStateDir(t)
 	tempLockDir(t)
+	tempSessionsDir(t)
 
 	// Agent always returns Waiting.
 	agent := &stubAgent{
@@ -259,5 +318,88 @@ func TestRun_MaxWaitPollsReached(t *testing.T) {
 	}
 	if res.Iterations != 0 {
 		t.Fatalf("expected Iterations=0 (Waiting must not advance), got %d", res.Iterations)
+	}
+}
+
+// TestRun_AgentError_WritesSessionFile verifies that when the agent returns a
+// hard error, a session file is written with Outcome=error.
+func TestRun_AgentError_WritesSessionFile(t *testing.T) {
+	tempStateDir(t)
+	tempLockDir(t)
+	tempSessionsDir(t)
+
+	sentinel := errors.New("hard agent failure")
+	agent := &stubAgent{
+		name: "stub",
+		errs: []error{sentinel},
+	}
+	res, err := Run(baseOpts(agent))
+	if err == nil {
+		t.Fatal("expected error from agent, got nil")
+	}
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("expected sentinel error in chain, got: %v", err)
+	}
+	if res.Session.Outcome != stats.OutcomeError {
+		t.Fatalf("expected session Outcome=%q, got %q", stats.OutcomeError, res.Session.Outcome)
+	}
+
+	// Assert a session file was written with the correct outcome.
+	sessionsDir := os.Getenv("RINSE_SESSIONS_DIR")
+	entries, err2 := os.ReadDir(sessionsDir)
+	if err2 != nil {
+		t.Fatalf("reading sessions dir: %v", err2)
+	}
+	var jsonFiles []os.DirEntry
+	for _, e := range entries {
+		if !e.IsDir() && len(e.Name()) > 5 && e.Name()[len(e.Name())-5:] == ".json" {
+			jsonFiles = append(jsonFiles, e)
+		}
+	}
+	if len(jsonFiles) != 1 {
+		t.Fatalf("expected exactly 1 session file for agent error exit, got %d", len(jsonFiles))
+	}
+}
+
+// TestRun_MaxWaitPollsAborted_WritesSessionFile verifies that when the max-wait
+// poll limit is exceeded, a session file is written with Outcome=aborted.
+func TestRun_MaxWaitPollsAborted_WritesSessionFile(t *testing.T) {
+	tempStateDir(t)
+	tempLockDir(t)
+	tempSessionsDir(t)
+
+	agent := &stubAgent{
+		name: "stub",
+		results: []engine.Result{
+			{Waiting: true},
+			{Waiting: true},
+			{Waiting: true},
+		},
+	}
+	opts := baseOpts(agent)
+	opts.MaxWaitPolls = 2 // exceeded after 3 Waiting results
+
+	res, err := Run(opts)
+	if !errors.Is(err, ErrMaxWaitPolls) {
+		t.Fatalf("expected ErrMaxWaitPolls, got %v", err)
+	}
+	if res.Session.Outcome != stats.OutcomeAborted {
+		t.Fatalf("expected session Outcome=%q, got %q", stats.OutcomeAborted, res.Session.Outcome)
+	}
+
+	// Assert a session file was written with the correct outcome.
+	sessionsDir := os.Getenv("RINSE_SESSIONS_DIR")
+	entries, err2 := os.ReadDir(sessionsDir)
+	if err2 != nil {
+		t.Fatalf("reading sessions dir: %v", err2)
+	}
+	var jsonFiles []os.DirEntry
+	for _, e := range entries {
+		if !e.IsDir() && len(e.Name()) > 5 && e.Name()[len(e.Name())-5:] == ".json" {
+			jsonFiles = append(jsonFiles, e)
+		}
+	}
+	if len(jsonFiles) != 1 {
+		t.Fatalf("expected exactly 1 session file for aborted exit, got %d", len(jsonFiles))
 	}
 }

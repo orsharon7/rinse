@@ -11,9 +11,11 @@ package stats
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"math"
+	mrand "math/rand"
 	"os"
 	"path/filepath"
 	"sort"
@@ -61,18 +63,21 @@ type Session struct {
 	EndedAt   time.Time `json:"ended_at"`
 	Repo      string    `json:"repo"`
 	PR        string    `json:"pr"`
-	PRTitle   string    `json:"pr_title,omitempty"`
+	PRTitle   string    `json:"pr_title"`
 	Runner    string    `json:"runner"`
 	Model     string    `json:"model"`
 
 	// Outcomes
 	Outcome                    Outcome  `json:"outcome"`
 	Iterations                 int      `json:"iterations"`
-	CopilotCommentsByIteration []int    `json:"copilot_comments_by_iteration,omitempty"`
+	CopilotCommentsByIteration []int    `json:"copilot_comments_by_iteration"`
 	TotalComments              int      `json:"total_comments"`
 	EstimatedTimeSavedSeconds  int      `json:"estimated_time_saved_seconds"`
 	Approved                   bool     `json:"approved"`
 	Patterns                   []string `json:"patterns,omitempty"`
+
+	// Quality metrics (populated when available)
+	Quality *quality.QualityDelta `json:"quality,omitempty"`
 }
 
 // NewSession creates a new Session with a generated UUID and the current time
@@ -142,8 +147,12 @@ func Save(s Session) error {
 	if err != nil {
 		return fmt.Errorf("stats: cannot determine sessions dir: %w", err)
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("stats: cannot create sessions dir: %w", err)
+	}
+
+	if s.SessionID == "" {
+		s.SessionID = newUUID()
 	}
 
 	repoSlug := strings.ReplaceAll(s.Repo, "/", "-")
@@ -384,9 +393,10 @@ func (s *Summary) AvgIterations() float64 {
 }
 
 // EstTimeSavedHours returns a rough estimate of hours saved.
-// Assumes each comment would take a developer ~3 minutes to address manually.
+// Uses TotalTimeSavedSeconds (populated by Summarize from per-session
+// EstimatedTimeSavedSeconds, which assumes 240 s/comment, matching Finish).
 func (s *Summary) EstTimeSavedHours() float64 {
-	return math.Round(float64(s.TotalComments)*3/60*10) / 10
+	return math.Round(float64(s.TotalTimeSavedSeconds)/3600*10) / 10
 }
 
 // TopPatterns returns up to n patterns ordered by frequency (descending).
@@ -662,4 +672,180 @@ func Print(sessions []Session) {
 		fmt.Println(upgrade.RenderPrompt(totalMin, sum.TotalSessions))
 		upgrade.RecordShown(sum.TotalSessions)
 	}
+}
+
+// PrintQualityReport prints a post-cycle quality report for a single session.
+// It is shown after every completed RINSE cycle.
+func PrintQualityReport(s Session) {
+	if s.Quality == nil {
+		return
+	}
+	q := s.Quality
+	width := 54
+
+	border := strings.Repeat("═", width-2)
+	mid := strings.Repeat("═", width-2)
+	blank := "║" + strings.Repeat(" ", width-2) + "║"
+
+	title := fmt.Sprintf("RINSE Quality Report — PR #%s", s.PR)
+	titleLine := fmt.Sprintf("║  %-*s║", width-4, title)
+
+	scoreLine := func(label string, score float64, delta string) string {
+		bar := scoreBar(score, 10)
+		pct := fmt.Sprintf("%3.0f%%", score*100)
+		return fmt.Sprintf("║  %-14s %s  %s %s║", label, bar, pct, pad(delta, 7))
+	}
+
+	fmt.Printf("╔%s╗\n", border)
+	fmt.Println(titleLine)
+	fmt.Printf("╠%s╣\n", mid)
+	fmt.Println(blank)
+	fmt.Println("║  Quality Score" + strings.Repeat(" ", width-17) + "║")
+	fmt.Println(scoreLine("Before:", q.ScoreBefore, ""))
+	d := q.ScoreDelta()
+	dStr := ""
+	if d > 0 {
+		dStr = fmt.Sprintf("(+%.0f%%)", d*100)
+	}
+	fmt.Println(scoreLine("After: ", q.ScoreAfter, dStr))
+	fmt.Println(blank)
+
+	// Resolution rate
+	rr := q.ResolutionRate
+	rrBar := scoreBar(rr, 10)
+	fmt.Printf("║  Resolution rate   %s  %3.0f%%%-*s║\n", rrBar, rr*100, width-40, "")
+
+	// Convergence
+	lambdaStr := fmt.Sprintf("λ=%.2f", q.FixRateLambda)
+	speed := "slow"
+	if q.FixRateLambda >= 1.5 {
+		speed = "fast ✅"
+	} else if q.FixRateLambda >= 0.8 {
+		speed = "ok"
+	}
+	fmt.Printf("║  Convergence: %d iter  %s  (%s)%-*s║\n",
+		s.Iterations, lambdaStr, speed, width-45-len(speed), "")
+
+	// Time saved
+	saved := s.EstimatedTimeSavedSeconds / 60
+	fmt.Printf("║  Est. time saved: %d min%-*s║\n", saved, width-25, "")
+
+	fmt.Println(blank)
+	fmt.Printf("╚%s╝\n", border)
+}
+
+// PrintTrends shows quality improvement trends across sessions.
+func PrintTrends(sessions []Session) {
+	if len(sessions) == 0 {
+		fmt.Println("  No sessions recorded yet.")
+		return
+	}
+
+	// Build weekly buckets (last 4 weeks)
+	now := time.Now()
+	type weekBucket struct {
+		label        string
+		lambdaSum    float64
+		lambdaCount  int
+		scoreSum     float64
+		scoreCount   int
+		iterSum      int
+		iterCount    int
+	}
+
+	weeks := make([]weekBucket, 4)
+	for i := range weeks {
+		weeksAgo := 3 - i
+		start := now.AddDate(0, 0, -7*(weeksAgo+1))
+		weeks[i].label = start.Format("Jan 02")
+	}
+
+	for _, s := range sessions {
+		age := now.Sub(s.StartedAt)
+		weekIdx := int(age.Hours()/24/7)
+		if weekIdx < 0 || weekIdx >= 4 {
+			continue
+		}
+		idx := 3 - weekIdx
+		if idx < 0 {
+			continue
+		}
+		if s.Quality != nil {
+			weeks[idx].lambdaSum += s.Quality.FixRateLambda
+			weeks[idx].lambdaCount++
+			weeks[idx].scoreSum += s.Quality.ScoreAfter
+			weeks[idx].scoreCount++
+		}
+		weeks[idx].iterSum += s.Iterations
+		weeks[idx].iterCount++
+	}
+
+	fmt.Printf("\n  RINSE Quality Trends — (last 4 weeks)\n\n")
+	fmt.Println("  Quality Score over time:")
+	for _, w := range weeks {
+		score := 0.0
+		if w.scoreCount > 0 {
+			score = w.scoreSum / float64(w.scoreCount)
+		}
+		bar := scoreBar(score, 10)
+		fmt.Printf("  %s  %s  %3.0f%%\n", w.label, bar, score*100)
+	}
+
+	fmt.Println("\n  Fix rate (λ) trend:")
+	for _, w := range weeks {
+		lambda := 0.0
+		if w.lambdaCount > 0 {
+			lambda = w.lambdaSum / float64(w.lambdaCount)
+		}
+		avgIter := 0.0
+		if w.iterCount > 0 {
+			avgIter = float64(w.iterSum) / float64(w.iterCount)
+		}
+		speed := ""
+		if lambda >= 1.5 {
+			speed = "(fast)"
+		} else if lambda >= 0.8 {
+			speed = "(ok)"
+		} else if lambda > 0 {
+			speed = "(slow)"
+		}
+		fmt.Printf("  %s  λ = %.2f  avg %.1f iter  %s\n", w.label, lambda, avgIter, speed)
+	}
+
+	// Compute overall trend
+	var firstLambda, lastLambda float64
+	for _, w := range weeks {
+		if w.lambdaCount > 0 && firstLambda == 0 {
+			firstLambda = w.lambdaSum / float64(w.lambdaCount)
+		}
+		if w.lambdaCount > 0 {
+			lastLambda = w.lambdaSum / float64(w.lambdaCount)
+		}
+	}
+	if firstLambda > 0 && lastLambda > firstLambda {
+		ratio := lastLambda / firstLambda
+		fmt.Printf("\n  Verdict: RINSE is getting %.1fx faster at fixing Copilot comments.\n", ratio)
+		fmt.Println("           AGENTS.md reflection is working. ✅")
+	}
+	fmt.Println()
+}
+
+// scoreBar renders a filled/empty bar of width n representing score in [0,1].
+func scoreBar(score float64, n int) string {
+	filled := int(math.Round(score * float64(n)))
+	if filled > n {
+		filled = n
+	}
+	if filled < 0 {
+		filled = 0
+	}
+	return strings.Repeat("█", filled) + strings.Repeat("░", n-filled)
+}
+
+// pad right-pads s to length l.
+func pad(s string, l int) string {
+	if len(s) >= l {
+		return s
+	}
+	return s + strings.Repeat(" ", l-len(s))
 }
