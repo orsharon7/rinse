@@ -5,6 +5,32 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RINSE — AI code review that works while you sleep</title>
   <meta name="description" content="RINSE is an AI-native code review agent. Autonomous, local-first, and built for developers who ship fast." />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230d0d0d'/%3E%3Ctext x='16' y='22' font-size='18' text-anchor='middle' fill='%2300ff88' font-family='monospace' font-weight='bold'%3ER%3C/text%3E%3C/svg%3E" />
+  <meta property="og:title" content="RINSE — AI code review that works while you sleep" />
+  <meta property="og:description" content="Autonomous code review agent. Catches issues, learns your patterns, gives you a time-saved summary every run." />
+  <meta property="og:url" content="https://orsharon7.github.io/rinse" />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="RINSE — AI code review that works while you sleep" />
+  <meta name="twitter:description" content="Autonomous code review agent. Catches issues, learns your patterns, gives you a time-saved summary every run." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="canonical" href="https://orsharon7.github.io/rinse" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "RINSE",
+    "description": "Autonomous AI code review agent. Runs through your GitHub Copilot PR review loop until it approves. Local-first, single Go binary.",
+    "url": "https://orsharon7.github.io/rinse",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "macOS, Linux",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "codeRepository": "https://github.com/orsharon7/rinse",
+    "programmingLanguage": "Go"
+  }
+  </script>
   <style>
     /* ─── Reset & Base ─────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -35,8 +61,6 @@
       line-height: 1.65;
       -webkit-font-smoothing: antialiased;
     }
-
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap');
 
     /* ─── Layout ────────────────────────────────────────────── */
     .container {
@@ -265,7 +289,7 @@
 
     .why-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      grid-template-columns: repeat(2, 1fr);
       gap: 24px;
     }
 
@@ -488,6 +512,7 @@
       section, #hero, #demo, #why, #pricing, #waitlist { padding: 60px 0; }
       .install-block { max-width: 100%; }
       .pricing-grid { grid-template-columns: 1fr; }
+      .why-grid { grid-template-columns: 1fr; }
       nav .links .hide-mobile { display: none; }
     }
   </style>
@@ -512,7 +537,7 @@
   <div class="container">
     <div class="badge">
       <span class="badge-dot"></span>
-      v1.0 · Now in public beta
+      v0.3 · Now in public beta
     </div>
 
     <h1>
@@ -522,12 +547,12 @@
 
     <p class="sub">
       RINSE is an autonomous code review agent that catches issues,
-      learns your patterns, and gives you a time-saved summary — every run.
+      predicts what Copilot will flag before you push, and gives you a time-saved summary — every run.
     </p>
 
     <div class="install-block" id="install-block" title="Click to copy" role="button" tabindex="0" aria-label="Copy install command">
       <code class="install-code">
-        <span class="prompt">$</span>brew install rinse
+        <span class="prompt">$</span>brew install orsharon7/rinse/rinse
       </code>
       <button class="copy-btn" id="copy-btn" aria-label="Copy to clipboard">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -538,7 +563,7 @@
     </div>
 
     <p class="install-hint">
-      Also available via <a href="https://github.com/orsharon7/rinse" target="_blank" rel="noopener">pip, npm, and direct download →</a>
+      Also available via <a href="https://github.com/orsharon7/rinse#-install" target="_blank" rel="noopener">direct download and source →</a>
     </p>
 
     <div class="hero-ctas">
@@ -572,6 +597,30 @@
     <p style="font-size: 0.78rem; color: var(--muted); margin-top: 12px; font-family: var(--font-mono);">
       Actual RINSE TUI · cycle monitor · 2 iterations · ✓ Approved
     </p>
+
+    <div style="margin-top: 48px;">
+      <p class="section-label" style="margin-bottom: 8px;">// rinse predict — new in v0.3</p>
+      <h3 style="font-size: 1.1rem; color: var(--text); margin-bottom: 16px; font-weight: 600;">Catch issues <em>before</em> you open the PR.</h3>
+      <div class="terminal" style="text-align: left; padding: 20px 24px;">
+        <pre style="margin: 0; font-size: 0.82rem; line-height: 1.7; color: var(--text); overflow-x: auto;"><span style="color:var(--muted)">$ </span><span style="color:var(--green)">rinse predict</span>
+
+<span style="color:#cba6f7">◇</span>  <span style="color:var(--green); font-weight:600">rinse predict</span>  <span style="color:var(--muted)">—  3 likely Copilot comments detected</span>
+
+  <span style="color:#cba6f7">◇</span> <span style="color:var(--text)">Missing error handling: os.WriteFile return discarded</span>         <span style="color:var(--green); font-weight:600">91%</span>
+   <span style="color:var(--muted)">internal/runner/runner.go:147</span>
+
+  <span style="color:#cba6f7">◇</span> <span style="color:var(--text)">Unused variable: 'ctx' declared but not referenced</span>            <span style="color:var(--green); font-weight:600">85%</span>
+   <span style="color:var(--muted)">internal/runner/runner.go:203</span>
+
+  <span style="color:#cba6f7">◇</span> <span style="color:var(--text)">Naked return in named-return function</span>                         <span style="color:#eab308">72%</span>
+   <span style="color:var(--muted)">internal/engine/engine.go:89</span>
+
+   <span style="color:#cba6f7">3 predictions</span> <span style="color:var(--muted)">• run `rinse` to fix automatically</span></pre>
+      </div>
+      <p style="font-size: 0.78rem; color: var(--muted); margin-top: 12px; font-family: var(--font-mono);">
+        rinse predict · staged diff · 3 issues found before Copilot sees them
+      </p>
+    </div>
   </div>
 </section>
 
@@ -586,6 +635,11 @@
         <div class="why-icon">⚡</div>
         <h3>Autonomous</h3>
         <p>Runs in CI, as a pre-commit hook, or on-demand. No babysitting. No config hell.</p>
+      </div>
+      <div class="why-card">
+        <div class="why-icon">🔮</div>
+        <h3>Predicts before you push</h3>
+        <p><code>rinse predict</code> runs AST-based analysis locally and flags what Copilot will flag — before you open the PR.</p>
       </div>
       <div class="why-card">
         <div class="why-icon">📊</div>
@@ -618,7 +672,7 @@
           <li><span class="check">✓</span> Core AI code review</li>
           <li><span class="check">✓</span> Pre-commit &amp; CI integration</li>
           <li><span class="check">✓</span> Local processing</li>
-          <li><span class="check">✓</span> GitHub / GitLab support</li>
+          <li><span class="check">✓</span> GitHub Copilot integration</li>
           <li><span class="dash">—</span> Post-cycle insights</li>
           <li><span class="dash">—</span> Team dashboard</li>
         </ul>
@@ -699,7 +753,7 @@
     </div>
     <div class="links">
       <a href="https://github.com/orsharon7/rinse" target="_blank" rel="noopener">GitHub</a>
-      <a href="https://github.com/orsharon7/rinse/wiki" target="_blank" rel="noopener">Docs</a>
+      <a href="https://github.com/orsharon7/rinse#readme" target="_blank" rel="noopener">Docs</a>
       <a href="mailto:hello@rinse.sh">Contact</a>
     </div>
   </div>
@@ -712,7 +766,7 @@
   const copyBtn = document.getElementById('copy-btn');
 
   function copyInstall() {
-    navigator.clipboard.writeText('brew install rinse').then(() => {
+    navigator.clipboard.writeText('brew install orsharon7/rinse/rinse').then(() => {
       copyBtn.classList.add('copied');
       copyBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
       setTimeout(() => {
@@ -739,9 +793,15 @@
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify({ email })
-    }).finally(() => {
-      form.style.display = 'none';
-      document.getElementById('waitlist-success').classList.add('visible');
+    }).then(res => {
+      if (res.ok) {
+        form.style.display = 'none';
+        document.getElementById('waitlist-success').classList.add('visible');
+      } else {
+        if (btn) { btn.disabled = false; btn.textContent = 'Try again'; }
+      }
+    }).catch(() => {
+      if (btn) { btn.disabled = false; btn.textContent = 'Try again'; }
     });
   });
 </script>
