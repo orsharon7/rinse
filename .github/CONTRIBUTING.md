@@ -84,11 +84,56 @@ bash -n scripts/pr-review-claude-v2.sh
 
 ---
 
+## Test your changes manually
+
+After building the binary (`make build`), use these workflows to validate your changes:
+
+**Test `--help` text:**
+```bash
+./rinse --help
+./rinse help
+```
+
+**Test the CLI subcommands without a live GitHub PR:**
+```bash
+# Check status of PR #1 (adjust to a real PR in a repo you have access to)
+./rinse status 1 --repo owner/repo --json
+
+# Check predict with no PR (reads staged git diff)
+./rinse predict --json
+```
+
+**Test the native Go runner (rinse run):**
+```bash
+# Dry-run against a real PR — streams NDJSON to stdout
+./rinse run 42 --repo owner/repo --json
+```
+
+**Test the first-run onboarding wizard:**
+```bash
+# Delete onboarding state to trigger the wizard on next launch
+# macOS:
+rm -f ~/Library/Application\ Support/rinse/onboarding-state.json
+# Linux:
+rm -f ~/.config/rinse/onboarding-state.json
+
+./rinse  # wizard runs on next launch
+```
+
+**Test stats collection:**
+```bash
+./rinse opt-in      # enable session recording
+./rinse stats       # show 30-day rolling summary (requires at least one session)
+./rinse opt-out     # disable
+```
+
+---
+
 ## Project layout
 
 ```
 rinse/
-├── main.go                     # Entry point, CLI arg dispatch, helpText
+├── main.go                     # Entry point, CLI arg dispatch (help/version/stats/report handled here)
 ├── Makefile                    # build / install / cross / clean targets
 ├── go.mod                      # Module: github.com/orsharon7/rinse
 ├── internal/
@@ -255,7 +300,10 @@ These are GitHub's built-in labels, kept as-is:
 - Shell scripts must pass `bash -n` syntax check before committing.
 - Use `grep -E` for alternation; `\|` in BRE is non-portable on BSD/macOS.
 - Read interactive input from `/dev/tty`; render UI output to stderr.
-- Every new subcommand added to `main.go` must be documented in `cli.PrintHelp()` in `internal/cli/cli.go`.
+- Every new subcommand added to `main.go` or `TryDispatch()` must be:
+  - dispatched in `internal/cli/cli.go` → `TryDispatch()`
+  - documented in `cli.PrintHelp()` (USAGE list + COMMANDS section)
+  - listed in the README quick reference if it has user-facing output
 
 ---
 
