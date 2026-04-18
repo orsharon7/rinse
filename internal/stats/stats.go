@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/orsharon7/rinse/internal/db"
+	"github.com/orsharon7/rinse/internal/theme"
 	"github.com/orsharon7/rinse/internal/upgrade"
 )
 

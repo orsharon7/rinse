@@ -6,6 +6,7 @@ import (
 
 	"github.com/orsharon7/rinse/internal/cli"
 	"github.com/orsharon7/rinse/internal/session"
+	"github.com/orsharon7/rinse/internal/stats"
 	"github.com/orsharon7/rinse/internal/tui"
 )
 

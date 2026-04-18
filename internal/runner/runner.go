@@ -293,11 +293,7 @@ func Run(opts Opts) (Result, error) {
 				Iterations:           state.Iteration,
 				TotalComments:        totalComments,
 				ResumedFromIteration: resumedFrom,
-			}
-			elapsed := int(time.Since(startedAt).Seconds())
-			mon.OnIterationComplete(state.Iteration, agentResult.Comments, totalComments)
-			mon.OnDone(res, 0, elapsed)
-			return res, nil
+			}, nil
 		}
 
 		action := "fixed"
