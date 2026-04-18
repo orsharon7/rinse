@@ -222,6 +222,14 @@ func (m historyModel) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.screen = screenFilter
 		m.filterTyping = false
 
+	case msg.String() == "r":
+		if n > 0 {
+			s := m.filteredSessions[m.cursor]
+			m.detailSession = s
+			m.detailCmd = fmt.Sprintf("rinse run --pr %s", s.PR)
+			m.screen = screenDetail
+		}
+
 	case msg.String() == "s":
 		m.sortMode = (m.sortMode + 1) % 4
 		m = m.applyFilterOp()
@@ -410,6 +418,7 @@ func (m historyModel) viewList() string {
 	keys := "  " + strings.Join([]string{
 		theme.RenderKeyHint("↑↓/jk", "move"),
 		theme.RenderKeyHint("enter", "detail"),
+		theme.RenderKeyHint("r", "re-run"),
 		theme.RenderKeyHint("f", "filter"),
 		theme.RenderKeyHint("s", "sort"),
 		theme.RenderKeyHint("q", "quit"),
@@ -464,6 +473,11 @@ func (m historyModel) viewDetail() string {
 		row("Rules learned:", fmt.Sprintf("+%d", s.RulesExtracted)),
 	)
 
+	// Elapsed wall-clock
+	if elapsed := s.ElapsedWall(); elapsed > 0 {
+		lines = append(lines, row("Elapsed:", formatElapsed(elapsed)))
+	}
+
 	if len(s.Patterns) > 0 {
 		lines = append(lines, "")
 		lines = append(lines, "  "+theme.StyleKey.Render("Top patterns:"))
@@ -510,7 +524,8 @@ func (m historyModel) viewFilterPanel() string {
 
 	content := theme.GradientString("FILTER", theme.Mauve, theme.Lavender, true) + "\n\n" +
 		"  " + theme.StyleKey.Render("Repo:") + "  " + theme.StyleVal.Render(textVal) + "\n" +
-		"  " + theme.StyleKey.Render("Outcome:") + "  " + theme.StyleVal.Render(m.filterOutcome.String()) + "\n\n" +
+		"  " + theme.StyleKey.Render("Outcome:") + "  " + theme.StyleVal.Render(m.filterOutcome.String()) +
+		theme.StyleMuted.Render(fmt.Sprintf("  (%d/4)", int(m.filterOutcome)+1)) + "\n\n" +
 		"  " + theme.StyleMuted.Render("r=edit repo  tab=cycle outcome  esc/f=close")
 
 	box := lipgloss.NewStyle().
