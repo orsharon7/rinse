@@ -1,6 +1,6 @@
 # rinse
 
-[![License: BSL 1.1](https://img.shields.io/badge/License-BSL%201.1-blue.svg)](LICENSE)
+[![License: BSL 1.1](https://img.shields.io/badge/License-BSL_1.1-silver.svg)](./LICENSE)
 
 CLI automation tools for GitHub Copilot PR review workflows.
 
