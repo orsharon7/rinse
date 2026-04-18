@@ -3,8 +3,8 @@ class Rinse < Formula
   homepage "https://github.com/orsharon7/rinse"
   # Update url + sha256 when a new release tag is cut that includes this formula.
   # Run: curl -sL <url> | shasum -a 256
-  url "https://github.com/orsharon7/rinse/archive/refs/tags/v1.0.0.tar.gz"
-  sha256 "44377a1a0b7128d451d025acede1c9c40188553a3c49f5a75d310ebabeb23b20"
+  url "https://github.com/orsharon7/rinse/archive/refs/tags/v1.1.0.tar.gz"
+  sha256 "bef140a1a96994029153dca8c00b1750b9a5a764fb9db2dc68d7bb40e8a29e8a"
   license "BUSL-1.1"
 
   depends_on "go" => :build
