@@ -6,10 +6,12 @@
 //
 // Key bindings (per RIN-208 spec):
 //
-//	y  — apply the fix atomically; verifies `go build ./...`; stages the change
-//	n  — skip, advance to next prediction
-//	e  — open $EDITOR (fallback: nano) with the suggested fix
-//	q  — exit loop, show summary
+//	y        — apply the fix atomically; verifies `go build ./...`; stages the change
+//	n/space  — skip, advance to next prediction
+//	e        — mark as edited — show a muted note (editor launch is v0.5)
+//	→/l      — advance without deciding
+//	←/h      — go back to previous prediction
+//	q        — exit loop, show summary
 //
 // After the loop a summary box is printed (N reviewed, M applied, estimated X
 // min saved) and an interactive_session event is logged to
@@ -76,12 +78,12 @@ func RenderUpgradePrompt(w io.Writer) {
 
 // interactiveSession is the on-disk payload for an interactive_session event.
 type interactiveSession struct {
-	Event       string    `json:"event"`
-	SessionID   string    `json:"session_id"`
-	StartedAt   string    `json:"started_at"`
-	Predictions int       `json:"predictions"`
-	Applied     int       `json:"applied"`
-	Skipped     int       `json:"skipped"`
+	Event       string `json:"event"`
+	SessionID   string `json:"session_id"`
+	StartedAt   string `json:"started_at"`
+	Predictions int    `json:"predictions"`
+	Applied     int    `json:"applied"`
+	Skipped     int    `json:"skipped"`
 }
 
 // logInteractiveSession writes an interactive_session event JSON file to
@@ -170,14 +172,14 @@ func ApplyPatch(p Prediction) ApplyPatchResult {
 	_ = tmp.Close()
 
 	// Apply with git apply.
-	applyOut, err := exec.Command("git", "apply", "--index", tmpPath).CombinedOutput()
-	if err != nil {
-		return ApplyPatchResult{Err: fmt.Errorf("git apply failed: %w\n%s", err, applyOut)}
+	applyOut, applyErr := exec.Command("git", "apply", "--index", tmpPath).CombinedOutput()
+	if applyErr != nil {
+		return ApplyPatchResult{Err: fmt.Errorf("git apply failed: %w\n%s", applyErr, applyOut)}
 	}
 
 	// Verify the build still passes.
-	buildOut, err := exec.Command("go", "build", "./...").CombinedOutput()
-	if err != nil {
+	buildOut, buildErr := exec.Command("go", "build", "./...").CombinedOutput()
+	if buildErr != nil {
 		// Revert the patch.
 		_ = exec.Command("git", "apply", "--reverse", "--index", tmpPath).Run()
 		return ApplyPatchResult{
@@ -190,14 +192,90 @@ func ApplyPatch(p Prediction) ApplyPatchResult {
 	return ApplyPatchResult{Applied: true}
 }
 
+// ── Confidence bar ────────────────────────────────────────────────────────────
+
+// renderConfBar renders a 14-block confidence bar:
+//
+//	██████████░░░░  87%
+//
+// Green ≥ 80%, Yellow ≥ 60%, Red < 60%.
+func renderConfBar(conf float64) string {
+	const total = 14
+	filled := int(conf * float64(total))
+	if filled > total {
+		filled = total
+	}
+	if filled < 0 {
+		filled = 0
+	}
+	empty := total - filled
+
+	var barColor lipgloss.Color
+	switch {
+	case conf >= 0.80:
+		barColor = theme.Green
+	case conf >= 0.60:
+		barColor = theme.Yellow
+	default:
+		barColor = theme.Red
+	}
+
+	bar := lipgloss.NewStyle().Foreground(barColor).Render(strings.Repeat("█", filled)) +
+		theme.StyleMuted.Render(strings.Repeat("░", empty))
+	pct := lipgloss.NewStyle().Foreground(barColor).Bold(true).Render(fmt.Sprintf("%d%%", int(conf*100)))
+	return bar + "  " + pct
+}
+
+// ── Progress bar ──────────────────────────────────────────────────────────────
+
+// renderReviewProgress renders the progress row:
+//
+//	████████░░  2 / 7 reviewed  •  1 applied  •  ~4 min saved
+func renderReviewProgress(cursor, total, applied int) string {
+	const barWidth = 10
+	reviewed := cursor // items reviewed so far (current item not yet decided)
+	filled := 0
+	if total > 0 {
+		filled = reviewed * barWidth / total
+	}
+	empty := barWidth - filled
+
+	bar := lipgloss.NewStyle().Foreground(theme.Mauve).Render(strings.Repeat("█", filled)) +
+		theme.StyleMuted.Render(strings.Repeat("░", empty))
+
+	estMin := applied * minutesPerAppliedFix
+	sep := theme.StyleMuted.Render("  " + theme.IconSep + "  ")
+
+	parts := []string{
+		bar + "  " + theme.StyleMuted.Render(fmt.Sprintf("%d / %d reviewed", reviewed, total)),
+		theme.StyleLogSuccess.Render(fmt.Sprintf("%d applied", applied)),
+	}
+	if estMin > 0 {
+		parts = append(parts, theme.StyleVal.Render(fmt.Sprintf("~%d min saved", estMin)))
+	}
+
+	return strings.Join(parts, sep)
+}
+
+// ── Review state ──────────────────────────────────────────────────────────────
+
+// reviewState tracks what the user decided for each prediction.
+type reviewState int
+
+const (
+	reviewNone    reviewState = iota
+	reviewApplied             // y
+	reviewSkipped             // n / space
+	reviewEdited              // e
+)
+
 // ── Bubble Tea model ──────────────────────────────────────────────────────────
 
 // interactiveModel is the Bubble Tea model for the predict interactive loop.
 type interactiveModel struct {
 	predictions []Prediction
-	cursor      int // index of current prediction
-	applied     []bool
-	skipped     []bool
+	cursor      int           // index of current prediction
+	states      []reviewState // per-prediction decision
 	done        bool
 	termWidth   int
 	sessionID   string
@@ -209,23 +287,45 @@ type interactiveModel struct {
 func newInteractiveModel(predictions []Prediction, termWidth int, sessionID string) interactiveModel {
 	return interactiveModel{
 		predictions: predictions,
-		applied:     make([]bool, len(predictions)),
-		skipped:     make([]bool, len(predictions)),
+		states:      make([]reviewState, len(predictions)),
 		termWidth:   termWidth,
 		sessionID:   sessionID,
 		startedAt:   time.Now(),
 	}
 }
 
+// applied returns true if prediction i was applied.
+func (m interactiveModel) wasApplied(i int) bool { return m.states[i] == reviewApplied }
+
+// wasSkipped returns true if prediction i was skipped.
+func (m interactiveModel) wasSkipped(i int) bool { return m.states[i] == reviewSkipped }
+
+// countApplied returns the number of applied predictions.
+func (m interactiveModel) countApplied() int {
+	n := 0
+	for _, s := range m.states {
+		if s == reviewApplied {
+			n++
+		}
+	}
+	return n
+}
+
+// countSkipped returns the number of skipped predictions.
+func (m interactiveModel) countSkipped() int {
+	n := 0
+	for _, s := range m.states {
+		if s == reviewSkipped {
+			n++
+		}
+	}
+	return n
+}
+
 // applyResultMsg carries the result of an async ApplyPatch call back to Update.
 type applyResultMsg struct {
 	result ApplyPatchResult
 	index  int
-}
-
-// editorDoneMsg signals that the editor subprocess has exited.
-type editorDoneMsg struct {
-	index int
 }
 
 func (m interactiveModel) Init() tea.Cmd {
@@ -239,18 +339,13 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case applyResultMsg:
 		if msg.result.Applied {
-			m.applied[msg.index] = true
+			m.states[msg.index] = reviewApplied
 			m.lastMsg = theme.StyleLogSuccess.Render(theme.IconCheck + " Applied and staged.")
 		} else if msg.result.BuildFail {
 			m.lastMsg = theme.StyleErr.Render(theme.IconCross + " Build failed; change reverted. " + msg.result.Err.Error())
 		} else if msg.result.Err != nil {
 			m.lastMsg = theme.StyleErr.Render(theme.IconCross + " " + msg.result.Err.Error())
 		}
-		next, cmd := m.advance()
-		return next, cmd
-
-	case editorDoneMsg:
-		m.lastMsg = theme.StyleMuted.Render("Editor closed.")
 		next, cmd := m.advance()
 		return next, cmd
 
@@ -273,11 +368,11 @@ func (m interactiveModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return applyResultMsg{result: result, index: idx}
 		}
 
-	case "n", "N":
+	case "n", "N", " ":
 		if m.done || m.cursor >= len(m.predictions) {
 			return m, tea.Quit
 		}
-		m.skipped[m.cursor] = true
+		m.states[m.cursor] = reviewSkipped
 		m.lastMsg = theme.StyleMuted.Render("Skipped.")
 		return m.advance()
 
@@ -285,17 +380,31 @@ func (m interactiveModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.done || m.cursor >= len(m.predictions) {
 			return m, tea.Quit
 		}
-		idx := m.cursor
-		p := m.predictions[idx]
-		return m, tea.ExecProcess(buildEditorCmd(p), func(err error) tea.Msg {
-			return editorDoneMsg{index: idx}
-		})
+		// v0.4: mark as edited, show muted note. Do NOT launch editor (v0.5).
+		m.states[m.cursor] = reviewEdited
+		m.lastMsg = theme.StyleMuted.Render("Marked as edited — open your editor manually to apply changes.")
+		return m.advance()
+
+	case "right", "l", "L":
+		// Advance without deciding.
+		if m.done || m.cursor >= len(m.predictions) {
+			return m, nil
+		}
+		return m.advance()
+
+	case "left", "h", "H":
+		// Go back.
+		if m.cursor > 0 {
+			m.cursor--
+			m.lastMsg = ""
+		}
+		return m, nil
 
 	case "q", "Q", "ctrl+c":
 		// Mark remaining as skipped for summary accuracy.
 		for i := m.cursor; i < len(m.predictions); i++ {
-			if !m.applied[i] && !m.skipped[i] {
-				m.skipped[i] = true
+			if m.states[i] == reviewNone {
+				m.states[i] = reviewSkipped
 			}
 		}
 		m.done = true
@@ -314,6 +423,21 @@ func (m interactiveModel) advance() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// ── Card renderer ─────────────────────────────────────────────────────────────
+
+// reviewedBadge returns the top-right badge string for an already-reviewed prediction.
+func reviewedBadge(s reviewState) string {
+	switch s {
+	case reviewApplied:
+		return theme.StyleLogSuccess.Render("✓ applied")
+	case reviewSkipped:
+		return theme.StyleMuted.Render("○ skipped")
+	case reviewEdited:
+		return theme.StyleTeal.Render("✎ edited")
+	}
+	return ""
+}
+
 func (m interactiveModel) View() string {
 	if m.done || len(m.predictions) == 0 {
 		return ""
@@ -325,23 +449,23 @@ func (m interactiveModel) View() string {
 		w = 80
 	}
 
-	var sb strings.Builder
-
-	// Header: prediction N of M.
 	idx := m.cursor + 1
 	total := len(m.predictions)
-	counter := theme.StyleMuted.Render(fmt.Sprintf("Prediction %d of %d", idx, total))
-	sb.WriteString("\n  " + counter + "\n\n")
+	nApplied := m.countApplied()
+	state := m.states[m.cursor]
 
-	// Pattern + confidence.
-	conf := int(p.Confidence * 100)
-	confStyle := confidenceStyle(p.Confidence)
-	patternLine := fmt.Sprintf("  %s  %s  %s",
+	var card strings.Builder
+
+	// ── Pattern line ────────────────────────────────────────────────────────
+	patLabel := theme.FormatPatternLabel(p.Pattern)
+	patternLine := fmt.Sprintf("%s  %s",
 		lipgloss.NewStyle().Foreground(theme.Mauve).Render(theme.IconDiamond),
-		lipgloss.NewStyle().Foreground(theme.Text).Bold(true).Render(p.Pattern),
-		confStyle.Render(fmt.Sprintf("%d%%", conf)),
+		lipgloss.NewStyle().Foreground(theme.Text).Bold(true).Render(patLabel),
 	)
-	sb.WriteString(patternLine + "\n")
+	card.WriteString(patternLine + "\n")
+
+	// Confidence bar.
+	card.WriteString(renderConfBar(p.Confidence) + "\n")
 
 	// File:line.
 	if p.File != "" {
@@ -349,22 +473,23 @@ func (m interactiveModel) View() string {
 		if p.Line > 0 {
 			loc = fmt.Sprintf("%s:%d", p.File, p.Line)
 		}
-		sb.WriteString("     " + theme.StyleMuted.Render(loc) + "\n")
+		card.WriteString(theme.StyleMuted.Render(loc) + "\n")
 	}
 
-	// Detail.
+	// Section label: "Copilot will likely flag:"
 	if p.Detail != "" {
-		maxDetail := w - 5
+		card.WriteString("\n" + theme.StyleMuted.Render("Copilot will likely flag:") + "\n")
+		maxDetail := w - 10
 		if maxDetail < 20 {
 			maxDetail = 20
 		}
 		detail := theme.Truncate(p.Detail, maxDetail)
-		sb.WriteString("\n     " + theme.StyleMuted.Render(detail) + "\n")
+		card.WriteString(theme.StyleMuted.Render(detail) + "\n")
 	}
 
-	// Suggested diff preview (first 8 lines).
+	// Section label: "Suggested fix:" + diff preview.
 	if strings.TrimSpace(p.SuggestedDiff) != "" {
-		sb.WriteString("\n")
+		card.WriteString("\n" + theme.StyleMuted.Render("Suggested fix:") + "\n")
 		lines := strings.Split(p.SuggestedDiff, "\n")
 		limit := 8
 		if len(lines) < limit {
@@ -380,64 +505,95 @@ func (m interactiveModel) View() string {
 			default:
 				styled = theme.StyleMuted.Render(l)
 			}
-			sb.WriteString("     " + styled + "\n")
+			card.WriteString(styled + "\n")
 		}
 		if len(strings.Split(p.SuggestedDiff, "\n")) > 8 {
-			sb.WriteString("     " + theme.StyleMuted.Render("… (truncated)") + "\n")
+			card.WriteString(theme.StyleMuted.Render("… (truncated)") + "\n")
 		}
 	}
-
-	sb.WriteString("\n")
 
 	// Last action message.
 	if m.lastMsg != "" {
-		sb.WriteString("  " + m.lastMsg + "\n\n")
+		card.WriteString("\n" + m.lastMsg + "\n")
 	}
 
-	// Prompt line.
-	keyStyle := theme.StyleTeal
-	prompt := fmt.Sprintf("  %s apply   %s skip   %s edit   %s quit",
-		keyStyle.Render("[y]"),
-		keyStyle.Render("[n]"),
-		keyStyle.Render("[e]"),
-		keyStyle.Render("[q]"),
-	)
-	sb.WriteString(prompt + "\n")
+	// Hint row: if already reviewed, show badge; otherwise show key hints.
+	if state != reviewNone {
+		card.WriteString("\n" + reviewedBadge(state) + "\n")
+	} else {
+		keyStyle := theme.StyleTeal
+		hint := fmt.Sprintf("%s apply   %s skip   %s mark-edited   %s quit   %s back",
+			keyStyle.Render("[y]"),
+			keyStyle.Render("[n/space]"),
+			keyStyle.Render("[e]"),
+			keyStyle.Render("[q]"),
+			keyStyle.Render("[h/←]"),
+		)
+		card.WriteString("\n" + hint + "\n")
+	}
+
+	// ── Wrap card body in rounded border ────────────────────────────────────
+	cardInner := card.String()
+	// Strip trailing newline for cleaner border rendering.
+	cardInner = strings.TrimRight(cardInner, "\n")
+
+	// Card title: "Prediction N / T"
+	cardTitle := fmt.Sprintf(" Prediction %d / %d ", idx, total)
+
+	// Build header title for the border — lipgloss doesn't support titles natively,
+	// so we construct a border manually using lipgloss.RoundedBorder glyphs and
+	// render the box with the title embedded in the top-left.
+	cardWidth := w - 4 // leave 2-char margin each side
+	if cardWidth < 40 {
+		cardWidth = 40
+	}
+
+	// Inner width = cardWidth - 2 (border chars on each side).
+	innerW := cardWidth - 2
+	titleRaw := theme.StyleMuted.Render(cardTitle)
+	titleVisW := lipgloss.Width(titleRaw)
+
+	rb := lipgloss.RoundedBorder()
+	borderColor := lipgloss.NewStyle().Foreground(theme.Mauve)
+
+	// Top border: ╭─ title ─────────╮
+	topFillLen := innerW - titleVisW - 2 // 2 for "─ " prefix
+	if topFillLen < 0 {
+		topFillLen = 0
+	}
+	topLine := borderColor.Render(rb.TopLeft+"─") + titleRaw +
+		borderColor.Render(strings.Repeat("─", topFillLen)+rb.TopRight)
+
+	// Body lines wrapped with side borders.
+	bodyLines := strings.Split(cardInner, "\n")
+	var bodyRendered strings.Builder
+	for _, bl := range bodyLines {
+		blW := lipgloss.Width(bl)
+		padding := innerW - blW
+		if padding < 0 {
+			padding = 0
+		}
+		bodyRendered.WriteString(borderColor.Render(rb.Left) +
+			bl + strings.Repeat(" ", padding) +
+			borderColor.Render(rb.Right) + "\n")
+	}
+
+	// Bottom border: ╰──────────────╯
+	bottomLine := borderColor.Render(rb.BottomLeft + strings.Repeat("─", innerW) + rb.BottomRight)
+
+	// ── Progress row ────────────────────────────────────────────────────────
+	progressRow := renderReviewProgress(m.cursor, total, nApplied)
+
+	var sb strings.Builder
+	sb.WriteString("\n  " + topLine + "\n")
+	// Indent each body line.
+	for _, bl := range strings.Split(strings.TrimRight(bodyRendered.String(), "\n"), "\n") {
+		sb.WriteString("  " + bl + "\n")
+	}
+	sb.WriteString("  " + bottomLine + "\n")
+	sb.WriteString("\n  " + progressRow + "\n\n")
 
 	return sb.String()
-}
-
-// ── Editor helpers ────────────────────────────────────────────────────────────
-
-// buildEditorCmd builds the *exec.Cmd for opening the suggested diff in $EDITOR.
-func buildEditorCmd(p Prediction) *exec.Cmd {
-	editor := os.Getenv("EDITOR")
-	if editor == "" {
-		editor = os.Getenv("VISUAL")
-	}
-	if editor == "" {
-		editor = "nano"
-	}
-
-	content := p.SuggestedDiff
-	if strings.TrimSpace(content) == "" {
-		content = fmt.Sprintf("# No suggested diff available for:\n# Pattern: %s\n# File:    %s:%d\n# Detail:  %s\n",
-			p.Pattern, p.File, p.Line, p.Detail)
-	}
-
-	// Write to temp file.
-	tmp, err := os.CreateTemp("", "rinse-edit-*.diff")
-	if err != nil {
-		// Fall back to /dev/null.
-		return exec.Command(editor, "/dev/null")
-	}
-	if _, werr := tmp.WriteString(content); werr != nil {
-		_ = tmp.Close()
-		return exec.Command(editor, "/dev/null")
-	}
-	_ = tmp.Close()
-
-	return exec.Command(editor, tmp.Name())
 }
 
 // ── Summary ───────────────────────────────────────────────────────────────────
@@ -445,23 +601,31 @@ func buildEditorCmd(p Prediction) *exec.Cmd {
 const minutesPerAppliedFix = 4
 
 // printSummary writes the post-loop summary box to w.
-func printSummary(w io.Writer, predictions []Prediction, applied []bool, skipped []bool) {
+func printSummary(w io.Writer, predictions []Prediction, states []reviewState) {
 	total := len(predictions)
 	nApplied := 0
 	nSkipped := 0
-	for i := range predictions {
-		if applied[i] {
+	for _, s := range states {
+		if s == reviewApplied {
 			nApplied++
 		}
-		if skipped[i] {
+		if s == reviewSkipped || s == reviewEdited {
 			nSkipped++
 		}
 	}
 	estMin := nApplied * minutesPerAppliedFix
 
+	// Border color: green when applied > 0, overlay when all skipped.
+	var borderColor lipgloss.Color
+	if nApplied > 0 {
+		borderColor = theme.Green
+	} else {
+		borderColor = theme.Overlay
+	}
+
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(theme.Mauve).
+		BorderForeground(borderColor).
 		Padding(0, 2).
 		MarginLeft(1)
 
@@ -542,7 +706,8 @@ func RunInteractive(opts InteractiveOpts) error {
 
 	model := newInteractiveModel(report.Predictions, termWidth, sessionID)
 
-	prog := tea.NewProgram(model, tea.WithAltScreen())
+	// Inline rendering — no alt-screen (spec: "renders inline, no alt-screen required").
+	prog := tea.NewProgram(model)
 	finalModel, err := prog.Run()
 	if err != nil {
 		return fmt.Errorf("predict interactive: %w", err)
@@ -554,19 +719,11 @@ func RunInteractive(opts InteractiveOpts) error {
 	}
 
 	// Print summary.
-	printSummary(out, final.predictions, final.applied, final.skipped)
+	printSummary(out, final.predictions, final.states)
 
 	// Log session event (fire-and-forget).
-	nApplied := 0
-	nSkipped := 0
-	for i := range final.predictions {
-		if final.applied[i] {
-			nApplied++
-		}
-		if final.skipped[i] {
-			nSkipped++
-		}
-	}
+	nApplied := final.countApplied()
+	nSkipped := final.countSkipped()
 	logInteractiveSession(sessionID, final.startedAt, len(final.predictions), nApplied, nSkipped)
 
 	return nil

@@ -26,7 +26,7 @@ func TestInteractiveModel_SkipAdvances(t *testing.T) {
 	if nm.cursor != 1 {
 		t.Fatalf("expected cursor=1 after skip, got %d", nm.cursor)
 	}
-	if !nm.skipped[0] {
+	if !nm.wasSkipped(0) {
 		t.Fatal("expected prediction[0] marked as skipped")
 	}
 }
@@ -42,7 +42,7 @@ func TestInteractiveModel_QuitMarksDone(t *testing.T) {
 	if !nm.done {
 		t.Fatal("expected done=true after quit")
 	}
-	if !nm.skipped[0] {
+	if !nm.wasSkipped(0) {
 		t.Fatal("expected remaining predictions marked as skipped after quit")
 	}
 }
@@ -86,8 +86,8 @@ func TestInteractiveModel_ViewContainsPattern(t *testing.T) {
 	if !strings.Contains(view, "[y]") {
 		t.Errorf("expected view to contain key prompt [y], got: %q", view)
 	}
-	if !strings.Contains(view, "[n]") {
-		t.Errorf("expected view to contain key prompt [n], got: %q", view)
+	if !strings.Contains(view, "[n/space]") {
+		t.Errorf("expected view to contain key prompt [n/space], got: %q", view)
 	}
 }
 
@@ -103,7 +103,7 @@ func TestInteractiveModel_ApplyResult_Applied(t *testing.T) {
 		t.Fatal("expected nil cmd after apply")
 	}
 	nm := next.(interactiveModel)
-	if !nm.applied[0] {
+	if !nm.wasApplied(0) {
 		t.Fatal("expected prediction[0] marked as applied")
 	}
 	if nm.cursor != 1 {
@@ -122,7 +122,7 @@ func TestInteractiveModel_ApplyResult_BuildFail(t *testing.T) {
 		index:  0,
 	})
 	nm := next.(interactiveModel)
-	if nm.applied[0] {
+	if nm.wasApplied(0) {
 		t.Fatal("expected prediction[0] NOT marked as applied after build failure")
 	}
 	if !strings.Contains(nm.lastMsg, "Build failed") {
