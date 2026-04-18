@@ -143,7 +143,8 @@ if [[ "$USE_WORKTREE" == true ]]; then
   # Cleanup function — remove the worktree on exit / signal
   # Called by _insights_exit_trap (the single unified EXIT trap).
   cleanup_pr_worktree() {
-    local rc=$?
+    local rc
+    rc=$?  # capture before any local declarations consume it
     set +e
     if [[ -n "$WORKTREE_DIR" && -d "$WORKTREE_DIR" ]]; then
       log "Cleaning up worktree at ${WORKTREE_DIR}..."
@@ -424,6 +425,7 @@ _insights_exit_trap() {
   fi
 }
 if [[ "$USE_WORKTREE" == true ]]; then
+  # shellcheck disable=SC2154  # _exit_code assigned in trap string then passed as arg
   trap '_exit_code=$?; cleanup_pr_worktree; _insights_exit_trap "$_exit_code"' EXIT
 else
   _cleanup_session_lock() {
@@ -497,12 +499,12 @@ merged_at=$(echo "$_pr_json" | jq -r '.merged_at // ""')
 if [[ "$pr_state" == "closed" && -n "$merged_at" ]]; then
   log "🎉 PR already merged — nothing to do."
   insights_finalize "already_merged"
-  [[ "${JSON_INSIGHTS:-false}" == true ]] && insights_print --json || insights_print
+  if [[ "${JSON_INSIGHTS:-false}" == true ]]; then insights_print --json; else insights_print; fi
   exit 0
 elif [[ "$pr_state" == "closed" ]]; then
   log "📕 PR is closed (not merged) — nothing to do."
   insights_finalize "closed"
-  [[ "${JSON_INSIGHTS:-false}" == true ]] && insights_print --json || insights_print
+  if [[ "${JSON_INSIGHTS:-false}" == true ]]; then insights_print --json; else insights_print; fi
   exit 1
 fi
 
@@ -527,13 +529,12 @@ else
   if [[ "$rstate" == "APPROVED" ]]; then
     log "✅ PR already APPROVED by Copilot — nothing to do."
     insights_finalize "approved"
-    [[ "${JSON_INSIGHTS:-false}" == true ]] && insights_print --json || insights_print
+    if [[ "${JSON_INSIGHTS:-false}" == true ]]; then insights_print --json; else insights_print; fi
     exit 0
   fi
 
   comments=$(get_review_comments "$rid")
   comment_count=$(echo "$comments" | jq 'length')
-  saved_id="${STATE_FILE}"
   saved=$(cat "$STATE_FILE" 2>/dev/null || echo "")
 
   if [[ "$comment_count" -gt 0 && ("$saved" != "$rid" || ! -f "$STATE_FILE") ]]; then
@@ -618,7 +619,11 @@ while true; do
   pr_state=$(echo "$_pr_json" | jq -r '.state // "open"')
   merged_at=$(echo "$_pr_json" | jq -r '.merged_at // ""')
   if [[ "$pr_state" == "closed" ]]; then
-    [[ -n "$merged_at" ]] && { log "🎉 PR merged!"; _INSIGHTS_OUTCOME="merged"; } || { log "📕 PR closed."; _INSIGHTS_OUTCOME="closed"; }
+    if [[ -n "$merged_at" ]]; then
+      log "🎉 PR merged!"; _INSIGHTS_OUTCOME="merged"
+    else
+      log "📕 PR closed."; _INSIGHTS_OUTCOME="closed"
+    fi
     exit 0
   fi
 

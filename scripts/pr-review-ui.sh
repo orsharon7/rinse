@@ -113,7 +113,7 @@ ui_divider() {
   if [[ "$_UI_GUM" == true && "$_UI_TTY" == true ]]; then
     local w
     w=$(tput cols 2>/dev/null || echo 80)
-    gum style --foreground "$GUM_MUTED" "$(printf '─%.0s' $(seq 1 $w))"
+    gum style --foreground "$GUM_MUTED" "$(printf '─%.0s' $(seq 1 "$w"))"
   else
     _ui_print "${_D}$(printf '─%.0s' $(seq 1 70))${_R}"
   fi
@@ -377,9 +377,9 @@ _ui_arrow_menu() {
   _draw() {
     for (( i=0; i<n; i++ )); do
       if [[ $i -eq $selected ]]; then
-        printf "  ${_CYAN}${_B}▶  ${options[$i]}${_R}\n" >&2
+        printf '%b' "  ${_CYAN}${_B}▶  ${options[$i]}${_R}\n" >&2
       else
-        printf "  ${_D}   ${options[$i]}${_R}\n" >&2
+        printf '%b' "  ${_D}   ${options[$i]}${_R}\n" >&2
       fi
     done
   }
@@ -400,14 +400,14 @@ _ui_arrow_menu() {
       $'\n'|$'\r'|'')
         printf "\033[?25h" >&2
         printf "\033[%dA\033[J" $(( n + 2 )) >&2
-        printf "  ${_CYAN}▶${_R}  ${_B}${options[$selected]}${_R}\n" >&2
+        printf '%b' "  ${_CYAN}▶${_R}  ${_B}${options[$selected]}${_R}\n" >&2
         echo $selected; return ;;
       'q'|$'\x03')
         printf "\033[?25h" >&2
         printf "\033[%dA\033[J" $(( n + 2 )) >&2
         echo $(( n - 1 )); return ;;
     esac
-    printf "\033[%dA" $n >&2
+    printf "\033[%dA" "$n" >&2
     _draw
   done
 }
@@ -423,7 +423,7 @@ _ui_numbered_menu() {
   echo "" >&2
   local input
   while true; do
-    printf "${_D}Enter choice [1-${n}]:${_R} " >&2
+    printf '%b' "${_D}Enter choice [1-${n}]:${_R} " >&2
     read -r input </dev/tty 2>/dev/null || input="$n"
     if [[ "$input" =~ ^[0-9]+$ && "$input" -ge 1 && "$input" -le $n ]]; then
       echo $(( input - 1 )); return

@@ -1,0 +1,15 @@
+# .shellcheckrc — project-wide shellcheck configuration
+#
+# SC1091: Not following sourced files with dynamic paths. All `source` calls in
+#         this project use "${SCRIPT_DIR}/..." which is resolved at runtime.
+#         shellcheck cannot follow dynamic paths; suppress globally.
+disable=SC1091
+#
+# SC2329: Function appears never invoked. Several scripts use dispatch tables
+#         and callback patterns where functions are invoked via variable
+#         expansion (e.g. "$handler_fn arg"). shellcheck cannot trace these.
+disable=SC2329
+#
+# SC2317: Command appears unreachable. Affects trap handlers and functions
+#         registered as callbacks that are unreachable in static analysis.
+disable=SC2317

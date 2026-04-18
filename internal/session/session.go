@@ -191,7 +191,7 @@ func PrintSummary(s Session, jsonMode bool) {
 	fmt.Println()
 
 	// Metrics rows — key column is 18 chars wide, muted; value is styled.
-	key := func(k string) string { return theme.StyleKey.Copy().Width(18).Render(k) }
+	key := func(k string) string { return theme.StyleKey.Width(18).Render(k) }
 
 	// Time saved
 	var savedVal string
@@ -285,7 +285,7 @@ func PrintStats(sessions []Session) {
 	fmt.Println()
 
 	// Aggregate metrics
-	key := func(k string) string { return theme.StyleKey.Copy().Width(22).Render(k) }
+	key := func(k string) string { return theme.StyleKey.Width(22).Render(k) }
 	fmt.Println("  " + key("Total sessions") + theme.StyleMuted.Render(fmt.Sprintf("%d", len(sessions))))
 	fmt.Println("  " + key("Approved") + theme.StyleVal.Render(fmt.Sprintf("%d / %d", approvals, len(sessions))))
 	fmt.Println("  " + key("Comments fixed") + theme.StyleLogSuccess.Render(fmt.Sprintf("%d", totalComments)))

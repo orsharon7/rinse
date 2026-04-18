@@ -93,16 +93,16 @@ session_update() {
   local last_rid="${2:-}"
   [[ -z "$_SESSION_FILE" ]] && return 0
 
+  # Read existing started_at before overwriting the file (avoids SC2094 race).
+  local existing_started_at=""
+  if [[ -f "$_SESSION_FILE" ]]; then
+    existing_started_at="$(jq -r '.started_at // ""' "$_SESSION_FILE" 2>/dev/null || echo "")"
+  fi
+
   jq -n \
     --arg hostname "$_SESSION_HOSTNAME" \
     --argjson pid "$_SESSION_PID" \
-    --arg started_at "$(
-      if [[ -f "$_SESSION_FILE" ]]; then
-        jq -r '.started_at // ""' "$_SESSION_FILE" 2>/dev/null || echo ""
-      else
-        echo ""
-      fi
-    )" \
+    --arg started_at "$existing_started_at" \
     --arg updated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --argjson iter "$iter" \
     --arg last_review_id "$last_rid" \
@@ -155,7 +155,9 @@ session_recover() {
   fi
 
   # PID is dead but status is "running" → this was a crash
+  # shellcheck disable=SC2034  # consumed by sourcing scripts (pr-review-{claude-v2,opencode}.sh)
   RECOVER_REVIEW_ID=$(jq -r '.last_review_id // ""' "$_SESSION_FILE" 2>/dev/null || echo "")
+  # shellcheck disable=SC2034  # consumed by sourcing scripts
   RECOVER_ITER=$(jq -r '.iter // 0' "$_SESSION_FILE" 2>/dev/null || echo 0)
   RECOVER_LOCK_ID=$(jq -r '.lock_id // ""' "$_SESSION_FILE" 2>/dev/null || echo "")
 

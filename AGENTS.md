@@ -2,6 +2,20 @@
 
 Project instructions for AI coding agents.
 
+## Branching Model
+
+RINSE uses trunk-based development with a `feature/* → develop → main` flow:
+
+- **`feature/*`** — short-lived feature/fix branches. All PRs target `develop`, not `master` or `main`.
+- **`develop`** — integration branch. CI (lint, test, build) runs on every PR and push. Merge to `main` is manual when ready to release.
+- **`main`** — release branch. Every push to `main` must be production-ready. Tags (`v*`) on `main` trigger GoReleaser.
+
+**Rules for agents:**
+1. Always branch off `develop`: `git checkout develop && git checkout -b feature/<description>-<ticket>`
+2. Open PRs targeting `develop` (not `master`, not `main`).
+3. Do not push directly to `develop` or `main` — use PRs.
+4. `REFLECT_MAIN_BRANCH` in pr-review scripts defaults to `main` (correct — reflection rules go to `main`).
+
 <!-- BEGIN:COPILOT-RULES -->
 ## Coding Guidelines (AI-maintained)
 *Auto-updated by pr-review-reflect — do not edit this section manually.*

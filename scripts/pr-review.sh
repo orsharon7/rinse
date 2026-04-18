@@ -569,7 +569,7 @@ cmd_cycle() {
 
   # Emit ETA so the TUI can display a real estimated end time.
   # Computed as now + WAIT_MAX seconds in RFC3339 format.
-  echo "[eta] $(date -u -d "+${WAIT_MAX} seconds" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v+${WAIT_MAX}S +%Y-%m-%dT%H:%M:%SZ)"
+  echo "[eta] $(date -u -d "+${WAIT_MAX} seconds" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v+"${WAIT_MAX}"S +%Y-%m-%dT%H:%M:%SZ)"
 
   # Now wait — compare against snapshot_id, not LAST_KNOWN from state file
   local elapsed=0 interval=15

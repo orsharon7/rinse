@@ -156,6 +156,7 @@ trap cleanup_worktree EXIT
 git -C "$CWD" worktree prune 2>/dev/null || true
 
 log "Fetching ${MAIN_BRANCH} and creating worktree at ${WORKTREE_DIR}..."
+# shellcheck disable=SC2016  # $1/$2/$3 are positional args to bash -c; must stay unexpanded
 retry 3 bash -c 'set -euo pipefail; git -C "$1" fetch origin "$2" 2>&1 | tee -a "$3"' _ "$CWD" "$MAIN_BRANCH" "$LOGFILE"
 # Use --detach to avoid conflicts with an already checked-out branch
 git -C "$CWD" worktree add --detach "$WORKTREE_DIR" "origin/${MAIN_BRANCH}" 2>&1 | tee -a "$LOGFILE"

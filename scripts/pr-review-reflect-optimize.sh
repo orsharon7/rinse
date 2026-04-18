@@ -121,6 +121,7 @@ trap cleanup_worktree EXIT
 git -C "$CWD" worktree prune 2>/dev/null || true
 
 log "Fetching ${MAIN_BRANCH} and creating worktree at ${WORKTREE_DIR}..."
+# shellcheck disable=SC2016  # $1/$2/$3 are positional args to bash -c; must stay unexpanded
 retry 3 bash -c 'set -euo pipefail; git -C "$1" fetch origin "$2" 2>&1 | tee -a "$3"' _ "$CWD" "$MAIN_BRANCH" "$LOGFILE"
 # Use --detach to avoid conflicts with an already checked-out branch
 git -C "$CWD" worktree add --detach "$WORKTREE_DIR" "origin/${MAIN_BRANCH}" 2>&1 | tee -a "$LOGFILE"
@@ -294,7 +295,7 @@ git -C "$WORKTREE_DIR" add AGENTS.md CLAUDE.md
 
 # Rough measure: lines removed (negative diff lines inside the rules section)
 lines_removed=$(git -C "$WORKTREE_DIR" diff --cached AGENTS.md \
-  | grep '^-' | grep -v '^---' | wc -l | tr -d ' ' 2>/dev/null || echo "?")
+  | grep '^-' | grep -vc '^---' 2>/dev/null || echo "?")
 
 git -C "$WORKTREE_DIR" commit \
   -m "chore: optimize AI coding rules after PR #${PR_NUMBER} merge [skip ci]"
@@ -324,6 +325,7 @@ while true; do
       exit 1
     fi
     log "Push rejected (attempt ${push_attempt}/${MAX_PUSH_ATTEMPTS}) — fetching and rebasing onto ${MAIN_BRANCH}..."
+    # shellcheck disable=SC2016  # $1/$2/$3 are positional args to bash -c; must stay unexpanded
     retry 3 bash -c 'set -euo pipefail; git -C "$1" fetch origin "$2" 2>&1 | tee -a "$3"' _ "$WORKTREE_DIR" "$MAIN_BRANCH" "$LOGFILE"
      # Rebase our commit on top of the new upstream tip.
      # Use -X theirs so our optimized content wins on conflict (both sides touched the rules section).

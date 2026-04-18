@@ -385,7 +385,6 @@ trap handle_sigterm TERM
 # ─── Run a single PR (background) ────────────────────────────────────────────
 
 declare -A PR_EXIT_CODES
-declare -A PR_LOG_FILES
 
 run_single_pr() {
   local pr_num="$1"
@@ -397,7 +396,6 @@ run_single_pr() {
   fi
 
   local pr_log="${HOME}/.pr-review/logs/${REPO_SLUG}-pr-${pr_num}.log"
-  PR_LOG_FILES["$pr_num"]="$pr_log"
 
   # Build the command as a proper array (no eval, safe for paths with spaces)
   local cmd_args=()
