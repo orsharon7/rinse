@@ -746,6 +746,18 @@ func runPredictCmd(args []string) {
 		}
 	}
 
+	// Guard: if no PR is specified and nothing is staged, show an actionable
+	// hint and exit cleanly. Skip when --pr is given (diff comes from the PR).
+	if pr == 0 {
+		out, gitErr := exec.Command("git", "diff", "--cached", "--name-only").Output()
+		if gitErr == nil && strings.TrimSpace(string(out)) == "" {
+			fmt.Println(theme.StyleMuted.Render("  " + theme.IconDiamond + "  Nothing staged."))
+			fmt.Println(theme.StyleMuted.Render("     Stage your changes first:"))
+			fmt.Println("     " + theme.StyleCharm.Render("git add <files>") + theme.StyleMuted.Render("  or  ") + theme.StyleCharm.Render("git add -p"))
+			os.Exit(0)
+		}
+	}
+
 	report, err := predict.Run(pr, repo)
 	if err != nil {
 		if asJSON {
