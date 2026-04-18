@@ -852,15 +852,24 @@
     const email = document.getElementById('waitlist-email').value.trim();
     if (!email) return;
 
-    // POST to placeholder; backend team can wire this up
-    fetch('/api/waitlist', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email })
-    }).catch(() => {/* ignore network errors in demo */});
+    const form = this;
+    form.querySelector('button').disabled = true;
 
-    this.style.display = 'none';
-    document.getElementById('waitlist-success').classList.add('visible');
+    // Formspree endpoint — or replace with Tally embed if preferred
+    fetch('https://formspree.io/f/xpwzgkdo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ email })
+    })
+    .then(res => {
+      form.style.display = 'none';
+      document.getElementById('waitlist-success').classList.add('visible');
+    })
+    .catch(() => {
+      // Still show success — don't punish the user for network issues
+      form.style.display = 'none';
+      document.getElementById('waitlist-success').classList.add('visible');
+    });
   });
 </script>
 
