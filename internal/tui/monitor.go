@@ -18,6 +18,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/orsharon7/rinse/internal/notify"
 	"github.com/orsharon7/rinse/internal/session"
+	"github.com/orsharon7/rinse/internal/stats"
 	"github.com/orsharon7/rinse/internal/theme"
 )
 
@@ -567,45 +568,21 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if err := os.WriteFile(mainFname, []byte(mainContent), 0o644); err != nil {
 					m.statusMsg = theme.IconCross + " save failed"
 				} else {
-					m.statusMsg = theme.IconCheck + " reflect log " + theme.IconArrow + " " + fname
+					savedParts = append(savedParts, mainFname)
+				}
+				if len(m.reflectLines) > 0 {
+					refFname := fmt.Sprintf("rinse-reflect-%s.txt", ts)
+					refContent := strings.Join(m.reflectLines, "\n") + "\n"
+					if err := os.WriteFile(refFname, []byte(refContent), 0o644); err == nil {
+						savedParts = append(savedParts, refFname)
+					}
+				}
+				if len(savedParts) > 0 {
+					m.statusMsg = theme.IconCheck + " saved " + theme.IconArrow + " " + strings.Join(savedParts, ", ")
 				}
 				cmds = append(cmds, tea.Tick(2*time.Second,
 					func(t time.Time) tea.Msg { return clearStatusMsg{} }))
-			} else {
-				m.statusMsg = "no reflect lines to save"
-				cmds = append(cmds, tea.Tick(2*time.Second,
-					func(t time.Time) tea.Msg { return clearStatusMsg{} }))
 			}
-		} else if key.Matches(msg, Keys.SaveAll) {
-			ts := time.Now().Format("20060102-150405")
-			mainFname := fmt.Sprintf("rinse-log-%s.txt", ts)
-			mainContent := m.renderedLog.String()
-			if mainContent != "" && !strings.HasSuffix(mainContent, "\n") {
-				mainContent += "\n"
-			}
-			var savedParts []string
-			if err := os.WriteFile(mainFname, []byte(mainContent), 0o644); err != nil {
-				m.statusMsg = theme.IconCross + " save failed"
-			} else {
-				savedParts = append(savedParts, mainFname)
-			}
-			if len(m.reflectLines) > 0 {
-				refFname := fmt.Sprintf("rinse-reflect-%s.txt", ts)
-				refContent := strings.Join(m.reflectLines, "\n") + "\n"
-				if err := os.WriteFile(refFname, []byte(refContent), 0o644); err == nil {
-					savedParts = append(savedParts, refFname)
-				}
-			}
-			if len(savedParts) > 0 {
-				m.statusMsg = theme.IconCheck + " saved " + theme.IconArrow + " " + strings.Join(savedParts, ", ")
-			}
-			cmds = append(cmds, tea.Tick(3*time.Second,
-				func(t time.Time) tea.Msg { return clearStatusMsg{} }))
-		} else {
-			var vpcmd tea.Cmd
-			m.viewport, vpcmd = m.viewport.Update(msg)
-			m.atBottom = m.viewport.AtBottom()
-			cmds = append(cmds, vpcmd)
 		}
 
 	case tickMsg:

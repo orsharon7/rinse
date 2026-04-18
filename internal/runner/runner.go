@@ -14,6 +14,7 @@ import (
 	"github.com/orsharon7/rinse/internal/db"
 	"github.com/orsharon7/rinse/internal/engine"
 	"github.com/orsharon7/rinse/internal/engine/lock"
+	"github.com/orsharon7/rinse/internal/ignore"
 	"github.com/orsharon7/rinse/internal/summary"
 )
 
@@ -103,7 +104,6 @@ type Result struct {
 	ResumedFromIteration int
 
 	// Session is the recorded session metrics for this run.
-	Session stats.Session
 }
 
 // Run drives the PR review lifecycle:
@@ -204,7 +204,13 @@ func Run(opts Opts) (Result, error) {
 		}
 	}
 
-	// ── 4. Main cycle loop ────────────────────────────────────────────────────
+	// ── 4. Load .rinseignore patterns ─────────────────────────────────────────
+	var ignorePatterns []string
+	if ignoreMatcher, ignoreErr := ignore.Load(opts.CWD); ignoreErr == nil {
+		ignorePatterns = ignoreMatcher.Patterns()
+	}
+
+	// ── 5. Main cycle loop ────────────────────────────────────────────────────
 	waitPolls := 0
 	for state.Iteration < opts.MaxIterations {
 		log.Info("runner: starting iteration",
@@ -234,7 +240,6 @@ func Run(opts Opts) (Result, error) {
 				Iterations:           state.Iteration,
 				TotalComments:        totalComments,
 				ResumedFromIteration: resumedFrom,
-				Session:              session,
 			}, fmt.Errorf("runner: agent %s iteration %d: %w", opts.Agent.Name(), state.Iteration+1, err)
 		}
 
@@ -249,12 +254,11 @@ func Run(opts Opts) (Result, error) {
 				)
 				finalizeSession("failed", state.Iteration)
 				mon.OnError("max_wait_polls", ErrMaxWaitPolls.Error())
-				return Result{
-					Iterations:           state.Iteration,
-					TotalComments:        totalComments,
-					ResumedFromIteration: resumedFrom,
-					Session:              session,
-				}, ErrMaxWaitPolls
+			return Result{
+				Iterations:           state.Iteration,
+				TotalComments:        totalComments,
+				ResumedFromIteration: resumedFrom,
+			}, ErrMaxWaitPolls
 			}
 			log.Info("runner: waiting for actionable review",
 				"repo", opts.Repo,
@@ -273,33 +277,29 @@ func Run(opts Opts) (Result, error) {
 		totalComments += agentResult.Comments
 
 		// Persist comment_event to telemetry DB (best-effort).
-		if telemetryDB != nil {
-			evtID, uuidErr := db.NewUUID()
-			if uuidErr != nil {
-				log.Warn("runner: failed to generate comment event UUID", "error", uuidErr)
-			} else {
-				evt := db.CommentEventRow{
-					ID:           evtID,
-					SessionID:    session.SessionID,
-					Iteration:    state.Iteration,
-					CommentCount: agentResult.Comments,
-				}
-				if err := telemetryDB.InsertCommentEvent(evt); err != nil {
-					log.Warn("runner: telemetry InsertCommentEvent failed", "error", err)
-				}
-			}
-		}
-
-		// Persist the review ID so the next iteration can detect no_change.
-		if agentResult.ReviewID != "" {
-			state.LastReviewID = agentResult.ReviewID
-		}
-
-		// Record comment event for this iteration.
 		if opts.DB != nil {
 			evID := fmt.Sprintf("%s-iter%d", sessionID, state.Iteration)
-			if dbErr := opts.DB.InsertCommentEvent(evID, sessionID, state.Iteration, agentResult.Comments); dbErr != nil {
+			evt := db.CommentEventRow{
+				ID:           evID,
+				SessionID:    sessionID,
+				Iteration:    state.Iteration,
+				CommentCount: agentResult.Comments,
+			}
+			if dbErr := opts.DB.InsertCommentEvent(evt); dbErr != nil {
 				log.Warn("runner: telemetry: insert comment event", "error", dbErr)
+			}
+
+			// Persist extracted patterns (best-effort, fire-and-forget).
+			for i, pat := range agentResult.Patterns {
+				patID := fmt.Sprintf("%s-iter%d-pat%d", sessionID, state.Iteration, i)
+				if dbErr := opts.DB.InsertPattern(db.PatternRow{
+					ID:        patID,
+					SessionID: sessionID,
+					Pattern:   pat,
+					Count:     1,
+				}); dbErr != nil {
+					log.Warn("runner: telemetry: insert pattern", "pattern", pat, "error", dbErr)
+				}
 			}
 		}
 
@@ -322,7 +322,6 @@ func Run(opts Opts) (Result, error) {
 				Iterations:           state.Iteration,
 				TotalComments:        totalComments,
 				ResumedFromIteration: resumedFrom,
-				Session:              session,
 			}, nil
 		}
 

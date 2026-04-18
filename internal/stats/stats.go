@@ -11,11 +11,9 @@ package stats
 
 import (
 	"crypto/rand"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"math"
-	mrand "math/rand"
 	"os"
 	"path/filepath"
 	"sort"
@@ -23,6 +21,7 @@ import (
 	"time"
 
 	"github.com/orsharon7/rinse/internal/db"
+	"github.com/orsharon7/rinse/internal/quality"
 	"github.com/orsharon7/rinse/internal/theme"
 	"github.com/orsharon7/rinse/internal/upgrade"
 )
@@ -33,9 +32,12 @@ type Outcome string
 const (
 	OutcomeApproved Outcome = "approved"
 	OutcomeMerged   Outcome = "merged"
+	OutcomeClosed   Outcome = "closed"
 	OutcomeMaxIter  Outcome = "max_iterations"
 	OutcomeError    Outcome = "error"
 	OutcomeAborted  Outcome = "aborted"
+	OutcomeDryRun   Outcome = "dry_run"
+	OutcomeClean    Outcome = "clean"
 )
 
 // newUUID generates a random UUID v4 string.
@@ -53,10 +55,17 @@ func newUUID() (string, error) {
 		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
 }
 
+// SchemaVersion is the current version of the JSON session file format.
+const SchemaVersion = 2
+
+// sessionsDirOverride allows tests to redirect session writes to a temp dir.
+var sessionsDirOverride string
+
 // Session records the outcome of a single rinse PR-review run.
 type Session struct {
 	// Identity
-	SessionID string `json:"session_id"`
+	SessionID     string `json:"session_id"`
+	SchemaVersion int    `json:"schema_version,omitempty"`
 
 	// Metadata
 	StartedAt time.Time `json:"started_at"`
@@ -118,29 +127,6 @@ func SessionsDir() (string, error) {
 // Save writes the session as a JSON file in SessionsDir (legacy path, used by
 // shell scripts). New code should write to the SQLite DB instead.
 func Save(s Session) error {
-	cfg, err := loadConfig()
-	if err != nil {
-		return fmt.Errorf("stats: cannot load config: %w", err)
-	}
-	if cfg.StatsOptIn != nil && !*cfg.StatsOptIn {
-		// User explicitly opted out — never prompt again.
-		return nil
-	}
-	if cfg.StatsOptIn == nil {
-		// No preference set yet — prompt if interactive; silently skip in CI.
-		fi, statErr := os.Stdin.Stat()
-		if statErr != nil || (fi.Mode()&os.ModeCharDevice) == 0 {
-			return nil // CI/non-TTY: silently off
-		}
-		optedIn, promptErr := PromptOptIn()
-		if promptErr != nil {
-			return promptErr
-		}
-		if !optedIn {
-			return nil
-		}
-	}
-
 	s.SchemaVersion = SchemaVersion
 
 	dir, err := SessionsDir()
@@ -152,7 +138,11 @@ func Save(s Session) error {
 	}
 
 	if s.SessionID == "" {
-		s.SessionID = newUUID()
+		id, err := newUUID()
+		if err != nil {
+			return fmt.Errorf("stats: cannot generate session ID: %w", err)
+		}
+		s.SessionID = id
 	}
 
 	repoSlug := strings.ReplaceAll(s.Repo, "/", "-")
@@ -307,6 +297,9 @@ func loadFromDB() ([]Session, error) {
 
 // loadFromJSON reads legacy JSON session files from SessionsDir.
 func loadFromJSON() ([]Session, error) {
+	var sessions []Session
+	seen := make(map[string]bool)
+
 	dir, err := SessionsDir()
 	if err != nil {
 		return sortByStarted(sessions), nil
@@ -370,15 +363,20 @@ func sortByStarted(sessions []Session) []Session {
 	return sessions
 }
 
+// SetOptIn is a no-op stub retained for CLI compatibility.
+// The stats opt-in/opt-out feature was removed; sessions are always collected.
+func SetOptIn(_ bool) error { return nil }
+
 // Summary holds aggregated metrics across a set of sessions.
 type Summary struct {
-	TotalSessions    int
-	TotalComments    int
-	TotalIterations  int
-	ApprovedSessions int
-	TotalDurationSec float64
-	PatternCounts    map[string]int
-	OutcomeCounts    map[Outcome]int
+	TotalSessions         int
+	TotalComments         int
+	TotalIterations       int
+	ApprovedSessions      int
+	TotalDurationSec      float64
+	TotalTimeSavedSeconds int
+	PatternCounts         map[string]int
+	OutcomeCounts         map[Outcome]int
 	// Last30Days is a filtered summary over the last 30 days.
 	// It is always populated by Summarize and is the zero value when no sessions match.
 	Last30Days *Summary

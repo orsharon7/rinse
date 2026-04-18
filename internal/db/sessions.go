@@ -14,6 +14,7 @@ type SessionRow struct {
 	PRNumber int
 	PRTitle string
 	Branch  string
+	Runner  string
 
 	// StartedAt is set when the session opens.
 	StartedAt time.Time
@@ -34,13 +35,14 @@ type SessionRow struct {
 func (d *DB) InsertSession(s SessionRow) error {
 	const q = `
 INSERT INTO sessions
-  (id, repo, pr_number, pr_title, branch, started_at, iterations,
+  (id, repo, pr_number, pr_title, branch, runner, started_at, iterations,
    total_comments_fixed, outcome, model)
 VALUES
-  (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
-	_, err := d.sql.Exec(q,
+	_, err := d.db.Exec(q,
 		s.ID, s.Repo, s.PRNumber, nullString(s.PRTitle), nullString(s.Branch),
+		nullString(s.Runner),
 		s.StartedAt.UTC().Format(time.RFC3339),
 		s.Iterations, s.TotalCommentsFixed,
 		coalesceOutcome(s.Outcome, "open"),
@@ -69,7 +71,7 @@ WHERE id = ?`
 		completedAt = sql.NullString{String: s.CompletedAt.UTC().Format(time.RFC3339), Valid: true}
 	}
 
-	_, err := d.sql.Exec(q,
+	_, err := d.db.Exec(q,
 		completedAt,
 		nullInt(s.DurationSeconds),
 		nullInt(s.EstimatedTimeSavedSeconds),
@@ -84,12 +86,12 @@ WHERE id = ?`
 	return nil
 }
 
-// LoadSessions returns all session rows ordered by started_at ascending.
+// LoadSessionRows returns all session rows ordered by started_at ascending.
 // It is used by stats.Load() to build the in-memory Session slice.
-func (d *DB) LoadSessions() ([]SessionRow, error) {
+func (d *DB) LoadSessionRows() ([]SessionRow, error) {
 	const q = `
 SELECT
-  id, repo, pr_number, COALESCE(pr_title,''), COALESCE(branch,''),
+  id, repo, pr_number, COALESCE(pr_title,''), COALESCE(branch,''), COALESCE(runner,''),
   started_at,
   completed_at, duration_seconds, estimated_time_saved_seconds,
   iterations, total_comments_fixed,
@@ -97,7 +99,7 @@ SELECT
 FROM sessions
 ORDER BY started_at ASC`
 
-	rows, err := d.sql.Query(q)
+	rows, err := d.db.Query(q)
 	if err != nil {
 		return nil, fmt.Errorf("db: load sessions: %w", err)
 	}
@@ -111,7 +113,7 @@ ORDER BY started_at ASC`
 		var durationSec, estSaved sql.NullInt64
 
 		if err := rows.Scan(
-			&s.ID, &s.Repo, &s.PRNumber, &s.PRTitle, &s.Branch,
+			&s.ID, &s.Repo, &s.PRNumber, &s.PRTitle, &s.Branch, &s.Runner,
 			&startedAtStr,
 			&completedAtStr, &durationSec, &estSaved,
 			&s.Iterations, &s.TotalCommentsFixed,

@@ -117,49 +117,6 @@ func (d *DB) Close() error {
 
 // ── Session write path ────────────────────────────────────────────────────────
 
-// SessionRow represents a row in the sessions table.
-type SessionRow struct {
-	ID       string
-	Repo     string
-	PRNumber int
-	PRTitle  string
-	Branch   string
-	Runner   string
-	Model    string
-
-	StartedAt   time.Time
-	CompletedAt *time.Time
-
-	DurationSeconds             *int
-	EstimatedTimeSavedSeconds   *int
-	Iterations                  int
-	TotalCommentsFixed          int
-	Outcome                     string // "open" | "merged" | "closed" | "failed"
-}
-
-// InsertSession inserts a new session row. Call this at the start of a run
-// with Outcome="open".
-func (d *DB) InsertSession(s SessionRow) error {
-	if d == nil {
-		return nil
-	}
-	_, err := d.db.Exec(`
-		INSERT INTO sessions
-		  (id, repo, pr_number, pr_title, branch, runner, model,
-		   started_at, outcome, iterations, total_comments_fixed)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		s.ID, s.Repo, s.PRNumber, s.PRTitle, s.Branch, s.Runner, s.Model,
-		s.StartedAt.UTC().Format(time.RFC3339),
-		"open",
-		s.Iterations,
-		s.TotalCommentsFixed,
-	)
-	if err != nil {
-		return fmt.Errorf("db: insert session %s: %w", s.ID, err)
-	}
-	return nil
-}
-
 // FinalizeSession updates the session row with completion data.
 func (d *DB) FinalizeSession(id string, completedAt time.Time, durationSec, commentCount, iterations int, outcome string) error {
 	if d == nil {
@@ -185,38 +142,6 @@ func (d *DB) FinalizeSession(id string, completedAt time.Time, durationSec, comm
 	)
 	if err != nil {
 		return fmt.Errorf("db: finalize session %s: %w", id, err)
-	}
-	return nil
-}
-
-// InsertCommentEvent records a Copilot comment batch for a given iteration.
-func (d *DB) InsertCommentEvent(eventID, sessionID string, iteration, commentCount int) error {
-	if d == nil {
-		return nil
-	}
-	_, err := d.db.Exec(`
-		INSERT INTO comment_events (id, session_id, iteration, comment_count)
-		VALUES (?, ?, ?, ?)`,
-		eventID, sessionID, iteration, commentCount,
-	)
-	if err != nil {
-		return fmt.Errorf("db: insert comment event: %w", err)
-	}
-	return nil
-}
-
-// InsertPattern records a detected code pattern for a session.
-func (d *DB) InsertPattern(patternID, sessionID, pattern string, count int) error {
-	if d == nil {
-		return nil
-	}
-	_, err := d.db.Exec(`
-		INSERT INTO patterns (id, session_id, pattern, count)
-		VALUES (?, ?, ?, ?)`,
-		patternID, sessionID, pattern, count,
-	)
-	if err != nil {
-		return fmt.Errorf("db: insert pattern: %w", err)
 	}
 	return nil
 }
