@@ -14,6 +14,7 @@ type SessionRow struct {
 	PRNumber int
 	PRTitle string
 	Branch  string
+	Runner  string
 
 	// StartedAt is set when the session opens.
 	StartedAt time.Time
@@ -27,6 +28,7 @@ type SessionRow struct {
 	TotalCommentsFixed          int
 	Outcome                     string // "open" while running
 	Model                       string
+	Patterns                    []string
 }
 
 // InsertSession writes a new session row with outcome="open".
@@ -34,13 +36,14 @@ type SessionRow struct {
 func (d *DB) InsertSession(s SessionRow) error {
 	const q = `
 INSERT INTO sessions
-  (id, repo, pr_number, pr_title, branch, started_at, iterations,
+  (id, repo, pr_number, pr_title, branch, runner, started_at, iterations,
    total_comments_fixed, outcome, model)
 VALUES
-  (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err := d.sql.Exec(q,
 		s.ID, s.Repo, s.PRNumber, nullString(s.PRTitle), nullString(s.Branch),
+		nullString(s.Runner),
 		s.StartedAt.UTC().Format(time.RFC3339),
 		s.Iterations, s.TotalCommentsFixed,
 		coalesceOutcome(s.Outcome, "open"),
@@ -84,12 +87,33 @@ WHERE id = ?`
 	return nil
 }
 
+// FinalizeSession updates the session row with completion data.
+// This is a convenience wrapper over UpdateSession for the runner's fire-and-forget path.
+func (d *DB) FinalizeSession(id string, completedAt time.Time, durationSec, commentCount, iterations int, outcome string) error {
+	if d == nil {
+		return nil
+	}
+	estimated := commentCount * 240 // 4 min per comment
+	dur := durationSec
+	est := estimated
+	return d.UpdateSession(SessionRow{
+		ID:                        id,
+		CompletedAt:               &completedAt,
+		DurationSeconds:           &dur,
+		EstimatedTimeSavedSeconds: &est,
+		TotalCommentsFixed:        commentCount,
+		Iterations:                iterations,
+		Outcome:                   outcome,
+	})
+}
+
 // LoadSessions returns all session rows ordered by started_at ascending.
 // It is used by stats.Load() to build the in-memory Session slice.
 func (d *DB) LoadSessions() ([]SessionRow, error) {
 	const q = `
 SELECT
   id, repo, pr_number, COALESCE(pr_title,''), COALESCE(branch,''),
+  COALESCE(runner,''),
   started_at,
   completed_at, duration_seconds, estimated_time_saved_seconds,
   iterations, total_comments_fixed,
@@ -112,6 +136,7 @@ ORDER BY started_at ASC`
 
 		if err := rows.Scan(
 			&s.ID, &s.Repo, &s.PRNumber, &s.PRTitle, &s.Branch,
+			&s.Runner,
 			&startedAtStr,
 			&completedAtStr, &durationSec, &estSaved,
 			&s.Iterations, &s.TotalCommentsFixed,
@@ -144,7 +169,41 @@ ORDER BY started_at ASC`
 
 		out = append(out, s)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("db: iterate sessions: %w", err)
+	}
+
+	// Load patterns per session (best-effort).
+	for i := range out {
+		pats, err := loadPatternStrings(d, out[i].ID)
+		if err != nil {
+			continue
+		}
+		out[i].Patterns = pats
+	}
+
+	return out, nil
+}
+
+func loadPatternStrings(d *DB, sessionID string) ([]string, error) {
+	rows, err := d.sql.Query(
+		`SELECT pattern FROM patterns WHERE session_id = ? ORDER BY count DESC`,
+		sessionID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var pats []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		pats = append(pats, p)
+	}
+	return pats, rows.Err()
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
