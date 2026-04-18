@@ -298,7 +298,13 @@ func Run(opts Opts) (Result, error) {
 		// Record comment event for this iteration.
 		if opts.DB != nil {
 			evID := fmt.Sprintf("%s-iter%d", sessionID, state.Iteration)
-			if dbErr := opts.DB.InsertCommentEvent(evID, sessionID, state.Iteration, agentResult.Comments); dbErr != nil {
+			evt := db.CommentEventRow{
+				ID:           evID,
+				SessionID:    sessionID,
+				Iteration:    state.Iteration,
+				CommentCount: agentResult.Comments,
+			}
+			if dbErr := opts.DB.InsertCommentEvent(evt); dbErr != nil {
 				log.Warn("runner: telemetry: insert comment event", "error", dbErr)
 			}
 		}
