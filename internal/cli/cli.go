@@ -735,10 +735,8 @@ func runPredictCmd(args []string) {
 	}
 
 	// Pro-only flags are gated at dispatch (TryDispatch); reaching here means
-	// the user is Pro. Suppress "declared and not used" errors until the
-	// feature implementations land in later issues.
+	// the user is Pro. Keep _ = interactive until RIN-208 lands.
 	_ = interactive
-	_ = docDrift
 
 	// Resolve repo when PR mode is requested.
 	if pr > 0 && repo == "" {
@@ -761,6 +759,30 @@ func runPredictCmd(args []string) {
 	// Log prediction events for hit-rate tracking (fire-and-forget).
 	if !noLog {
 		_ = predict.LogEvent(report)
+	}
+
+	// ── Doc-drift analysis ────────────────────────────────────────────────────
+	//
+	// When --doc-drift is active (Pro gate already enforced at TryDispatch),
+	// run the LLM-backed drift detector and merge its findings into the report.
+	if docDrift && predict.IsDocDriftEnabled(docDrift) {
+		diff, diffErr := fetchDiff(pr, repo)
+		if diffErr != nil {
+			fmt.Fprintf(os.Stderr, "warn: doc-drift: fetch diff: %v\n", diffErr)
+		} else {
+			driftOpts := predict.DocDriftOptions{
+				MaxLLMCalls:    10,
+				PerCallTimeout: 3 * time.Second,
+				Client:         &predict.CopilotLLMClient{},
+			}
+			driftReport, driftErr := predict.RunDocDrift(diff, report.Source, driftOpts)
+			if driftErr != nil {
+				fmt.Fprintf(os.Stderr, "warn: doc-drift: %v\n", driftErr)
+			} else {
+				fmt.Fprintf(os.Stderr, "[doc-drift] LLM calls used: %d/10\n", driftReport.LLMCallCount)
+				report.Predictions = append(report.Predictions, predict.DriftItemsAsPredictions(driftReport)...)
+			}
+		}
 	}
 
 	if asJSON {
@@ -788,8 +810,29 @@ func runPredictCmd(args []string) {
 		termWidth = w
 	}
 	predict.Render(os.Stdout, report, termWidth)
-	// Exit 0 even with predictions — non-blocking by design (v0.3).
+	// Exit 0 even with predictions — non-blocking by design.
 	os.Exit(0)
+}
+
+// fetchDiff returns the unified diff for staged changes or a PR.
+// Used by the doc-drift detector to analyse the same source as predict.Run.
+func fetchDiff(pr int, repo string) (string, error) {
+	if pr > 0 {
+		args := []string{"pr", "diff", fmt.Sprintf("%d", pr), "--patch"}
+		if repo != "" {
+			args = append(args, "--repo", repo)
+		}
+		out, err := exec.Command("gh", args...).Output()
+		if err != nil {
+			return "", fmt.Errorf("gh pr diff: %w", err)
+		}
+		return string(out), nil
+	}
+	out, err := exec.Command("git", "diff", "--cached", "--unified=5").Output()
+	if err != nil {
+		return "", fmt.Errorf("git diff --cached: %w", err)
+	}
+	return string(out), nil
 }
 
 // ── Script resolution ─────────────────────────────────────────────────────────
@@ -1131,7 +1174,7 @@ COMMANDS
 
     Note: --max-iterations and --poll-interval are reserved for a future release.
 
-  rinse predict [<pr>] [--repo <owner/repo>] [--json] [--no-log]
+  rinse predict [<pr>] [--repo <owner/repo>] [--json] [--no-log] [--doc-drift]
 
     Predict which review-comment patterns are likely to appear on a PR before
     running a full review cycle. Useful for deciding whether to invoke RINSE
@@ -1144,6 +1187,12 @@ COMMANDS
     --pr <number>         PR number (alternative to positional argument)
     --json                Emit a JSON result object instead of styled text
     --no-log              Do not persist this prediction event to the hit-rate log
+    --doc-drift           (Pro) Run LLM-backed documentation drift detection.
+                          Requires opt-in: set {"doc_drift": true} in
+                          ~/.rinse/config.json OR pass this flag explicitly.
+                          Uses Copilot API only (≤10 calls/run, <3s per call).
+                          Detects: stale godoc, missing godoc on exported
+                          symbols, README examples referencing outdated APIs.
 
     JSON output (--json):
       {
