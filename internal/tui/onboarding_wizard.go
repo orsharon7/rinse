@@ -989,7 +989,7 @@ func (m wizModel) renderStepD() string {
 			"\n" + theme.StyleMuted.Render("  press enter to try again")
 	}
 
-	footer := theme.StyleMuted.Render("  Your settings are saved in ~/.rinse/config.toml")
+	footer := theme.StyleMuted.Render("  You can always change these settings later.")
 	hints := "\n" + theme.StyleMuted.Render("  enter start  a adjust  q quit")
 
 	return box.Render(progress + "\n\n" + headline + "\n\n" + card + actions + errLine + "\n" + footer + hints)
