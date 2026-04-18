@@ -27,7 +27,8 @@ Request review → wait → read comments → fix → repeat. Rinse handles ever
 ## ⚡ Install
 
 ```bash
-brew install orsharon7/rinse/rinse
+brew tap orsharon7/rinse https://github.com/orsharon7/rinse
+brew install rinse
 ```
 
 That's it.

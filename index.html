@@ -13,13 +13,13 @@
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://orsharon7.github.io/rinse/" />
   <meta property="og:title" content="RINSE — AI code review that works while you sleep" />
-  <meta property="og:description" content="Autonomous code review agent. Catches issues, learns your patterns, gives you a time-saved summary — every run. brew install orsharon7/rinse/rinse" />
+  <meta property="og:description" content="Autonomous code review agent. Catches issues, learns your patterns, gives you a time-saved summary — every run. brew tap orsharon7/rinse https://github.com/orsharon7/rinse &amp;&amp; brew install rinse" />
   <!-- og:image omitted — SVG not supported by Open Graph unfurlers; will add PNG when available -->
 
   <!-- Twitter Card (summary without image — SVG not supported by unfurlers) -->
   <meta name="twitter:card" content="summary" />
   <meta name="twitter:title" content="RINSE — AI code review that works while you sleep" />
-  <meta name="twitter:description" content="Autonomous code review agent. Catches issues before you push, fixes them autonomously, gives you a time-saved summary. brew install orsharon7/rinse/rinse" />
+  <meta name="twitter:description" content="Autonomous code review agent. Catches issues before you push, fixes them autonomously, gives you a time-saved summary. brew tap orsharon7/rinse https://github.com/orsharon7/rinse &amp;&amp; brew install rinse" />
   <link rel="canonical" href="https://orsharon7.github.io/rinse" />
   <script type="application/ld+json">
   {
@@ -567,7 +567,7 @@
 
     <div class="install-block" id="install-block" title="Click to copy" role="button" tabindex="0" aria-label="Copy install command">
       <code class="install-code">
-        <span class="prompt">$</span>brew install orsharon7/rinse/rinse
+        <span class="prompt">$</span>brew tap orsharon7/rinse https://github.com/orsharon7/rinse<br/><span class="prompt">$</span>brew install rinse
       </code>
       <button class="copy-btn" id="copy-btn" aria-label="Copy to clipboard">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -781,7 +781,7 @@
   const copyBtn = document.getElementById('copy-btn');
 
   function copyInstall() {
-    navigator.clipboard.writeText('brew install orsharon7/rinse/rinse').then(() => {
+    navigator.clipboard.writeText('brew tap orsharon7/rinse https://github.com/orsharon7/rinse && brew install rinse').then(() => {
       copyBtn.classList.add('copied');
       copyBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
       setTimeout(() => {
