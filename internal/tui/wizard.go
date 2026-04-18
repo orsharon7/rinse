@@ -45,6 +45,7 @@ type model struct {
 	reflect       bool
 	reflectBranch string
 	autoMerge     bool
+	notify        bool
 
 	// PR picker
 	prs       []pr
@@ -62,6 +63,7 @@ type model struct {
 	settingsModelInput    textinput.Model
 	settingsReflect       bool
 	settingsAutoMerge     bool
+	settingsNotify        bool
 	settingsBranchInput   textinput.Model
 	settingsEditingModel  bool
 	settingsEditingBranch bool
@@ -112,9 +114,11 @@ func newModel(repo, path string, rc config.RepoConfig, cfg config.Config, hasRep
 
 	reflectDefault := rc.Reflect
 	autoMergeDefault := rc.AutoMerge
+	notifyDefault := rc.Notify
 	if !hasRepoConfig {
 		reflectDefault = cfg.LastReflect
 		autoMergeDefault = cfg.LastAutoMerge
+		notifyDefault = cfg.LastNotify
 	}
 
 	runnerIdx := rc.Runner
@@ -147,6 +151,7 @@ func newModel(repo, path string, rc config.RepoConfig, cfg config.Config, hasRep
 		reflect:       reflectDefault,
 		reflectBranch: reflectBranch,
 		autoMerge:     autoMergeDefault,
+		notify:        notifyDefault,
 
 		prLoading: repo != "",
 
@@ -404,6 +409,7 @@ func (m model) openSettings() (model, tea.Cmd) {
 	m.settingsRunnerIdx = m.runnerIdx
 	m.settingsReflect = m.reflect
 	m.settingsAutoMerge = m.autoMerge
+	m.settingsNotify = m.notify
 	m.settingsModelInput.SetValue(m.modelOverride)
 	m.settingsModelInput.Placeholder = runners[m.runnerIdx].defaultModel
 	branch := m.reflectBranch
@@ -477,6 +483,8 @@ func (m model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.settingsReflect = !m.settingsReflect
 		case sfAutoMerge:
 			m.settingsAutoMerge = !m.settingsAutoMerge
+		case sfNotify:
+			m.settingsNotify = !m.settingsNotify
 		}
 	case key.Matches(msg, Keys.Confirm):
 		switch m.settingsFocus {
@@ -496,11 +504,14 @@ func (m model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, textinput.Blink
 		case sfAutoMerge:
 			m.settingsAutoMerge = !m.settingsAutoMerge
+		case sfNotify:
+			m.settingsNotify = !m.settingsNotify
 		case sfSave:
 			m.runnerIdx = m.settingsRunnerIdx
 			m.modelOverride = strings.TrimSpace(m.settingsModelInput.Value())
 			m.reflect = m.settingsReflect
 			m.autoMerge = m.settingsAutoMerge
+			m.notify = m.settingsNotify
 			branch := strings.TrimSpace(m.settingsBranchInput.Value())
 			if branch == "" {
 				branch = m.defaultBranch
@@ -515,6 +526,7 @@ func (m model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				LastReflect:   m.reflect,
 				LastBranch:    m.reflectBranch,
 				LastAutoMerge: m.autoMerge,
+				LastNotify:    m.notify,
 			})
 			return m, nil
 		case sfCancel:
@@ -609,6 +621,7 @@ func (m model) buildCmd() ([]string, error) {
 		LastReflect:   m.reflect,
 		LastBranch:    m.reflectBranch,
 		LastAutoMerge: m.autoMerge,
+		LastNotify:    m.notify,
 	})
 
 	return cmd, nil
@@ -1060,6 +1073,13 @@ func (m model) renderSettings() string {
 			theme.StyleMuted.Render("  merge PR automatically when approved")
 	}
 
+	// Desktop notification toggle.
+	notifyVal := theme.StyleMuted.Render(theme.IconRadioOff + " off")
+	if m.settingsNotify {
+		notifyVal = theme.StyleTeal.Render(theme.IconRadioOn+" on") +
+			theme.StyleMuted.Render("  notify when cycle completes")
+	}
+
 	type srow struct {
 		label string
 		value string
@@ -1075,6 +1095,7 @@ func (m model) renderSettings() string {
 		rows = append(rows, srow{"  branch", branchVal, sfReflectBranch})
 	}
 	rows = append(rows, srow{"auto-merge", amVal, sfAutoMerge})
+	rows = append(rows, srow{"notify", notifyVal, sfNotify})
 
 	var lines []string
 	for _, r := range rows {
