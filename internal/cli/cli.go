@@ -29,6 +29,8 @@ import (
 	"strconv"
 	"strings"
 
+	xterm "github.com/charmbracelet/x/term"
+
 	"github.com/orsharon7/rinse/internal/predict"
 )
 
@@ -72,19 +74,20 @@ type StartResult struct {
 
 // PredictResult is the JSON envelope for `rinse predict --json`.
 type PredictResult struct {
-	OK          bool               `json:"ok"`
-	Source      string             `json:"source"`
-	Predictions []PredictItemJSON  `json:"predictions"`
-	Error       string             `json:"error,omitempty"`
+	OK          bool              `json:"ok"`
+	Source      string            `json:"source,omitempty"`
+	Predictions []PredictItemJSON `json:"predictions"`
+	Count       int               `json:"count"`
+	Scanned     string            `json:"scanned"` // "staged" | "pr" | "none"
+	Error       string            `json:"error,omitempty"`
 }
 
 // PredictItemJSON is a single prediction in JSON output.
 type PredictItemJSON struct {
-	Pattern    string  `json:"pattern"`
-	Confidence float64 `json:"confidence"`
-	File       string  `json:"file,omitempty"`
-	Line       int     `json:"line,omitempty"`
-	Detail     string  `json:"detail,omitempty"`
+	Confidence  string `json:"confidence"` // "high" | "med" | "low"
+	Description string `json:"description"`
+	File        string `json:"file,omitempty"`
+	Line        int    `json:"line,omitempty"`
 }
 
 // ── TryDispatch ───────────────────────────────────────────────────────────────
@@ -509,9 +512,9 @@ func runPredictCmd(args []string) {
 	report, err := predict.Run(pr, repo)
 	if err != nil {
 		if asJSON {
-			emitJSON(PredictResult{OK: false, Error: err.Error()})
+			emitJSON(PredictResult{OK: false, Error: err.Error(), Predictions: []PredictItemJSON{}, Scanned: scannedField(pr)})
 		} else {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			predict.RenderError(os.Stderr, err)
 		}
 		os.Exit(1)
 	}
@@ -522,52 +525,78 @@ func runPredictCmd(args []string) {
 	}
 
 	if asJSON {
+		scanned := scannedField(pr)
 		items := make([]PredictItemJSON, len(report.Predictions))
 		for i, p := range report.Predictions {
+			desc := p.Pattern
+			if p.Detail != "" {
+				desc = p.Pattern + ": " + p.Detail
+			}
 			items[i] = PredictItemJSON{
-				Pattern:    p.Pattern,
-				Confidence: p.Confidence,
-				File:       p.File,
-				Line:       p.Line,
-				Detail:     p.Detail,
+				Confidence:  confidenceBand(p.Confidence),
+				Description: desc,
+				File:        p.File,
+				Line:        p.Line,
 			}
 		}
 		emitJSON(PredictResult{
 			OK:          true,
-			Source:      report.Source,
 			Predictions: items,
+			Count:       len(items),
+			Scanned:     scanned,
 		})
 		os.Exit(0)
 	}
 
-	// Human-readable output.
-	fmt.Printf("RINSE Predict — %s\n", report.Source)
-	fmt.Printf("Generated: %s\n\n", report.GeneratedAt.Format("2006-01-02 15:04:05"))
-
-	if len(report.Predictions) == 0 {
-		fmt.Println("No predictions — looks clean!")
-		os.Exit(0)
+	// Human-readable styled output.
+	// Detect terminal width; default 80 for non-TTY.
+	termWidth := 80
+	if w, _, err2 := xterm.GetSize(os.Stdout.Fd()); err2 == nil && w > 0 {
+		termWidth = w
 	}
 
-	fmt.Printf("%-45s  %-10s  %s\n", "Pattern", "Confidence", "Location")
-	fmt.Println(strings.Repeat("─", 100))
-	for _, p := range report.Predictions {
-		loc := p.File
-		if p.Line > 0 {
-			loc = fmt.Sprintf("%s:%d", p.File, p.Line)
-		}
-		fmt.Printf("%-45s  %.0f%%         %s\n",
-			p.Pattern,
-			p.Confidence*100,
-			loc,
-		)
-		if p.Detail != "" {
-			fmt.Printf("  ↳ %s\n", p.Detail)
-		}
+	// Empty diff — nothing staged, no PR.
+	if strings.TrimSpace(report.Source) == "" || (len(report.Predictions) == 0 && report.Source == "staged changes" && pr == 0) {
+		// Distinguish truly-empty diff from clean diff.
+		// Run() returns Source="staged changes" for staged diffs regardless of
+		// whether predictions exist. The empty-diff case is detected by the CLI
+		// because Run returns no error but also no predictions AND the diff was
+		// empty (pr==0 and no staged changes). We call RenderEmpty only when
+		// report source is explicitly "staged changes" AND there are no lines in
+		// the diff — but since Run doesn't expose raw diff length, we use a
+		// conservative heuristic: if pr==0, no staged diff produced predictions,
+		// and the diff was truly empty, Run still returns an empty Predictions
+		// slice but Source is set to "staged changes". We can't distinguish
+		// "staged but clean" from "nothing staged" here, so we always call
+		// RenderClean for the zero-predictions case. RenderEmpty is reserved
+		// for future callers that detect empty diffs explicitly.
+		predict.Render(os.Stdout, report, termWidth)
+	} else {
+		predict.Render(os.Stdout, report, termWidth)
 	}
-	fmt.Printf("\n%d prediction(s) logged for hit-rate tracking.\n", len(report.Predictions))
 	// Exit 0 even with predictions — non-blocking by design (v0.3).
 	os.Exit(0)
+}
+
+// scannedField maps a PR number to the JSON "scanned" field value.
+func scannedField(pr int) string {
+	if pr > 0 {
+		return "pr"
+	}
+	return "staged"
+}
+
+// confidenceBand maps a float confidence value to a string band for JSON output.
+func confidenceBand(c float64) string {
+	pct := int(c * 100)
+	switch {
+	case pct >= 80:
+		return "high"
+	case pct >= 60:
+		return "med"
+	default:
+		return "low"
+	}
 }
 
 // ── Script resolution ─────────────────────────────────────────────────────────
