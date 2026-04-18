@@ -194,6 +194,14 @@ applied automatically by the runner scripts during review cycles.
 | `p1-important` | `#d93f0b` | High priority |
 | `p2-nice` | `#e4e669` | Nice to have |
 
+### Milestone labels
+
+| Label | Color | Meaning |
+|-------|-------|---------|
+| `milestone:v0.2` | `#c5def5` | Target: v0.2 release |
+| `milestone:v0.3` | `#c5def5` | Target: v0.3 release |
+| `milestone:v1.0` | `#c5def5` | Target: v1.0 release |
+
 ### Standard GitHub labels
 
 `bug`, `documentation`, `duplicate`, `enhancement`, `good first issue`,
@@ -208,7 +216,7 @@ applied automatically by the runner scripts during review cycles.
 - Shell scripts must pass `bash -n` syntax check before committing.
 - Use `grep -E` for alternation; `\|` in BRE is non-portable on BSD/macOS.
 - Read interactive input from `/dev/tty`; render UI output to stderr.
-- Every new subcommand added to `main.go` must be documented in `helpText`.
+- Every new subcommand added to `main.go` must be documented in `cli.PrintHelp()` in `internal/cli/cli.go`.
 
 ---
 
