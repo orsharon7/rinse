@@ -1105,8 +1105,9 @@ COMMANDS
       Est. time saved:  ~9.4 hours
 
       Top patterns:
-        1. Missing error handling  (41x)
-        2. Unused imports          (28x)
+        1. error_handling  (41x)
+        2. nil_check       (28x)
+        3. naming          (19x)
 
   rinse report
 
@@ -1128,8 +1129,8 @@ COMMANDS
 
       Top patterns
 
-        1.  Missing error handling           3x
-        2.  Unused imports                   2x
+        1.  error_handling                   3x
+        2.  nil_check                        2x
 
   rinse status [<pr>] [--repo <owner/repo>] [--json]
 
@@ -1280,7 +1281,11 @@ SESSION DATA
       "iterations":     2,
       "total_comments": 7,
       "comments_by_round": [3, 2],                // optional: comments per iteration
-      "patterns":       ["Missing error handling", "Unused imports"]
+      "patterns":       ["error_handling", "nil_check"]
+                                           // snake_case labels, classified from Copilot comment text.
+                                           // Possible values: error_handling, naming, docs, formatting,
+                                           // performance, security, testing, concurrency, nil_check,
+                                           // unused_code, imports, complexity, type_safety, logging, other
     }
 
   rinse stats reads all session files and aggregates them.
