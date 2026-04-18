@@ -7,7 +7,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/orsharon7/rinse/internal/ignore"
 	"github.com/orsharon7/rinse/internal/theme"
 )
 
