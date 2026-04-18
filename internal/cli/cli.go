@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/orsharon7/rinse/internal/notify"
+	"github.com/orsharon7/rinse/internal/theme"
 )
 
 // ── Runner registry ───────────────────────────────────────────────────────────
@@ -169,9 +170,28 @@ func runStatusCmd(args []string) {
 	if asJSON {
 		emitJSON(StatusResult{OK: true, PR: prNum, Repo: repo, Status: status})
 	} else {
-		fmt.Printf("pr:     #%s\n", prNum)
-		fmt.Printf("repo:   %s\n", repo)
-		fmt.Printf("status: %s\n", status)
+		fmt.Println(theme.StyleKey.Render("pr:") + "     " + theme.StyleVal.Render("#"+prNum))
+		fmt.Println(theme.StyleKey.Render("repo:") + "   " + theme.StyleMuted.Render(repo))
+		fmt.Println(theme.StyleKey.Render("status:") + " " + renderStatusBadge(status))
+	}
+}
+
+func renderStatusBadge(status string) string {
+	switch status {
+	case "approved":
+		return theme.StyleLogSuccess.Render(theme.IconCheck + " approved")
+	case "merged":
+		return theme.StyleLogSuccess.Render(theme.IconCheck + " merged")
+	case "pending":
+		return theme.StylePhaseWaiting.Render(theme.IconRunning + " pending")
+	case "new_review":
+		return theme.StylePhaseWaiting.Render(theme.IconRunning + " new_review")
+	case "no_reviews":
+		return theme.StyleMuted.Render(theme.IconCircle + " no_reviews")
+	case "closed":
+		return theme.StyleMuted.Render(theme.IconCross + " closed")
+	default:
+		return theme.StyleErr.Render(theme.IconCross + " " + status)
 	}
 }
 
