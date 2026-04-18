@@ -1,6 +1,8 @@
-# rinse
+# RINSE
 
-CLI automation tools for GitHub Copilot PR review workflows.
+PR reviews without the mess.
+
+RINSE drives an AI agent in a loop to resolve GitHub Copilot review comments until your PR is approved.
 
 ## Install
 
@@ -378,4 +380,4 @@ Contributions are welcome!
 
 ## License
 
-MIT
+BSL 1.1 — see [LICENSE](LICENSE). Or Sharon's IP.
