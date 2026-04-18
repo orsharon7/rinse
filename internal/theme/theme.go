@@ -101,6 +101,14 @@ func WrapLine(s string, w int) []string {
 	return lines
 }
 
+// FormatPatternLabel converts a snake_case pattern label (as stored/returned
+// by the classifier) into a human-readable display string.
+// e.g. "nil_check" → "nil check", "error_handling" → "error handling".
+// Non-snake_case strings are returned unchanged.
+func FormatPatternLabel(label string) string {
+	return strings.ReplaceAll(label, "_", " ")
+}
+
 // RenderKeyHint renders a "key action" pair in the standard hint style.
 func RenderKeyHint(keyStr, desc string) string {
 	return StyleHintKey.Render(keyStr) + " " + StyleHintDesc.Render(desc)

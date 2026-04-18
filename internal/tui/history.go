@@ -482,7 +482,7 @@ func (m historyModel) viewDetail() string {
 		lines = append(lines, "")
 		lines = append(lines, "  "+theme.StyleKey.Render("Top patterns:"))
 		for _, p := range s.Patterns {
-			lines = append(lines, "    "+theme.StyleMuted.Render("• ")+theme.StyleUnselected.Render(p))
+			lines = append(lines, "    "+theme.StyleMuted.Render("• ")+theme.StyleUnselected.Render(theme.FormatPatternLabel(p)))
 		}
 	}
 

@@ -329,9 +329,9 @@ func PrintSummary(s Session, jsonMode bool) {
 		if len(top) > 3 {
 			top = top[:3]
 		}
-		fmt.Println("  " + key("Top patterns") + theme.StyleMuted.Render(theme.Truncate(top[0], 50)))
+		fmt.Println("  " + key("Top patterns") + theme.StyleMuted.Render(theme.Truncate(theme.FormatPatternLabel(top[0]), 50)))
 		for _, p := range top[1:] {
-			fmt.Println("  " + strings.Repeat(" ", 20) + theme.StyleMuted.Render(theme.Truncate(p, 50)))
+			fmt.Println("  " + strings.Repeat(" ", 20) + theme.StyleMuted.Render(theme.Truncate(theme.FormatPatternLabel(p), 50)))
 		}
 	}
 
