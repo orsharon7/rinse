@@ -1,7 +1,12 @@
 package predict
 
 import (
+	"crypto/sha256"
+	"fmt"
+	"io/fs"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -219,4 +224,130 @@ func TestLogEvent_NilReport(t *testing.T) {
 	if err := LogEvent(nil); err != nil {
 		t.Errorf("LogEvent(nil) should return nil, got: %v", err)
 	}
+}
+
+// ─── No-mutation contract ────────────────────────────────────────────────────
+
+// TestRun_NoMutationContract verifies that predict.Run() is strictly read-only
+// with respect to the working tree. It creates a temp directory with a fake
+// git repo containing a staged Go file, records a SHA-256 snapshot of every
+// file in the tree before calling Run, then asserts the snapshot is identical
+// after Run returns.
+//
+// This test enforces the invariant documented on Run() and the QA requirement
+// from RIN-171: "No code mutation in v0.3 — Report Mode predicts only. Zero
+// writes to the working tree."
+func TestRun_NoMutationContract(t *testing.T) {
+	// Build a minimal git repo in a temp dir so Run(0, "") can call
+	// git diff --cached without error.
+	dir := t.TempDir()
+
+	// git init
+	if err := runCmd(dir, "git", "init", "-b", "main"); err != nil {
+		t.Skipf("git not available: %v", err)
+	}
+	// Configure identity so git is happy.
+	_ = runCmd(dir, "git", "config", "user.email", "test@rinse.test")
+	_ = runCmd(dir, "git", "config", "user.name", "Test")
+
+	// Write a Go file with a deliberate issue (ignored error) and stage it.
+	goFile := filepath.Join(dir, "main.go")
+	goSrc := `package main
+
+import "os"
+
+func main() {
+	_, _ = os.Open("/tmp/x") // ignored error
+}
+`
+	if err := os.WriteFile(goFile, []byte(goSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := runCmd(dir, "git", "add", "main.go"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Snapshot the directory before Run.
+	snapshotBefore := dirSnapshot(t, dir)
+
+	// Run predict in staged-diff mode from inside the temp repo.
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	// Run should succeed (or return an error — either way, no writes).
+	report, runErr := Run(0, "")
+	_ = runErr  // non-zero exit is acceptable; what matters is the working tree
+	_ = report
+
+	// Restore cwd before snapshot to ensure consistent paths.
+	if err := os.Chdir(orig); err != nil {
+		t.Fatal(err)
+	}
+
+	// Snapshot the directory after Run.
+	snapshotAfter := dirSnapshot(t, dir)
+
+	// Compare — the working tree must be byte-for-byte identical.
+	if len(snapshotBefore) != len(snapshotAfter) {
+		t.Fatalf("predict.Run() mutated the working tree: file count changed (%d → %d)", len(snapshotBefore), len(snapshotAfter))
+	}
+	for path, hashBefore := range snapshotBefore {
+		hashAfter, ok := snapshotAfter[path]
+		if !ok {
+			t.Errorf("predict.Run() deleted file: %s", path)
+			continue
+		}
+		if hashBefore != hashAfter {
+			t.Errorf("predict.Run() modified file: %s", path)
+		}
+	}
+	for path := range snapshotAfter {
+		if _, ok := snapshotBefore[path]; !ok {
+			t.Errorf("predict.Run() created unexpected file: %s", path)
+		}
+	}
+}
+
+// dirSnapshot returns a map[relPath]sha256hex for every file under root,
+// excluding .git internals that git itself mutates (e.g. FETCH_HEAD, index).
+func dirSnapshot(t *testing.T, root string) map[string]string {
+	t.Helper()
+	snap := make(map[string]string)
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, _ := filepath.Rel(root, path)
+		// Skip git internal files that git itself rewrites during operations.
+		if strings.HasPrefix(rel, ".git"+string(filepath.Separator)) {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		h := sha256.Sum256(data)
+		snap[rel] = fmt.Sprintf("%x", h)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("dirSnapshot: %v", err)
+	}
+	return snap
+}
+
+// runCmd executes a command in dir, returning any error.
+func runCmd(dir string, name string, args ...string) error {
+	c := exec.Command(name, args...)
+	c.Dir = dir
+	return c.Run()
 }
