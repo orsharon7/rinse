@@ -1,6 +1,8 @@
 # RINSE
 
-PR reviews without the mess. RINSE drives Copilot through your review loop so you don't have to.
+PR reviews without the mess.
+
+RINSE drives an AI agent in a loop to resolve GitHub Copilot review comments until your PR is approved.
 
 ## Install
 

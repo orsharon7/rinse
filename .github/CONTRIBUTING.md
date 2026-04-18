@@ -121,8 +121,8 @@ rinse/
 |----------|---------|---------|
 | `RINSE_SCRIPT_DIR` | binary dir | Directory containing runner scripts |
 | `PR_REVIEW_SCRIPT_DIR` | — | Legacy alias for `RINSE_SCRIPT_DIR` |
-| `RINSE_WEBHOOK_URL` | — | POST a JSON payload here after each completed cycle |
 | `RINSE_API_URL` | `http://localhost:7433` | Override the local RINSE backend URL |
+| `NO_COLOR` | — | Disable ANSI colour output (follows no-color.org) |
 
 ---
 
@@ -147,7 +147,7 @@ Follow Conventional Commits. Subject ≤ 72 characters.
 ```
 feat: add rinse report command with daily dashboard
 fix: clamp negative duration_seconds to 0 in opencode runner
-docs: document rinse init and rinse trends in --help
+docs: document rinse init and rinse report in --help
 copy: fix first-run onboarding wizard — replace laundry placeholders
 ```
 
@@ -163,16 +163,21 @@ copy: fix first-run onboarding wizard — replace laundry placeholders
 
 ## Label system
 
-RINSE uses a structured label system. Labels are managed in the repo and
-applied automatically by the runner scripts during review cycles.
+RINSE uses a two-tier label system:
+
+1. **RINSE workflow labels** — applied and removed automatically by the runner scripts during review cycles. These are a product surface: when a developer sees `rinse:running` on their PR in GitHub's UI, that is RINSE communicating its state. **Do not manually remove these labels while a cycle is active.**
+
+2. **Human labels** — applied manually by contributors and maintainers for organization, triage, and milestone tracking.
 
 ### RINSE workflow labels (auto-applied by scripts)
+
+> **Important:** `rinse:running` signals that RINSE holds a lock on the PR. Removing it manually will not stop the running cycle and may cause race conditions. Wait for the cycle to complete or kill the RINSE process first.
 
 | Label | Color | Meaning |
 |-------|-------|---------|
 | `rinse:running` | `#8B5CF6` | RINSE is actively reviewing this PR — do not merge |
 | `rinse:approved` | `#10B981` | Copilot approved — ready to merge |
-| `rinse:needs-work` | `#F59E0B` | RINSE cycle found issues |
+| `rinse:needs-work` | `#F59E0B` | RINSE cycle found issues — changes needed |
 
 ### Component Labels
 
