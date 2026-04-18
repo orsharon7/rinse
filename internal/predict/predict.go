@@ -64,6 +64,18 @@ type Report struct {
 // Run performs the prediction analysis and returns a Report.
 // It reads the staged diff when pr == 0, or the PR diff when pr > 0.
 // repo is the "owner/repo" string used by gh; it may be empty for staged-diff mode.
+//
+// INVARIANT (no-mutation contract): Run is strictly read-only with respect to
+// the caller's working tree. It MUST NOT create, modify, or delete any files
+// inside the repository being analysed. The only permitted side-effect is
+// writing to the RINSE data directory (~/.rinse/) via LogEvent — never to the
+// repository working tree. Any future change that would write to the working
+// tree MUST NOT be added here; implement it as a separate command with an
+// explicit --fix / --apply flag and user confirmation.
+//
+// This invariant is enforced by the test TestRun_NoMutationContract in
+// predict_test.go, which asserts that the working-tree snapshot is identical
+// before and after calling Run.
 func Run(pr int, repo string) (*Report, error) {
 	var diff string
 	var source string
