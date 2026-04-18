@@ -9,7 +9,6 @@ import (
 )
 
 func TestAcquireRelease(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 	lock.Dir = dir
 
@@ -23,7 +22,6 @@ func TestAcquireRelease(t *testing.T) {
 }
 
 func TestAcquireTwice_SameProcess(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 	lock.Dir = dir
 
@@ -42,7 +40,6 @@ func TestAcquireTwice_SameProcess(t *testing.T) {
 }
 
 func TestAcquireStale(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 	lock.Dir = dir
 
@@ -69,7 +66,6 @@ func TestAcquireStale(t *testing.T) {
 }
 
 func TestIsHeld(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 	lock.Dir = dir
 
@@ -93,7 +89,6 @@ func TestIsHeld(t *testing.T) {
 }
 
 func TestDifferentPRs_DoNotConflict(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 	lock.Dir = dir
 
