@@ -726,19 +726,19 @@ SESSION DATA
   Each run is saved as a JSON file in ~/.rinse/sessions/. No data leaves
   your machine. Use these files to build dashboards or custom reports.
 
-  File naming: <repo>-<owner>-PR<number>-<timestamp>.json
+  File naming: <repo_underscored>-pr<number>-<timestamp>-<nanoseconds>.json
+  Example:     orsharon7_rinse-pr42-20260418-102301-000000000.json
 
   Schema:
     {
+      "pr":             "42",
+      "repo":           "owner/repo",
+      "runner_name":    "opencode",               // "opencode" or "claude"
       "started_at":     "2026-04-18T10:23:01Z",  // RFC 3339
       "ended_at":       "2026-04-18T10:31:44Z",
-      "repo":           "owner/repo",
-      "pr":             "42",
-      "runner":         "opencode",               // "opencode" or "claude"
-      "model":          "github-copilot/claude-sonnet-4.6",
-      "total_comments": 7,
-      "iterations":     2,
       "approved":       true,
+      "iterations":     2,
+      "total_comments": 7,
       "patterns":       ["Missing error handling", "Unused imports"]
     }
 
