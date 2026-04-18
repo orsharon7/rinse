@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/orsharon7/rinse/internal/db"
+	"github.com/orsharon7/rinse/internal/upgrade"
 )
 
 // Session records the outcome of a single rinse PR-review run.
@@ -475,4 +476,11 @@ func Print(sessions []Session) {
 		}
 	}
 	fmt.Println()
+
+	// Show Pro upgrade prompt at proof-of-value thresholds (3, 5, 10, 20 sessions).
+	if upgrade.ShouldShowPrompt(sum.TotalSessions) {
+		totalMin := int(sum.EstTimeSavedHours() * 60)
+		fmt.Println(upgrade.RenderPrompt(totalMin, sum.TotalSessions))
+		upgrade.RecordShown(sum.TotalSessions)
+	}
 }
