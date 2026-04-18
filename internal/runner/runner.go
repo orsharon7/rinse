@@ -14,6 +14,8 @@ import (
 	"github.com/orsharon7/rinse/internal/db"
 	"github.com/orsharon7/rinse/internal/engine"
 	"github.com/orsharon7/rinse/internal/engine/lock"
+	"github.com/orsharon7/rinse/internal/ignore"
+	"github.com/orsharon7/rinse/internal/stats"
 	"github.com/orsharon7/rinse/internal/summary"
 )
 
@@ -152,6 +154,17 @@ func Run(opts Opts) (Result, error) {
 	}
 	resumedFrom := state.Iteration
 
+	// Initialise the stats session for this run.
+	session := stats.NewSession(opts.Repo, opts.PR, opts.RunnerName, opts.Model)
+
+	// Load ignore patterns from .rinseignore (best-effort, non-fatal).
+	var ignorePatterns []string
+	if opts.CWD != "" {
+		if m, loadErr := ignore.Load(opts.CWD); loadErr == nil {
+			ignorePatterns = m.Patterns()
+		}
+	}
+
 	// Keep session iteration data scoped to the current run so it stays
 	// consistent with per-iteration session fields such as
 	// CopilotCommentsByIteration. Resume progress is tracked separately via
@@ -230,6 +243,9 @@ func Run(opts Opts) (Result, error) {
 			_ = saveState(state)
 			finalizeSession("failed", state.Iteration)
 			mon.OnError("agent_error", err.Error())
+			session.Outcome = stats.OutcomeError
+			session.TotalComments = totalComments
+			_ = stats.Save(session)
 			return Result{
 				Iterations:           state.Iteration,
 				TotalComments:        totalComments,
@@ -249,6 +265,9 @@ func Run(opts Opts) (Result, error) {
 				)
 				finalizeSession("failed", state.Iteration)
 				mon.OnError("max_wait_polls", ErrMaxWaitPolls.Error())
+				session.Outcome = stats.OutcomeAborted
+				session.TotalComments = totalComments
+				_ = stats.Save(session)
 				return Result{
 					Iterations:           state.Iteration,
 					TotalComments:        totalComments,
@@ -271,24 +290,7 @@ func Run(opts Opts) (Result, error) {
 
 		state.Iteration++
 		totalComments += agentResult.Comments
-
-		// Persist comment_event to telemetry DB (best-effort).
-		if telemetryDB != nil {
-			evtID, uuidErr := db.NewUUID()
-			if uuidErr != nil {
-				log.Warn("runner: failed to generate comment event UUID", "error", uuidErr)
-			} else {
-				evt := db.CommentEventRow{
-					ID:           evtID,
-					SessionID:    session.SessionID,
-					Iteration:    state.Iteration,
-					CommentCount: agentResult.Comments,
-				}
-				if err := telemetryDB.InsertCommentEvent(evt); err != nil {
-					log.Warn("runner: telemetry InsertCommentEvent failed", "error", err)
-				}
-			}
-		}
+		session.CopilotCommentsByIteration = append(session.CopilotCommentsByIteration, agentResult.Comments)
 
 		// Persist the review ID so the next iteration can detect no_change.
 		if agentResult.ReviewID != "" {
@@ -319,6 +321,9 @@ func Run(opts Opts) (Result, error) {
 			// Terminal success — clear the checkpoint.
 			_ = clearState(opts.Repo, opts.PR)
 			finalizeSession("approved", state.Iteration)
+			session.Outcome = stats.OutcomeApproved
+			session.TotalComments = totalComments
+			_ = stats.Save(session)
 			// Post cycle summary (non-fatal).
 			if err := summary.Post(opts.Repo, opts.PR, summary.OutcomeApproved, state.Iteration, totalComments, time.Since(startedAt)); err != nil {
 				log.Warn("runner: post cycle summary", "error", err)
@@ -374,11 +379,15 @@ func Run(opts Opts) (Result, error) {
 		log.Warn("runner: post cycle summary", "error", err)
 	}
 	// Keep state on disk so a human or future run can inspect it.
+	session.Outcome = stats.OutcomeMaxIter
+	session.TotalComments = totalComments
+	_ = stats.Save(session)
 	res := Result{
 		Approved:             false,
 		Iterations:           state.Iteration,
 		TotalComments:        totalComments,
 		ResumedFromIteration: resumedFrom,
+		Session:              session,
 	}
 	elapsed := int(time.Since(startedAt).Seconds())
 	mon.OnDone(res, 1, elapsed)

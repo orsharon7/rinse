@@ -11,11 +11,9 @@ package stats
 
 import (
 	"crypto/rand"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"math"
-	mrand "math/rand"
 	"os"
 	"path/filepath"
 	"sort"
@@ -23,9 +21,18 @@ import (
 	"time"
 
 	"github.com/orsharon7/rinse/internal/db"
+	"github.com/orsharon7/rinse/internal/quality"
 	"github.com/orsharon7/rinse/internal/theme"
 	"github.com/orsharon7/rinse/internal/upgrade"
 )
+
+// SchemaVersion is the current JSON session file schema version.
+// Bump this when the Session struct layout changes incompatibly.
+const SchemaVersion = 1
+
+// sessionsDirOverride allows tests to redirect session file writes to a
+// temporary directory. Set via the test hook in sessions_test_hook_test.go.
+var sessionsDirOverride string
 
 // Outcome describes the terminal result of a RINSE cycle.
 type Outcome string
@@ -33,9 +40,12 @@ type Outcome string
 const (
 	OutcomeApproved Outcome = "approved"
 	OutcomeMerged   Outcome = "merged"
+	OutcomeClosed   Outcome = "closed"
 	OutcomeMaxIter  Outcome = "max_iterations"
 	OutcomeError    Outcome = "error"
 	OutcomeAborted  Outcome = "aborted"
+	OutcomeClean    Outcome = "clean"
+	OutcomeDryRun   Outcome = "dry_run"
 )
 
 // newUUID generates a random UUID v4 string.
@@ -56,7 +66,8 @@ func newUUID() (string, error) {
 // Session records the outcome of a single rinse PR-review run.
 type Session struct {
 	// Identity
-	SessionID string `json:"session_id"`
+	SessionID     string `json:"session_id"`
+	SchemaVersion int    `json:"schema_version,omitempty"`
 
 	// Metadata
 	StartedAt time.Time `json:"started_at"`
@@ -108,6 +119,10 @@ func SessionsDir() (string, error) {
 	if sessionsDirOverride != "" {
 		return sessionsDirOverride, nil
 	}
+	// Allow test / CI environments to redirect session writes via env var.
+	if envDir := os.Getenv("RINSE_SESSIONS_DIR"); envDir != "" {
+		return envDir, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -152,7 +167,8 @@ func Save(s Session) error {
 	}
 
 	if s.SessionID == "" {
-		s.SessionID = newUUID()
+		id, _ := newUUID()
+		s.SessionID = id
 	}
 
 	repoSlug := strings.ReplaceAll(s.Repo, "/", "-")
@@ -309,16 +325,17 @@ func loadFromDB() ([]Session, error) {
 func loadFromJSON() ([]Session, error) {
 	dir, err := SessionsDir()
 	if err != nil {
-		return sortByStarted(sessions), nil
+		return nil, nil
 	}
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
-		return sortByStarted(sessions), nil
+		return nil, nil
 	}
 	if err != nil {
-		return sortByStarted(sessions), err
+		return nil, err
 	}
 
+	var sessions []Session
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
@@ -331,8 +348,14 @@ func loadFromJSON() ([]Session, error) {
 		if err := json.Unmarshal(data, &s); err != nil {
 			continue
 		}
-		if seen[s.SessionID] {
-			continue // DB record takes precedence
+		// Migrate legacy sessions that used a boolean "approved" field instead
+		// of a string "outcome" field.
+		if s.Outcome == "" {
+			if s.Approved {
+				s.Outcome = OutcomeApproved
+			} else {
+				s.Outcome = OutcomeClean
+			}
 		}
 		sessions = append(sessions, s)
 	}
@@ -372,13 +395,14 @@ func sortByStarted(sessions []Session) []Session {
 
 // Summary holds aggregated metrics across a set of sessions.
 type Summary struct {
-	TotalSessions    int
-	TotalComments    int
-	TotalIterations  int
-	ApprovedSessions int
-	TotalDurationSec float64
-	PatternCounts    map[string]int
-	OutcomeCounts    map[Outcome]int
+	TotalSessions        int
+	TotalComments        int
+	TotalIterations      int
+	ApprovedSessions     int
+	TotalDurationSec     float64
+	TotalTimeSavedSeconds int
+	PatternCounts        map[string]int
+	OutcomeCounts        map[Outcome]int
 	// Last30Days is a filtered summary over the last 30 days.
 	// It is always populated by Summarize and is the zero value when no sessions match.
 	Last30Days *Summary
@@ -848,4 +872,95 @@ func pad(s string, l int) string {
 		return s
 	}
 	return s + strings.Repeat(" ", l-len(s))
+}
+
+// ── Stats opt-in / config ─────────────────────────────────────────────────────
+
+// statsConfig is the subset of the rinse config file that controls telemetry.
+type statsConfig struct {
+	StatsOptIn *bool `json:"stats_opt_in,omitempty"`
+}
+
+// statsConfigPath returns the path to the rinse global config file.
+func statsConfigPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".rinse", "config.json"), nil
+}
+
+// loadConfig reads the stats opt-in preference from ~/.rinse/config.json.
+// Returns an empty config (nil StatsOptIn) if the file does not exist.
+func loadConfig() (statsConfig, error) {
+	// RINSE_STATS_OPTIN env var allows tests (and CI) to force opt-in/out
+	// without touching the on-disk config file.
+	if v := os.Getenv("RINSE_STATS_OPTIN"); v != "" {
+		optIn := v == "1" || v == "true"
+		return statsConfig{StatsOptIn: &optIn}, nil
+	}
+	path, err := statsConfigPath()
+	if err != nil {
+		return statsConfig{}, err
+	}
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return statsConfig{}, nil
+	}
+	if err != nil {
+		return statsConfig{}, err
+	}
+	var cfg statsConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return statsConfig{}, nil // treat corrupt config as unset
+	}
+	return cfg, nil
+}
+
+// SetOptIn persists the stats opt-in preference to ~/.rinse/config.json.
+func SetOptIn(optIn bool) error {
+	path, err := statsConfigPath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	// Read existing config to preserve other fields.
+	cfg, _ := loadConfig()
+	cfg.StatsOptIn = &optIn
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o600)
+}
+
+// IsOptedIn reports whether the user has explicitly opted in to stats
+// collection. Returns (false, nil) when no preference has been set yet.
+func IsOptedIn() (bool, error) {
+	cfg, err := loadConfig()
+	if err != nil {
+		return false, err
+	}
+	if cfg.StatsOptIn == nil {
+		return false, nil
+	}
+	return *cfg.StatsOptIn, nil
+}
+
+// PromptOptIn asks the user interactively whether to enable stats collection.
+// Returns true when the user agrees. Writes the preference to disk.
+func PromptOptIn() (bool, error) {
+	fmt.Print("  RINSE can collect anonymous usage stats to improve the product.\n")
+	fmt.Print("  Enable stats? [y/N]: ")
+	var answer string
+	if _, err := fmt.Scanln(&answer); err != nil {
+		return false, nil
+	}
+	optIn := strings.ToLower(strings.TrimSpace(answer)) == "y"
+	if err := SetOptIn(optIn); err != nil {
+		return optIn, err
+	}
+	return optIn, nil
 }

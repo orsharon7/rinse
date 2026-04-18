@@ -18,6 +18,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/orsharon7/rinse/internal/notify"
 	"github.com/orsharon7/rinse/internal/session"
+	"github.com/orsharon7/rinse/internal/stats"
 	"github.com/orsharon7/rinse/internal/theme"
 )
 

@@ -114,6 +114,9 @@ func TryDispatch() bool {
 	case "run":
 		runRunCmd(os.Args[2:])
 		return true
+	case "predict":
+		runPredictCmd(os.Args[2:])
+		return true
 	case "help", "--help", "-h":
 		PrintHelp()
 		return true
@@ -887,6 +890,7 @@ USAGE
   rinse init         Create a per-repo .rinse.json config (guided setup)
   rinse stats        Show session history and time-saved metrics (30-day rolling)
   rinse report       Show today's PR review dashboard (approval rate, time saved)
+  rinse predict      Scan staged diff or PR for predicted Copilot comments (v0.3)
   rinse status       Print the Copilot review status of a PR (agent/CI use)
   rinse start        Start the review loop non-interactively (agent/CI use)
   rinse --version    Print the installed version
@@ -1039,6 +1043,39 @@ COMMANDS
     JSON output (--json):
       {"ok":true,"pr":"42","repo":"owner/repo","runner":"opencode","model":"github-copilot/claude-sonnet-4.6","exit_code":0}
       {"ok":false,"pr":"42","repo":"owner/repo","runner":"opencode","model":"","exit_code":1,"error":"runner failed"}
+
+  rinse predict [--pr <N>] [--repo <owner/repo>] [--json] [--no-log]
+
+    Scan the staged diff (or a PR diff) for patterns that GitHub Copilot is
+    likely to comment on, before you submit for review. Non-blocking — exits 0
+    even when predictions exist so it can be used as a pre-push hook without
+    breaking your workflow.
+
+    With no flags: reads staged changes from the current git repository.
+    --pr <N>              Scan a specific PR diff (requires gh CLI)
+    --repo <owner/repo>   Override repository detection (use with --pr)
+    --json                Machine-readable output; no colour, structured JSON
+    --no-log              Skip writing prediction events to ~/.rinse/sessions/
+
+    Output (human-readable):
+      ◇  rinse predict  —  3 likely Copilot comments detected
+      ──────────────────────────────────────────────────
+        ◇  missing error handling           88%   internal/runner/runner.go:225
+        ◇  hardcoded secret / credential    93%   config/settings.go:14
+        ◇  naked return in long function    72%   internal/tui/monitor.go:1781
+
+    JSON output (--json):
+      {"ok":true,"count":3,"scanned":"staged changes","predictions":[
+        {"confidence":"high","description":"Missing error handling: ...","file":"...","line":42},
+        ...
+      ]}
+
+    Prediction events are logged to ~/.rinse/sessions/predict-*.json for
+    hit-rate tracking. The target hit rate for v0.3 is ≥70%.
+
+    Exit codes:
+      0   success (even when predictions exist — non-blocking by design)
+      1   fatal error (diff fetch failed, no git repo, etc.)
 
 ENVIRONMENT VARIABLES
 

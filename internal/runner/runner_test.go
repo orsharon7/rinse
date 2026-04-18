@@ -57,6 +57,7 @@ func tempLockDir(t *testing.T) {
 func tempSessionsDir(t *testing.T) {
 	t.Helper()
 	t.Setenv("RINSE_SESSIONS_DIR", t.TempDir())
+	t.Setenv("RINSE_STATS_OPTIN", "1")
 }
 
 func baseOpts(agent engine.Agent) Opts {
