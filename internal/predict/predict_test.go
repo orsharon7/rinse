@@ -192,7 +192,7 @@ func TestSortByConfidence(t *testing.T) {
 
 // ─── LogEvent ─────────────────────────────────────────────────────────────────
 
-func TestLogEvent_WritesToFile(t *testing.T) {
+func TestLogEvent_WritesToSessionsDir(t *testing.T) {
 	// Override the home dir used by LogEvent by setting HOME temporarily.
 	tmp := t.TempDir()
 	orig := os.Getenv("HOME")
@@ -203,20 +203,80 @@ func TestLogEvent_WritesToFile(t *testing.T) {
 		Source:      "staged changes",
 		GeneratedAt: time.Now(),
 		Predictions: []Prediction{
-			{Pattern: "Hardcoded secret / credential", Confidence: 0.93, File: "cfg.go", Line: 5},
+			{Pattern: "Hardcoded secret / credential", Confidence: 0.93, File: "cfg.go", Line: 5,
+				Detail: "Move to env vars."},
 		},
 	}
 	if err := LogEvent(report); err != nil {
 		t.Fatalf("LogEvent error: %v", err)
 	}
 
-	logPath := tmp + "/.rinse/predict-events.log"
+	// The event must land in ~/.rinse/sessions/ as a JSON file.
+	sessDir := tmp + "/.rinse/sessions"
+	entries, err := os.ReadDir(sessDir)
+	if err != nil {
+		t.Fatalf("sessions dir not created: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 session file, got %d", len(entries))
+	}
+	name := entries[0].Name()
+	if !strings.HasPrefix(name, "predict-") || !strings.HasSuffix(name, ".json") {
+		t.Errorf("unexpected session file name: %s", name)
+	}
+	data, err := os.ReadFile(sessDir + "/" + name)
+	if err != nil {
+		t.Fatalf("cannot read session file: %v", err)
+	}
+	if !strings.Contains(string(data), "predict_generated") {
+		t.Errorf("session file missing event_type; got: %s", data)
+	}
+	if !strings.Contains(string(data), "hardcoded_secret") {
+		t.Errorf("session file missing pattern_id; got: %s", data)
+	}
+	if !strings.Contains(string(data), "cfg.go") {
+		t.Errorf("session file missing file reference; got: %s", data)
+	}
+}
+
+func TestLogEvent_FallsBackToFlatLogWhenSessionsDirFails(t *testing.T) {
+	// Point HOME at a read-only location to force sessions dir creation to fail,
+	// which should trigger the fallback to predict-events.log.
+	tmp := t.TempDir()
+	orig := os.Getenv("HOME")
+	os.Setenv("HOME", tmp)
+	defer os.Setenv("HOME", orig)
+
+	// Pre-create ~/.rinse/sessions as a *file* (not a dir) so MkdirAll fails.
+	rinseDir := tmp + "/.rinse"
+	if err := os.MkdirAll(rinseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sessPath := rinseDir + "/sessions"
+	if err := os.WriteFile(sessPath, []byte("blocker"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	report := &Report{
+		Source:      "staged changes",
+		GeneratedAt: time.Now(),
+		Predictions: []Prediction{
+			{Pattern: "TODO/FIXME left in code", Confidence: 0.65, File: "main.go", Line: 12},
+		},
+	}
+	// Should not return an error — fallback is silent best-effort.
+	if err := LogEvent(report); err != nil {
+		t.Fatalf("LogEvent fallback returned error: %v", err)
+	}
+
+	// Fallback log must exist and contain the event.
+	logPath := rinseDir + "/predict-events.log"
 	data, err := os.ReadFile(logPath)
 	if err != nil {
-		t.Fatalf("log file not created: %v", err)
+		t.Fatalf("fallback log not created: %v", err)
 	}
-	if !strings.Contains(string(data), "Hardcoded secret") {
-		t.Errorf("log does not contain expected pattern; got: %s", data)
+	if !strings.Contains(string(data), "TODO") {
+		t.Errorf("fallback log missing pattern; got: %s", data)
 	}
 }
 
