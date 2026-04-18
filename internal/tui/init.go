@@ -40,25 +40,25 @@ func RunInit() error {
 		line, _ := reader.ReadString('\n')
 		line = strings.TrimSpace(strings.ToLower(line))
 		if line != "y" && line != "yes" {
-			fmt.Println("Aborted.")
+			fmt.Println(theme.StyleMuted.Render("Aborted."))
 			return nil
 		}
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("failed to stat %s: %w", rinseConfigFile, err)
 	}
 
-	fmt.Println("Initializing Rinse config for this repo...")
+	fmt.Println(theme.StyleStep.Render("Initializing Rinse config for this repo..."))
 	fmt.Println()
 
 	// Prompt for engine.
-	fmt.Println("Select engine:")
+	fmt.Println(theme.StyleStep.Render("Select engine:"))
 	for i, r := range runners {
-		fmt.Printf("  [%d] %s — %s\n", i+1, r.name, r.desc)
+		fmt.Printf("  [%d] %s — %s\n", i+1, theme.StyleVal.Render(r.name), theme.StyleMuted.Render(r.desc))
 	}
 
 	runnerIdx := 0
 	for {
-		fmt.Printf("Engine (1-%d) [1]: ", len(runners))
+		fmt.Printf(theme.StyleMuted.Render("Engine (1-%d) [1]: "), len(runners))
 		engineLine, _ := reader.ReadString('\n')
 		engineLine = strings.TrimSpace(engineLine)
 
@@ -79,32 +79,32 @@ func RunInit() error {
 			break
 		}
 
-		fmt.Printf("Invalid engine selection %q. Please enter a number from 1-%d or a valid engine name.\n", engineLine, len(runners))
+		fmt.Printf(theme.StyleErr.Render("Invalid engine selection %q. Please enter a number from 1-%d or a valid engine name.\n"), engineLine, len(runners))
 	}
 
 	selectedRunner := runners[runnerIdx]
-	fmt.Printf("→ Using: %s\n\n", selectedRunner.name)
+	fmt.Printf("→ Using: %s\n\n", theme.StyleVal.Render(selectedRunner.name))
 
 	// Prompt for model override.
-	fmt.Printf("Model override (leave blank for default: %s): ", selectedRunner.defaultModel)
+	fmt.Printf(theme.StyleMuted.Render("Model override (leave blank for default: %s): "), selectedRunner.defaultModel)
 	modelLine, _ := reader.ReadString('\n')
 	modelOverride := strings.TrimSpace(modelLine)
 
 	// Prompt for reflection.
-	fmt.Print("Enable reflection agent? (y/N): ")
+	fmt.Print(theme.StyleMuted.Render("Enable reflection agent? (y/N): "))
 	reflectLine, _ := reader.ReadString('\n')
 	reflectLine = strings.TrimSpace(strings.ToLower(reflectLine))
 	reflect := reflectLine == "y" || reflectLine == "yes"
 
 	reflectBranch := ""
 	if reflect {
-		fmt.Print("Reflection branch (leave blank to use the repo default branch): ")
+		fmt.Print(theme.StyleMuted.Render("Reflection branch (leave blank to use the repo default branch): "))
 		branchLine, _ := reader.ReadString('\n')
 		reflectBranch = strings.TrimSpace(branchLine)
 	}
 
 	// Prompt for auto-merge.
-	fmt.Print("Auto-merge after approval? (y/N): ")
+	fmt.Print(theme.StyleMuted.Render("Auto-merge after approval? (y/N): "))
 	mergeLine, _ := reader.ReadString('\n')
 	mergeLine = strings.TrimSpace(strings.ToLower(mergeLine))
 	autoMerge := mergeLine == "y" || mergeLine == "yes"
@@ -161,7 +161,7 @@ func RunInit() error {
 		}
 	}
 
-	fmt.Printf("\n✓ Created %s\n", rinseConfigFile)
+	fmt.Printf("\n%s %s\n", theme.StyleLogSuccess.Render(theme.IconCheck), theme.StyleVal.Render("Created "+rinseConfigFile))
 	fmt.Println()
 	fmt.Println("Tip: commit .rinse.json so your team shares the same settings.")
 
