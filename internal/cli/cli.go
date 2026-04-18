@@ -1222,7 +1222,7 @@ COMMANDS
     --no-log              Do not persist this prediction event to the hit-rate log
     --interactive / -i    (Pro) Launch an interactive TUI to accept or reject each
                           predicted fix before it is applied.
-                          Keys: y apply  n/space skip  ←/→ navigate  q quit
+                          Keys: y apply  n/space skip  e open in $EDITOR  ←/→ navigate  q quit
                           Mutually exclusive with --json.
     --doc-drift           (Pro) Run LLM-backed documentation drift detection.
                           Requires opt-in: set {"doc_drift": true} in
@@ -1269,6 +1269,9 @@ ENVIRONMENT VARIABLES
                         Set this when running a non-standard backend.
   NO_COLOR              When set to any non-empty value, RINSE disables all
                         ANSI colour output. Follows the no-color.org standard.
+  VISUAL                Editor used by the e key in rinse predict --interactive.
+                        Detection order: $VISUAL → $EDITOR → vi.
+  EDITOR                Fallback editor when $VISUAL is not set.
 
 REQUIREMENTS
 
