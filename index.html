@@ -5,14 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RINSE — AI code review that works while you sleep</title>
   <meta name="description" content="RINSE is an AI-native code review agent. Autonomous, local-first, and built for developers who ship fast." />
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230d0d0d'/%3E%3Ctext x='16' y='22' font-size='18' text-anchor='middle' fill='%2300ff88' font-family='monospace' font-weight='bold'%3ER%3C/text%3E%3C/svg%3E" />
-  <meta property="og:title" content="RINSE — AI code review that works while you sleep" />
-  <meta property="og:description" content="Autonomous code review agent. Catches issues, learns your patterns, gives you a time-saved summary every run." />
-  <meta property="og:url" content="https://orsharon7.github.io/rinse" />
+
+  <!-- Favicon -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230d0d0d'/><text x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-size='20' font-family='monospace' fill='%2300ff88'>R</text></svg>" />
+
+  <!-- Open Graph -->
   <meta property="og:type" content="website" />
-  <meta name="twitter:card" content="summary" />
+  <meta property="og:url" content="https://orsharon7.github.io/rinse/" />
+  <meta property="og:title" content="RINSE — AI code review that works while you sleep" />
+  <meta property="og:description" content="Autonomous code review agent. Catches issues, learns your patterns, gives you a time-saved summary — every run. brew install orsharon7/rinse/rinse" />
+  <meta property="og:image" content="https://orsharon7.github.io/rinse/website/demo.svg" />
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="RINSE — AI code review that works while you sleep" />
-  <meta name="twitter:description" content="Autonomous code review agent. Catches issues, learns your patterns, gives you a time-saved summary every run." />
+  <meta name="twitter:description" content="Autonomous code review agent. Catches issues, learns your patterns, gives you a time-saved summary — every run." />
+  <meta name="twitter:image" content="https://orsharon7.github.io/rinse/website/demo.svg" />
+
   <style>
     /* ─── Reset & Base ─────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -529,8 +538,8 @@
     </h1>
 
     <p class="sub">
-      RINSE is an autonomous code review agent that catches issues,
-      predicts what Copilot will flag before you push, and gives you a time-saved summary — every run.
+      RINSE drives GitHub Copilot through your PR review loop until it approves.
+      Predict issues before you push, fix them autonomously, get a time-saved summary — every run.
     </p>
 
     <div class="install-block" id="install-block" title="Click to copy" role="button" tabindex="0" aria-label="Copy install command">
@@ -546,7 +555,7 @@
     </div>
 
     <p class="install-hint">
-      Also available via <a href="https://github.com/orsharon7/rinse#installation" target="_blank" rel="noopener">direct download and source →</a>
+      Also available via <a href="https://github.com/orsharon7/rinse/releases" target="_blank" rel="noopener">go install or binary release →</a>
     </p>
 
     <div class="hero-ctas">
@@ -776,9 +785,17 @@
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify({ email })
-    }).finally(() => {
-      form.style.display = 'none';
-      document.getElementById('waitlist-success').classList.add('visible');
+    }).then(res => {
+      if (res.ok) {
+        form.style.display = 'none';
+        document.getElementById('waitlist-success').classList.add('visible');
+      } else {
+        if (btn) btn.disabled = false;
+        btn.textContent = 'Try again';
+      }
+    }).catch(() => {
+      if (btn) btn.disabled = false;
+      btn.textContent = 'Try again';
     });
   });
 </script>
