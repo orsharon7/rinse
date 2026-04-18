@@ -102,6 +102,8 @@ const (
 	phaseReflecting
 	phaseDone
 	phaseError
+	phaseStalled   // Copilot review timed out — amber
+	phaseCancelled // cycle cancelled by user or runner — silver
 )
 
 func (p phase) String() string {
@@ -118,6 +120,10 @@ func (p phase) String() string {
 		return "done"
 	case phaseError:
 		return "error"
+	case phaseStalled:
+		return "stalled"
+	case phaseCancelled:
+		return "cancelled"
 	}
 	return ""
 }
@@ -136,6 +142,10 @@ func (p phase) Style() lipgloss.Style {
 		return theme.StylePhaseDone
 	case phaseError:
 		return theme.StylePhaseErr
+	case phaseStalled:
+		return theme.StylePhaseStalled
+	case phaseCancelled:
+		return theme.StylePhaseCancelled
 	}
 	return theme.StylePhaseWaiting
 }
@@ -236,9 +246,10 @@ type monitorModel struct {
 	statusMsg string
 
 	// runner process
-	cmd      *exec.Cmd
-	exitCode int
-	done     bool
+	cmd          *exec.Cmd
+	exitCode     int
+	done         bool
+	cancelReason string // first cancel/stalled log line, for edge-case screens
 
 	// timing: server-driven time derivation per UX spec (RIN-42).
 	// clockOffset is computed once per connection as serverNow - Date.now().
@@ -326,7 +337,7 @@ func (m monitorModel) applyPhaseChange(newPhase phase) monitorModel {
 		return m
 	}
 	m.lastStateChangedAt = time.Now()
-	if newPhase == phaseDone || newPhase == phaseError {
+	if newPhase == phaseDone || newPhase == phaseError || newPhase == phaseStalled || newPhase == phaseCancelled {
 		d := (time.Since(m.started) + m.clockOffset).Round(time.Second)
 		m.frozenElapsed = &d
 	}
@@ -390,7 +401,7 @@ func (m monitorModel) renderPhaseBreadcrumb() string {
 	names := []string{"start", "waiting", "fixing", "reflect", "done"}
 
 	currentPhase := m.phase
-	if currentPhase == phaseError {
+	if currentPhase == phaseError || currentPhase == phaseStalled || currentPhase == phaseCancelled {
 		currentPhase = phaseDone
 	}
 
@@ -400,6 +411,10 @@ func (m monitorModel) renderPhaseBreadcrumb() string {
 		switch {
 		case m.phase == phaseError && p == phaseDone:
 			part = theme.StylePhaseErr.Render(theme.IconCross + " error")
+		case m.phase == phaseStalled && p == phaseDone:
+			part = theme.StylePhaseStalled.Render("⚠ stalled")
+		case m.phase == phaseCancelled && p == phaseDone:
+			part = theme.StylePhaseCancelled.Render("○ cancelled")
 		case p < currentPhase:
 			part = theme.StyleLogDebug.Render(theme.IconCheck + " " + names[i])
 		case p == currentPhase:
@@ -700,6 +715,11 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m = m.applyPhaseChange(nextPhase)
 
+		// Capture cancel/stall reason from first matching line
+		if m.cancelReason == "" && (nextPhase == phaseCancelled || nextPhase == phaseStalled) {
+			m.cancelReason = strings.TrimSpace(plain)
+		}
+
 		if strings.Contains(plain, "Iteration") {
 			var n int
 			if _, err := fmt.Sscanf(plain, "%*[^0-9]%d", &n); err == nil && n > m.iter {
@@ -888,12 +908,93 @@ func (m monitorModel) renderWaitProgress() string {
 		theme.StyleMuted.Render(fmt.Sprintf("%ds / %ds (%d%%)", elapsed, mx, pct))
 }
 
+// ── Edge-case screens ─────────────────────────────────────────────────────────
+
+// renderStalledScreen renders an amber banner when Copilot review has stalled.
+func (m monitorModel) renderStalledScreen(w int) string {
+	elapsed := theme.StyleMuted.Render(fmt.Sprintf("(%s elapsed)", formatElapsed(m.elapsedForDisplay())))
+	title := theme.StylePhaseStalled.Render("⚠  Copilot review stalled")
+	body := lipgloss.JoinVertical(lipgloss.Left,
+		title,
+		"",
+		theme.StyleMuted.Render("The review has not responded within the expected window."),
+		theme.StyleMuted.Render("RINSE will retry automatically. "+elapsed),
+	)
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(theme.Peach).
+		Padding(1, 2).
+		Width(min(w-4, 60)).
+		Render(body)
+	return lipgloss.NewStyle().Width(w).Align(lipgloss.Center).Render(box)
+}
+
+// renderCancelledScreen renders a greyed card when the cycle is cancelled.
+func (m monitorModel) renderCancelledScreen(w int) string {
+	reason := m.cancelReason
+	if reason == "" {
+		reason = "Cycle cancelled."
+	}
+	title := theme.StylePhaseCancelled.Render("○  Cycle cancelled")
+	body := lipgloss.JoinVertical(lipgloss.Left,
+		title,
+		"",
+		theme.StyleMuted.Render(reason),
+		"",
+		theme.StyleMuted.Render("Press q to quit, or start a new cycle."),
+	)
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(theme.Overlay).
+		Padding(1, 2).
+		Width(min(w-4, 60)).
+		Render(body)
+	return lipgloss.NewStyle().Width(w).Align(lipgloss.Center).Render(box)
+}
+
+// renderFailedScreen renders a red card with the last log lines on non-zero exit.
+func (m monitorModel) renderFailedScreen(w int) string {
+	title := theme.StylePhaseErr.Render("✗  Cycle failed")
+	// Show up to last 5 log lines as context
+	lines := m.lines
+	if len(lines) > 5 {
+		lines = lines[len(lines)-5:]
+	}
+	logSnippet := theme.StyleMuted.Render(strings.Join(lines, "\n"))
+	body := lipgloss.JoinVertical(lipgloss.Left,
+		title,
+		"",
+		theme.StyleMuted.Render(fmt.Sprintf("Exit code: %d", m.exitCode)),
+		"",
+		logSnippet,
+	)
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(theme.Red).
+		Padding(1, 2).
+		Width(min(w-4, 70)).
+		Render(body)
+	return lipgloss.NewStyle().Width(w).Align(lipgloss.Center).Render(box)
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func inferPhase(plain string, current phase) phase {
 	switch {
-	case current == phaseDone:
-		return phaseDone
+	case current == phaseDone || current == phaseStalled || current == phaseCancelled:
+		return current
 	case strings.Contains(plain, "APPROVED"):
 		return phaseDone
+	case strings.Contains(plain, "stalled") || strings.Contains(plain, "Stalled"):
+		return phaseStalled
+	case strings.Contains(plain, "cancelled") || strings.Contains(plain, "Cancelled") ||
+		strings.Contains(plain, "CANCELLED"):
+		return phaseCancelled
 	case strings.Contains(plain, "❌") || strings.Contains(plain, "Timed out"):
 		return phaseError
 	case isReflectLine(plain):
@@ -966,6 +1067,29 @@ func (m monitorModel) View() string {
 			h = 24
 		}
 		return lipgloss.Place(totalW, h, lipgloss.Center, lipgloss.Center, m.renderPostCycleMenu())
+	}
+
+	// Edge-case screens: stalled, cancelled, failed (done with non-zero exit).
+	if m.phase == phaseStalled {
+		h := m.height
+		if h <= 0 {
+			h = 24
+		}
+		return lipgloss.Place(totalW, h, lipgloss.Center, lipgloss.Center, m.renderStalledScreen(totalW))
+	}
+	if m.phase == phaseCancelled {
+		h := m.height
+		if h <= 0 {
+			h = 24
+		}
+		return lipgloss.Place(totalW, h, lipgloss.Center, lipgloss.Center, m.renderCancelledScreen(totalW))
+	}
+	if m.done && m.exitCode != 0 {
+		h := m.height
+		if h <= 0 {
+			h = 24
+		}
+		return lipgloss.Place(totalW, h, lipgloss.Center, lipgloss.Center, m.renderFailedScreen(totalW))
 	}
 
 	showPanel := m.showReflectPanel()
