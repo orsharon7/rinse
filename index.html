@@ -596,22 +596,18 @@
       <div class="terminal" style="text-align: left; padding: 20px 24px;">
         <pre style="margin: 0; font-size: 0.82rem; line-height: 1.7; color: var(--text); overflow-x: auto;"><span style="color:var(--muted)">$ </span><span style="color:var(--green)">rinse predict</span>
 
-<span style="color:var(--green)">RINSE Predict</span> <span style="color:var(--muted)">— v0.3 · AST analysis · staged diff</span>
+<span style="color:#cba6f7">◇</span>  <span style="color:var(--green); font-weight:600">rinse predict</span>  <span style="color:var(--muted)">—  3 likely Copilot comments detected</span>
 
-  <span style="color:#f97316">⚠</span>  <span style="color:var(--text)">Missing error handling</span>            <span style="color:var(--muted)">confidence 0.91</span>
-     <span style="color:var(--muted)">internal/runner/runner.go:147</span>
-     <span style="color:var(--muted)">return value of os.WriteFile discarded (blank-ident)</span>
+  <span style="color:#cba6f7">◇</span> <span style="color:var(--text)">Missing error handling: os.WriteFile return discarded</span>         <span style="color:var(--green); font-weight:600">91%</span>
+   <span style="color:var(--muted)">internal/runner/runner.go:147</span>
 
-  <span style="color:#f97316">⚠</span>  <span style="color:var(--text)">Unused variable</span>                   <span style="color:var(--muted)">confidence 0.85</span>
-     <span style="color:var(--muted)">internal/runner/runner.go:203</span>
-     <span style="color:var(--muted)">'ctx' declared but not used after line 208</span>
+  <span style="color:#cba6f7">◇</span> <span style="color:var(--text)">Unused variable: 'ctx' declared but not referenced</span>            <span style="color:var(--green); font-weight:600">85%</span>
+   <span style="color:var(--muted)">internal/runner/runner.go:203</span>
 
-  <span style="color:#eab308">◆</span>  <span style="color:var(--text)">Naked return in named-return fn</span>   <span style="color:var(--muted)">confidence 0.72</span>
-     <span style="color:var(--muted)">internal/engine/engine.go:89</span>
-     <span style="color:var(--muted)">bare return makes code harder to audit</span>
+  <span style="color:#cba6f7">◇</span> <span style="color:var(--text)">Naked return in named-return function</span>                         <span style="color:#eab308">72%</span>
+   <span style="color:var(--muted)">internal/engine/engine.go:89</span>
 
-<span style="color:var(--muted)">3 prediction(s) logged for hit-rate tracking.
-Exit 0 — non-blocking by design.</span></pre>
+   <span style="color:#cba6f7">3 predictions</span> <span style="color:var(--muted)">• run `rinse` to fix automatically</span></pre>
       </div>
       <p style="font-size: 0.78rem; color: var(--muted); margin-top: 12px; font-family: var(--font-mono);">
         rinse predict · staged diff · 3 issues found before Copilot sees them
