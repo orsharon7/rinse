@@ -675,6 +675,10 @@ COMMANDS
       closed     — PR closed without merge
       error      — could not determine status
 
+    JSON output (--json):
+      {"ok":true,"pr":"42","repo":"owner/repo","status":"approved"}
+      {"ok":false,"pr":"42","repo":"owner/repo","status":"error","error":"..."}
+
   rinse start <pr> [options] [--json]
 
     Start the PR review fix loop non-interactively (no TUI, no TTY required).
@@ -692,6 +696,10 @@ COMMANDS
                                   Only fires in --json mode (exec-replace mode cannot notify).
     --json                        Emit a JSON result after the runner exits.
                                   Streaming output goes to stderr throughout.
+
+    JSON output (--json):
+      {"ok":true,"pr":"42","repo":"owner/repo","runner":"opencode","model":"github-copilot/claude-sonnet-4.6","exit_code":0}
+      {"ok":false,"pr":"42","repo":"owner/repo","runner":"opencode","model":"","exit_code":1,"error":"runner failed"}
 
 ENVIRONMENT VARIABLES
 
