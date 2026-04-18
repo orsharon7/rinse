@@ -968,10 +968,10 @@ USAGE
   rinse stats --predict  Show prediction hit-rate dashboard (rolling 10-PR + all-time)
   rinse report       Show today's PR review dashboard (approval rate, time saved)
   rinse predict      Scan staged diff or PR for predicted Copilot comments (v0.3)
+                     --interactive / --doc-drift require Pro
   rinse status       Print the Copilot review status of a PR (agent/CI use)
   rinse start        Start the review loop non-interactively (agent/CI use)
   rinse run          Start the native Go runner directly (no shell script)
-  rinse predict      Predict which review patterns a PR is likely to trigger
   rinse opt-in       Enable session stats collection
   rinse opt-out      Disable session stats collection
   rinse --version    Print the installed version
@@ -1174,7 +1174,8 @@ COMMANDS
 
     Note: --max-iterations and --poll-interval are reserved for a future release.
 
-  rinse predict [<pr>] [--repo <owner/repo>] [--json] [--no-log] [--doc-drift]
+  rinse predict [<pr>] [--repo <owner/repo>] [--json] [--no-log]
+               [--interactive] [--doc-drift]   (Pro only)
 
     Predict which review-comment patterns are likely to appear on a PR before
     running a full review cycle. Useful for deciding whether to invoke RINSE
@@ -1187,6 +1188,8 @@ COMMANDS
     --pr <number>         PR number (alternative to positional argument)
     --json                Emit a JSON result object instead of styled text
     --no-log              Do not persist this prediction event to the hit-rate log
+    --interactive         (Pro) Launch an interactive TUI to accept or reject each
+                          predicted fix before it is applied.
     --doc-drift           (Pro) Run LLM-backed documentation drift detection.
                           Requires opt-in: set {"doc_drift": true} in
                           ~/.rinse/config.json OR pass this flag explicitly.
