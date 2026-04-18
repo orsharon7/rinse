@@ -715,7 +715,7 @@ func runPredictCmd(args []string) {
 			asJSON = true
 		case "--no-log":
 			noLog = true
-		case "--interactive":
+		case "--interactive", "-i":
 			interactive = true
 		case "--doc-drift":
 			docDrift = true
@@ -783,6 +783,25 @@ func runPredictCmd(args []string) {
 				report.Predictions = append(report.Predictions, predict.DriftItemsAsPredictions(driftReport)...)
 			}
 		}
+	}
+
+	// --interactive: enter the TUI review loop (after doc-drift may have added predictions).
+	if interactive {
+		if asJSON {
+			fatalf(asJSON, "--interactive and --json are mutually exclusive")
+		}
+		termWidth := 80
+		if w, _, err2 := xterm.GetSize(os.Stdout.Fd()); err2 == nil && w > 0 {
+			termWidth = w
+		}
+		if err := predict.RunInteractive(predict.InteractiveOpts{
+			Report:    report,
+			TermWidth: termWidth,
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
 	}
 
 	if asJSON {
