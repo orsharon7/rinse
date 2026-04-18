@@ -269,3 +269,31 @@ func TestLogInteractiveSession_FallbackOnUnwritableDir(t *testing.T) {
 		t.Errorf("expected fallback log to contain session ID, got: %q", logStr)
 	}
 }
+
+func TestRenderUpgradePrompt_PlainText(t *testing.T) {
+	var buf strings.Builder
+	RenderUpgradePrompt(&buf, true)
+	out := buf.String()
+	if !strings.Contains(out, "[*]") {
+		t.Errorf("plain output should contain [*], got: %q", out)
+	}
+	if !strings.Contains(out, "rinse predict --interactive  requires RINSE Pro") {
+		t.Errorf("plain output should contain command and Pro text, got: %q", out)
+	}
+	if !strings.Contains(out, "rinse.sh/#pro") {
+		t.Errorf("plain output should contain URL, got: %q", out)
+	}
+}
+
+func TestRenderUpgradePrompt_NoColorEnv(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	var buf strings.Builder
+	RenderUpgradePrompt(&buf, false)
+	out := buf.String()
+	if !strings.Contains(out, "[*]") {
+		t.Errorf("NO_COLOR output should contain [*], got: %q", out)
+	}
+	if !strings.Contains(out, "rinse predict --interactive  requires RINSE Pro") {
+		t.Errorf("NO_COLOR output should contain command and Pro text, got: %q", out)
+	}
+}
