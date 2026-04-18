@@ -890,9 +890,12 @@ USAGE
   rinse init         Create a per-repo .rinse.json config (guided setup)
   rinse stats        Show session history and time-saved metrics (30-day rolling)
   rinse report       Show today's PR review dashboard (approval rate, time saved)
-  rinse predict      Scan staged diff or PR for predicted Copilot comments (v0.3)
+  rinse predict      Predict which Copilot comments RINSE is likely to fix (v0.3)
   rinse status       Print the Copilot review status of a PR (agent/CI use)
-  rinse start        Start the review loop non-interactively (agent/CI use)
+  rinse start        Start the review loop non-interactively via shell script (agent/CI use)
+  rinse run          Start the review loop non-interactively via native Go runner (agent/CI use)
+  rinse opt-in       Enable local stats collection
+  rinse opt-out      Disable local stats collection
   rinse --version    Print the installed version
   rinse --help       Show this help
 
@@ -1024,8 +1027,9 @@ COMMANDS
 
   rinse start <pr> [options] [--json]
 
-    Start the PR review fix loop non-interactively (no TUI, no TTY required).
-    Suitable for agent pipelines and CI.
+    Start the PR review fix loop non-interactively via shell script runner.
+    Suitable for agent pipelines and CI. Use 'rinse run' for the native Go
+    runner (no shell script dependency).
 
     --repo <owner/repo>           Override repository detection
     --cwd  <path>                 Local checkout path (default: current directory)
@@ -1043,6 +1047,27 @@ COMMANDS
     JSON output (--json):
       {"ok":true,"pr":"42","repo":"owner/repo","runner":"opencode","model":"github-copilot/claude-sonnet-4.6","exit_code":0}
       {"ok":false,"pr":"42","repo":"owner/repo","runner":"opencode","model":"","exit_code":1,"error":"runner failed"}
+
+  rinse run <pr> [options] [--json]
+
+    Start the PR review fix loop non-interactively using the native Go runner
+    (no shell script required). Recommended for agent pipelines and CI.
+
+    --repo <owner/repo>           Override repository detection
+    --cwd  <path>                 Local checkout path (default: current directory)
+    --model <model>               AI model string (default: github-copilot/claude-sonnet-4.6)
+    --runner opencode             Runner to use (currently only opencode is supported)
+    --json                        Stream NDJSON lifecycle events to stdout throughout.
+                                  Auto-enabled when stdout is not a TTY.
+
+    Exit codes:
+      0   PR approved
+      1   Max iterations reached without approval
+      2   Unexpected error
+
+    JSON output (--json, NDJSON stream):
+      Each lifecycle event is emitted as a single JSON line. The final line
+      contains the run summary.
 
   rinse predict [--pr <N>] [--repo <owner/repo>] [--json] [--no-log]
 
@@ -1077,6 +1102,17 @@ COMMANDS
       0   success (even when predictions exist — non-blocking by design)
       1   fatal error (diff fetch failed, no git repo, etc.)
 
+  rinse opt-in
+
+    Enable local stats collection. Session data is written to
+    ~/.rinse/sessions/ and never leaves your machine. Required for
+    'rinse stats' and 'rinse report' to show meaningful data.
+
+  rinse opt-out
+
+    Disable local stats collection. No new sessions will be saved.
+    Existing session files are not deleted.
+
 ENVIRONMENT VARIABLES
 
   RINSE_SCRIPT_DIR      Override the directory where runner scripts are found.
@@ -1092,7 +1128,7 @@ REQUIREMENTS
   gh v2.88+   GitHub CLI — used by all runners
   opencode    Required for the opencode runner
   claude      Required for the claude runner
-  jq          Required by shell scripts
+  jq          Required by shell scripts (rinse start only)
   git         Required by the reflection agent
 
 SESSION DATA
@@ -1118,6 +1154,7 @@ SESSION DATA
     }
 
   rinse stats reads all session files and aggregates them.
+  Enable collection with: rinse opt-in
 
 FILES
 
@@ -1139,11 +1176,20 @@ EXAMPLES
   # Check status of PR #42
   rinse status 42 --repo owner/repo
 
-  # Start the review loop for PR #42 (no TTY needed)
+  # Start the review loop for PR #42 (native Go runner, no TTY needed)
+  rinse run 42 --repo owner/repo
+
+  # Start the review loop for PR #42 (shell script runner)
   rinse start 42 --repo owner/repo --cwd /path/to/repo
 
-  # Agent pipeline: stream output, capture JSON result
+  # Agent pipeline: stream NDJSON events, use native runner
+  rinse run 42 --repo owner/repo --json
+
+  # Agent pipeline: stream output to stderr, capture JSON result (shell runner)
   rinse start 42 --repo owner/repo --reflect --json
+
+  # Predict what RINSE will fix before running
+  rinse predict --pr 42 --repo owner/repo
 
 MORE
 
