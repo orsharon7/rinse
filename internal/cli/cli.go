@@ -590,7 +590,7 @@ INTERACTIVE CONTROLS
   Enter         Launch review cycle on the selected PR
   g / G         Jump to top / bottom of list
   #             Enter a PR number manually
-  s             Open settings (runner, model, reflect, auto-merge)
+  s             Open settings (runner, model, reflect, auto-merge, notify)
   r             Refresh PR list from GitHub
   ?             Toggle keyboard shortcuts overlay
   q / Ctrl+C    Quit
@@ -612,6 +612,10 @@ SETTINGS  (press s inside the PR picker)
   branch        The branch where reflection rules are pushed (default: main)
 
   auto-merge    When on, RINSE merges the PR automatically once approved.
+
+  notify        When on, RINSE sends a desktop notification when the review
+                cycle completes. macOS uses osascript; Linux uses notify-send.
+                No-op in headless/CI environments.
 
   Settings are saved per-repo under ~/.rinse/.
 
