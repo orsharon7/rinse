@@ -185,13 +185,42 @@ Notifications are best-effort — a failure to notify never interrupts or fails 
 
 ---
 
-## 🔧 Environment variables
+## 🤖 CI / pipeline usage
 
-| Variable | Description |
-|----------|-------------|
-| `RINSE_SCRIPT_DIR` | Override the directory where runner scripts (`pr-review-*.sh`) are found. Set this if you installed the binary but kept the scripts elsewhere. |
-| `PR_REVIEW_SCRIPT_DIR` | Legacy alias for `RINSE_SCRIPT_DIR`. Deprecated — prefer `RINSE_SCRIPT_DIR`. |
-| `RINSE_WEBHOOK_URL` | When set, RINSE POSTs a JSON payload to this URL after each completed review cycle. Useful for Slack notifications, dashboards, or CI integrations. |
+`rinse start` and `rinse status` are designed for non-interactive use in agent pipelines and CI.
+
+### Check PR status
+
+```bash
+# Human-readable
+rinse status 42 --repo owner/repo
+
+# Machine-readable JSON (stdout)
+rinse status 42 --repo owner/repo --json
+```
+
+JSON schema:
+```json
+{"ok": true,  "pr": "42", "repo": "owner/repo", "status": "approved"}
+{"ok": false, "pr": "42", "repo": "owner/repo", "status": "error", "error": "..."}
+```
+
+`status` values: `approved` · `pending` · `new_review` · `no_reviews` · `merged` · `closed` · `error`
+
+### Run the fix loop non-interactively
+
+```bash
+# Stream output to stderr, capture JSON result on stdout
+rinse start 42 --repo owner/repo --json 2>rinse.log
+```
+
+JSON schema:
+```json
+{"ok": true,  "pr": "42", "repo": "owner/repo", "runner": "opencode", "model": "github-copilot/claude-sonnet-4.6", "exit_code": 0}
+{"ok": false, "pr": "42", "repo": "owner/repo", "runner": "opencode", "model": "",                                   "exit_code": 1, "error": "runner failed"}
+```
+
+Add `--notify` to get a desktop notification when the cycle finishes (macOS / Linux; no-op in headless).
 
 ---
 
