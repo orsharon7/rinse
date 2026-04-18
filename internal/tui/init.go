@@ -162,5 +162,13 @@ func RunInit() error {
 	fmt.Printf("\n✓ Created %s\n", rinseConfigFile)
 	fmt.Println()
 	fmt.Println("Tip: commit .rinse.json so your team shares the same settings.")
+
+	// Offer to generate .github/copilot-instructions.md to reduce Copilot noise.
+	fmt.Println()
+	if err := RunInitCopilotInstructions(reader); err != nil {
+		// Non-fatal: warn but don't fail the whole init.
+		fmt.Printf("Warning: could not generate Copilot instructions: %v\n", err)
+	}
+
 	return nil
 }
