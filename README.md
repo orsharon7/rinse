@@ -131,6 +131,22 @@ Enable reflection via the TUI settings (press `s` inside the PR picker and toggl
 
 ---
 
+## 🔔 Desktop notifications
+
+Pass `--notify` to `rinse start` to receive a native desktop notification when the review cycle completes:
+
+```bash
+rinse start 42 --repo owner/repo --notify
+```
+
+- **macOS** — uses `osascript` (built-in, no extra tools needed)
+- **Linux** — uses `notify-send` (install `libnotify-bin` if missing)
+- **CI / headless** — automatically skipped when `TERM=dumb` or `DISPLAY` is unset; never breaks a pipeline
+
+Notifications are best-effort — a failure to notify never interrupts or fails the CLI.
+
+---
+
 ## 📋 Requirements
 
 | Dependency | Notes |
