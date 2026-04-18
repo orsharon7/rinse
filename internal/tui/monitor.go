@@ -60,7 +60,6 @@ const (
 	etaFutureDay                  // ETA tomorrow or later
 	etaOverdue                    // past estimated end
 	etaCompleted                  // cycle done
-	etaCancelled                  // cycle cancelled
 	etaError                      // cycle error
 )
 
@@ -324,7 +323,10 @@ func (m monitorModel) elapsedForDisplay() time.Duration {
 	if m.phase == phaseStarting {
 		return 0
 	}
-	return (time.Since(m.started) + m.clockOffset).Round(time.Second)
+	// Display elapsed runtime using the local/monotonic clock so clockOffset
+	// does not skew the duration.
+	elapsed := time.Since(m.started)
+	return elapsed.Round(time.Second)
 }
 
 // nowAdjusted returns the clock-offset-adjusted current time.
@@ -450,8 +452,9 @@ func (m monitorModel) renderHelp() string {
 		{"t", "timing tooltip"},
 		{"S", "save full session log"},
 		{"s", "save reflect log"},
+		{"esc / q", "close this help"},
 		{"?", "toggle this help"},
-		{"q / ^C", "quit rinse"},
+		{"ctrl+c", "quit rinse"},
 	}
 
 	var lines []string
@@ -564,37 +567,57 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if err := os.WriteFile(mainFname, []byte(mainContent), 0o644); err != nil {
 					m.statusMsg = theme.IconCross + " save failed"
 				} else {
-					savedParts = append(savedParts, mainFname)
+					m.statusMsg = theme.IconCheck + " reflect log " + theme.IconArrow + " " + fname
 				}
-				if len(m.reflectLines) > 0 {
-					refFname := fmt.Sprintf("rinse-reflect-%s.txt", ts)
-					refContent := strings.Join(m.reflectLines, "\n") + "\n"
-					if err := os.WriteFile(refFname, []byte(refContent), 0o644); err == nil {
-						savedParts = append(savedParts, refFname)
-					}
-				}
-				if len(savedParts) > 0 {
-					m.statusMsg = theme.IconCheck + " saved " + theme.IconArrow + " " + strings.Join(savedParts, ", ")
-				}
-				cmds = append(cmds, tea.Tick(3*time.Second,
+				cmds = append(cmds, tea.Tick(2*time.Second,
 					func(t time.Time) tea.Msg { return clearStatusMsg{} }))
-			default:
-				var vpcmd tea.Cmd
-				m.viewport, vpcmd = m.viewport.Update(msg)
-				m.atBottom = m.viewport.AtBottom()
-				cmds = append(cmds, vpcmd)
+			} else {
+				m.statusMsg = "no reflect lines to save"
+				cmds = append(cmds, tea.Tick(2*time.Second,
+					func(t time.Time) tea.Msg { return clearStatusMsg{} }))
 			}
+		} else if key.Matches(msg, Keys.SaveAll) {
+			ts := time.Now().Format("20060102-150405")
+			mainFname := fmt.Sprintf("rinse-log-%s.txt", ts)
+			mainContent := m.renderedLog.String()
+			if mainContent != "" && !strings.HasSuffix(mainContent, "\n") {
+				mainContent += "\n"
+			}
+			var savedParts []string
+			if err := os.WriteFile(mainFname, []byte(mainContent), 0o644); err != nil {
+				m.statusMsg = theme.IconCross + " save failed"
+			} else {
+				savedParts = append(savedParts, mainFname)
+			}
+			if len(m.reflectLines) > 0 {
+				refFname := fmt.Sprintf("rinse-reflect-%s.txt", ts)
+				refContent := strings.Join(m.reflectLines, "\n") + "\n"
+				if err := os.WriteFile(refFname, []byte(refContent), 0o644); err == nil {
+					savedParts = append(savedParts, refFname)
+				}
+			}
+			if len(savedParts) > 0 {
+				m.statusMsg = theme.IconCheck + " saved " + theme.IconArrow + " " + strings.Join(savedParts, ", ")
+			}
+			cmds = append(cmds, tea.Tick(3*time.Second,
+				func(t time.Time) tea.Msg { return clearStatusMsg{} }))
+		} else {
+			var vpcmd tea.Cmd
+			m.viewport, vpcmd = m.viewport.Update(msg)
+			m.atBottom = m.viewport.AtBottom()
+			cmds = append(cmds, vpcmd)
 		}
 
 	case tickMsg:
 		cmds = append(cmds, tick())
-		// Check for overdue crossing once per tick while cycle is active.
-		if !m.overdueAnnounced && m.estimatedEndAt != nil && m.phase != phaseDone && m.phase != phaseError {
-			if m.nowAdjusted().After(*m.estimatedEndAt) {
+		// Overdue detection: fire a toast once when ETA is crossed.
+		if !m.overdueAnnounced {
+			etaSt, _ := resolveETA(m.phase, m.estimatedEndAt, m.nowAdjusted())
+			if etaSt == etaOverdue {
+				m.toastMsg = "⚠ overdue"
 				m.overdueAnnounced = true
-				m.toastMsg = theme.StyleBadgeOverdue.Render(" OVERDUE ")
-				cmds = append(cmds, tea.Tick(5*time.Second,
-					func(t time.Time) tea.Msg { return clearToastMsg{} }))
+				cmds = append(cmds, tea.Tick(3*time.Second,
+					func(time.Time) tea.Msg { return clearToastMsg{} }))
 			}
 		}
 
@@ -696,7 +719,7 @@ func (m monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.waitLabel = after[:dotIdx]
 				}
 			}
-			m.phase = inferPhase(plain, m.phase)
+			m = m.applyPhaseChange(inferPhase(plain, m.phase))
 			break
 		}
 
@@ -1270,6 +1293,15 @@ func (m monitorModel) View() string {
 	return header + "\n" + breadcrumb + "\n" + tooltipLine + historyBlock + body + "\n" + statusBar
 }
 
+// lastStateChangedAtForDisplay returns the last state change timestamp on the
+// same clock basis used for ETA/elapsed calculations.
+func (m monitorModel) lastStateChangedAtForDisplay() time.Time {
+	if m.clockOffset == 0 {
+		return m.lastStateChangedAt
+	}
+	return m.lastStateChangedAt.Add(m.clockOffset)
+}
+
 // renderTimingTooltip renders the last-state-change tooltip overlay.
 // Shows timestamp in UTC and local timezone, matching the UX spec (RIN-42 §3).
 func (m monitorModel) renderTimingTooltip() string {
@@ -1756,4 +1788,44 @@ func (m channelMonitor) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m channelMonitor) View() string {
 	return m.monitorModel.View()
+}
+
+// sessionOutcome maps the final monitor state to a stats.Outcome string.
+func sessionOutcome(m monitorModel) stats.Outcome {
+	if !m.done {
+		return stats.OutcomeAborted
+	}
+	// Scan final log lines for terminal signals before falling back to exit code
+	// or iterHistory, because some runner outcomes are communicated via logs.
+	for i := len(m.lines) - 1; i >= 0 && i >= len(m.lines)-10; i-- {
+		plain := stripANSI(m.lines[i])
+		lower := strings.ToLower(plain)
+		if strings.Contains(lower, "[dry run] exiting") {
+			return stats.OutcomeDryRun
+		}
+		if strings.Contains(lower, "pr merged") || strings.Contains(plain, "🎉") {
+			return stats.OutcomeMerged
+		}
+		if strings.Contains(lower, "pr closed") || strings.Contains(plain, "📕") {
+			return stats.OutcomeClosed
+		}
+		if strings.Contains(lower, "max iterations") || strings.Contains(lower, "max iteration") {
+			return stats.OutcomeMaxIter
+		}
+	}
+	if m.exitCode != 0 {
+		return stats.OutcomeError
+	}
+	if len(m.iterHistory) == 0 {
+		return stats.OutcomeClean
+	}
+	last := m.iterHistory[len(m.iterHistory)-1].result
+	switch last {
+	case iterApproved:
+		return stats.OutcomeApproved
+	case iterClean:
+		return stats.OutcomeClean
+	default:
+		return stats.OutcomeError
+	}
 }

@@ -48,6 +48,25 @@ func main() {
 			}
 			stats.PrintReport(sessions)
 			os.Exit(0)
+		case "opt-in":
+			if err := stats.SetOptIn(true); err != nil {
+				fmt.Fprintln(os.Stderr, "error saving preference:", err)
+				os.Exit(1)
+			}
+			sessionsDir, err := stats.SessionsDir()
+			if err != nil {
+				fmt.Println("  Stats collection enabled.")
+			} else {
+				fmt.Printf("  Stats collection enabled. Sessions will be saved to %s\n", sessionsDir)
+			}
+			os.Exit(0)
+		case "opt-out":
+			if err := stats.SetOptIn(false); err != nil {
+				fmt.Fprintln(os.Stderr, "error saving preference:", err)
+				os.Exit(1)
+			}
+			fmt.Println("  Stats collection disabled. No new sessions will be saved.")
+			os.Exit(0)
 		}
 	}
 

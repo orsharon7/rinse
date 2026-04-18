@@ -1,0 +1,12 @@
+// sessions_test_hook_test.go — test-only override for the sessions directory.
+// This file is compiled only during `go test` and does not appear in production builds.
+package stats
+
+// SetSessionsDir overrides the directory returned by SessionsDir.
+// Call from tests to redirect session I/O to a temp directory.
+// Returns a restore function that resets the override to its previous value.
+func SetSessionsDir(dir string) func() {
+	old := sessionsDirOverride
+	sessionsDirOverride = dir
+	return func() { sessionsDirOverride = old }
+}

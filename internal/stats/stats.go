@@ -100,6 +100,9 @@ func (s Session) DurationSeconds() float64 {
 
 // SessionsDir returns the directory where legacy session JSON files are stored.
 func SessionsDir() (string, error) {
+	if sessionsDirOverride != "" {
+		return sessionsDirOverride, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -110,6 +113,31 @@ func SessionsDir() (string, error) {
 // Save writes the session as a JSON file in SessionsDir (legacy path, used by
 // shell scripts). New code should write to the SQLite DB instead.
 func Save(s Session) error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return fmt.Errorf("stats: cannot load config: %w", err)
+	}
+	if cfg.StatsOptIn != nil && !*cfg.StatsOptIn {
+		// User explicitly opted out — never prompt again.
+		return nil
+	}
+	if cfg.StatsOptIn == nil {
+		// No preference set yet — prompt if interactive; silently skip in CI.
+		fi, statErr := os.Stdin.Stat()
+		if statErr != nil || (fi.Mode()&os.ModeCharDevice) == 0 {
+			return nil // CI/non-TTY: silently off
+		}
+		optedIn, promptErr := PromptOptIn()
+		if promptErr != nil {
+			return promptErr
+		}
+		if !optedIn {
+			return nil
+		}
+	}
+
+	s.SchemaVersion = SchemaVersion
+
 	dir, err := SessionsDir()
 	if err != nil {
 		return fmt.Errorf("stats: cannot determine sessions dir: %w", err)
@@ -119,10 +147,26 @@ func Save(s Session) error {
 	}
 
 	repoSlug := strings.ReplaceAll(s.Repo, "/", "-")
-	fname := fmt.Sprintf("%s-%s-PR%s.json",
+	safePR := strings.Map(func(r rune) rune {
+		switch {
+		case r >= '0' && r <= '9':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r
+		case r >= 'a' && r <= 'z':
+			return r
+		default:
+			return '-'
+		}
+	}, s.PR)
+	if safePR == "" {
+		safePR = "unknown"
+	}
+	fname := fmt.Sprintf("%s-%d-%s-PR%s.json",
 		s.StartedAt.Format("20060102-150405"),
+		s.StartedAt.UnixNano(),
 		repoSlug,
-		s.PR,
+		safePR,
 	)
 	path := filepath.Join(dir, fname)
 
@@ -130,7 +174,39 @@ func Save(s Session) error {
 	if err != nil {
 		return fmt.Errorf("stats: cannot marshal session: %w", err)
 	}
-	return os.WriteFile(path, data, 0o644)
+
+	tmpFile, err := os.CreateTemp(dir, "session.tmp-*")
+	if err != nil {
+		return fmt.Errorf("stats: cannot create temp file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	success := false
+	defer func() {
+		if !success {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		return fmt.Errorf("stats: cannot write session: %w", err)
+	}
+	if err := tmpFile.Chmod(0o644); err != nil {
+		_ = tmpFile.Close()
+		return fmt.Errorf("stats: cannot chmod session: %w", err)
+	}
+	if err := tmpFile.Sync(); err != nil {
+		_ = tmpFile.Close()
+		return fmt.Errorf("stats: cannot sync session: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("stats: cannot close session: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("stats: cannot rename session: %w", err)
+	}
+	success = true
+	return nil
 }
 
 // Load reads sessions from the best available source:
@@ -293,7 +369,9 @@ type Summary struct {
 	ApprovedSessions int
 	TotalDurationSec float64
 	PatternCounts    map[string]int
+	OutcomeCounts    map[Outcome]int
 	// Last30Days is a filtered summary over the last 30 days.
+	// It is always populated by Summarize and is the zero value when no sessions match.
 	Last30Days *Summary
 }
 
@@ -352,15 +430,19 @@ func Summarize(sessions []Session) Summary {
 	}
 
 	build := func(ss []Session) Summary {
-		sum := Summary{PatternCounts: make(map[string]int)}
+		sum := Summary{
+			PatternCounts: make(map[string]int),
+			OutcomeCounts: make(map[Outcome]int),
+		}
 		for _, s := range ss {
 			sum.TotalSessions++
 			sum.TotalComments += s.TotalComments
 			sum.TotalIterations += s.Iterations
 			sum.TotalDurationSec += s.DurationSeconds()
-			if s.Approved {
+			if s.Outcome == OutcomeApproved {
 				sum.ApprovedSessions++
 			}
+			sum.OutcomeCounts[s.Outcome]++
 			for _, p := range s.Patterns {
 				sum.PatternCounts[p]++
 			}
@@ -369,10 +451,8 @@ func Summarize(sessions []Session) Summary {
 	}
 
 	sum := build(all)
-	if len(recent) < len(all) {
-		r := build(recent)
-		sum.Last30Days = &r
-	}
+	recent30 := build(recent)
+	sum.Last30Days = &recent30
 	return sum
 }
 
@@ -550,11 +630,12 @@ func formatMinutes(mins int) string {
 func Print(sessions []Session) {
 	sum := Summarize(sessions)
 
-	display := sum
-	label := "all time"
-	if sum.Last30Days != nil {
-		display = *sum.Last30Days
-		label = "last 30 days"
+	display := *sum.Last30Days
+	label := "last 30 days"
+
+	if sum.TotalSessions > 0 && sum.Last30Days.TotalSessions == 0 {
+		display = sum
+		label = "all time (no sessions in last 30 days)"
 	}
 
 	fmt.Printf("\n  RINSE Stats (%s)\n", label)
@@ -562,6 +643,9 @@ func Print(sessions []Session) {
 	fmt.Printf("  Comments fixed:   %d\n", display.TotalComments)
 	fmt.Printf("  Avg iterations:   %.1f\n", display.AvgIterations())
 	fmt.Printf("  Est. time saved:  ~%.1f hours\n", display.EstTimeSavedHours())
+	if n := display.ApprovedSessions; n > 0 {
+		fmt.Printf("  Approved:         %d\n", n)
+	}
 
 	top := display.TopPatterns(5)
 	if len(top) > 0 {
