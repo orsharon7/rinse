@@ -2,6 +2,7 @@ package theme
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -45,6 +46,13 @@ var (
 )
 
 // ── Utility helpers ───────────────────────────────────────────────────────────
+
+// IsPlainTerminal reports whether the current terminal environment requests
+// plain, unstyled output — either via the NO_COLOR convention or a dumb TERM.
+// All screens should call this instead of re-implementing the check.
+func IsPlainTerminal() bool {
+	return os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb"
+}
 
 // Truncate truncates s to at most n visible runes, appending an ellipsis when
 // truncation occurs.
