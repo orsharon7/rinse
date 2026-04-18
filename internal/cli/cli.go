@@ -114,6 +114,9 @@ func TryDispatch() bool {
 	case "run":
 		runRunCmd(os.Args[2:])
 		return true
+	case "predict":
+		runPredictCmd(os.Args[2:])
+		return true
 	case "help", "--help", "-h":
 		PrintHelp()
 		return true
@@ -889,6 +892,10 @@ USAGE
   rinse report       Show today's PR review dashboard (approval rate, time saved)
   rinse status       Print the Copilot review status of a PR (agent/CI use)
   rinse start        Start the review loop non-interactively (agent/CI use)
+  rinse run          Start the native Go runner directly (no shell script)
+  rinse predict      Predict which review patterns a PR is likely to trigger
+  rinse opt-in       Enable session stats collection
+  rinse opt-out      Disable session stats collection
   rinse --version    Print the installed version
   rinse --help       Show this help
 
@@ -1039,6 +1046,63 @@ COMMANDS
     JSON output (--json):
       {"ok":true,"pr":"42","repo":"owner/repo","runner":"opencode","model":"github-copilot/claude-sonnet-4.6","exit_code":0}
       {"ok":false,"pr":"42","repo":"owner/repo","runner":"opencode","model":"","exit_code":1,"error":"runner failed"}
+
+  rinse run <pr> [options]
+
+    Start the native Go runner directly, without the shell-script wrapper used
+    by rinse start. Preferred for CI pipelines that want structured NDJSON
+    lifecycle events on stdout. Automatically switches to JSON output when
+    stdout is not a TTY.
+
+    --repo <owner/repo>           Override repository detection
+    --cwd  <path>                 Local checkout path (default: current directory)
+    --model <model>               AI model string (overrides runner default)
+    --runner opencode             Runner to use (currently only opencode is supported)
+    --json                        Emit NDJSON lifecycle events to stdout throughout
+                                  the run, then a final result object on exit.
+
+    Exit codes:
+      0   PR approved
+      1   Max iterations reached without approval
+      2   Unexpected error
+
+    Note: --max-iterations and --poll-interval are reserved for a future release.
+
+  rinse predict [<pr>] [--repo <owner/repo>] [--json] [--no-log]
+
+    Predict which review-comment patterns are likely to appear on a PR before
+    running a full review cycle. Useful for deciding whether to invoke RINSE
+    or for triaging PR readiness in CI.
+
+    When <pr> is omitted, prediction is based on local git diff only (no GitHub
+    API call). Pass a PR number to include the PR diff and open comments.
+
+    --repo <owner/repo>   Override repository detection (required when using --pr)
+    --pr <number>         PR number (alternative to positional argument)
+    --json                Emit a JSON result object instead of styled text
+    --no-log              Do not persist this prediction event to the hit-rate log
+
+    JSON output (--json):
+      {
+        "ok": true,
+        "source": "git-diff",
+        "predictions": [
+          {"pattern": "Missing error handling", "confidence": 0.87, "file": "main.go", "line": 42}
+        ]
+      }
+
+STATS OPT-IN / OPT-OUT
+
+  rinse opt-in
+
+    Enable session stats collection. Each completed review cycle is saved as a
+    JSON file in ~/.rinse/sessions/. No data leaves your machine. Required for
+    rinse stats and rinse report to show data.
+
+  rinse opt-out
+
+    Disable session stats collection. No new session files will be written.
+    Existing session files are not deleted.
 
 ENVIRONMENT VARIABLES
 
