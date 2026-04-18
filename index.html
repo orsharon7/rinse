@@ -35,6 +35,21 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="canonical" href="https://orsharon7.github.io/rinse" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "RINSE",
+    "description": "Autonomous AI code review agent. Runs through your GitHub Copilot PR review loop until it approves. Local-first, single Go binary.",
+    "url": "https://orsharon7.github.io/rinse",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "macOS, Linux",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "codeRepository": "https://github.com/orsharon7/rinse",
+    "programmingLanguage": "Go"
+  }
+  </script>
   <style>
     /* ─── Reset & Base ─────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -520,6 +535,7 @@
       section, #hero, #demo, #why, #pricing, #waitlist { padding: 60px 0; }
       .install-block { max-width: 100%; }
       .pricing-grid { grid-template-columns: 1fr; }
+      .why-grid { grid-template-columns: 1fr; }
       nav .links .hide-mobile { display: none; }
     }
   </style>
@@ -800,9 +816,15 @@
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify({ email })
-    }).finally(() => {
-      form.style.display = 'none';
-      document.getElementById('waitlist-success').classList.add('visible');
+    }).then(res => {
+      if (res.ok) {
+        form.style.display = 'none';
+        document.getElementById('waitlist-success').classList.add('visible');
+      } else {
+        if (btn) { btn.disabled = false; btn.textContent = 'Try again'; }
+      }
+    }).catch(() => {
+      if (btn) { btn.disabled = false; btn.textContent = 'Try again'; }
     });
   });
 </script>
