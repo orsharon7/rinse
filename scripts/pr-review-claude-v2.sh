@@ -16,6 +16,7 @@
 #   --worktree             Use a git worktree for isolation (used by orchestrator)
 #   --repo-root <path>     Original repo root when --worktree is active
 #   --dry-run              Print startup state and exit without running Claude
+#   --json-insights        Print machine-readable JSON summary after each cycle
 #
 # Requirements:
 #   - claude CLI in PATH
@@ -129,7 +130,8 @@ if [[ "$USE_WORKTREE" == true ]]; then
   WORKTREE_DIR="/tmp/pr-review-worktrees/${REPO_SLUG}/pr-${PR_NUMBER}"
   mkdir -p "$(dirname "$WORKTREE_DIR")"
 
-  # Cleanup trap — remove the worktree on exit / signal
+  # Cleanup function — remove the worktree on exit / signal
+  # Called by _insights_exit_trap (the single unified EXIT trap).
   cleanup_pr_worktree() {
     local rc=$?
     set +e
@@ -157,7 +159,6 @@ if [[ "$USE_WORKTREE" == true ]]; then
       fi
     fi
   }
-  trap cleanup_pr_worktree EXIT
 
   # Prune stale worktree references from previous crashed runs
   git -C "$REPO_ROOT" worktree prune 2>/dev/null || true
@@ -380,6 +381,40 @@ session_init "$REPO" "$PR_NUMBER"
 # ── Insights init ─────────────────────────────────────────────────────────────
 insights_init "$PR_NUMBER" "$REPO" "$MODEL"
 
+# Centralize insights finalization so every exit path (including early exits)
+# produces a summary when --json-insights is active.  Each exit path sets
+# _INSIGHTS_OUTCOME to the semantic label; the trap derives a fallback from the
+# exit code when it is not set.  A done-guard prevents double-finalization for
+# paths that already called insights_finalize before the trap fires.
+_INSIGHTS_OUTCOME=""
+_INSIGHTS_DONE=false
+_insights_exit_trap() {
+  [[ "$_INSIGHTS_DONE" == true ]] && return
+  _INSIGHTS_DONE=true
+  local exit_code="${1:-$?}"
+  # Consolidated cleanup: always run worktree cleanup + session/lock release
+  if [[ "$USE_WORKTREE" == true ]]; then
+    cleanup_pr_worktree
+  else
+    session_clear
+    gh_lock_release
+  fi
+  local outcome="${_INSIGHTS_OUTCOME:-}"
+  if [[ -z "$outcome" ]]; then
+    case "$exit_code" in
+      0) outcome="clean" ;;
+      *) outcome="error" ;;
+    esac
+  fi
+  insights_finalize "$outcome"
+  if [[ "$JSON_INSIGHTS" == true ]]; then
+    insights_print --json
+  else
+    insights_print
+  fi
+}
+trap '_insights_exit_trap $?' EXIT
+
 if session_recover; then
   log "⚠️  Previous session crashed (iter ${RECOVER_ITER}, last review: ${RECOVER_REVIEW_ID:-none})"
   log "   Recovering — will resume from last known state"
@@ -565,7 +600,7 @@ while true; do
   pr_state=$(echo "$_pr_json" | jq -r '.state // "open"')
   merged_at=$(echo "$_pr_json" | jq -r '.merged_at // ""')
   if [[ "$pr_state" == "closed" ]]; then
-    [[ -n "$merged_at" ]] && log "🎉 PR merged!" || log "📕 PR closed."
+    [[ -n "$merged_at" ]] && { log "🎉 PR merged!"; _INSIGHTS_OUTCOME="merged"; } || { log "📕 PR closed."; _INSIGHTS_OUTCOME="closed"; }
     exit 0
   fi
 

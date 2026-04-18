@@ -123,9 +123,10 @@ fi
 
 if [[ "$SUBCOMMAND" != "poll-all" ]]; then
   REPO_SLUG="${REPO//\//_}"  # owner/repo → owner_repo
-  STATE_DIR="/tmp/pr-review-state/${REPO_SLUG}"
+  # Persistent state dir (survives reboots — needed for crash recovery)
+  STATE_DIR="${HOME}/.pr-review/state/${REPO_SLUG}"
 else
-  STATE_DIR="/tmp/pr-review-state"
+  STATE_DIR="${HOME}/.pr-review/state"
 fi
 mkdir -p "$STATE_DIR"
 

@@ -10,14 +10,19 @@
 #
 # 2. CROSS-MACHINE DEDUPLICATION (GitHub PR labels + lock comment)
 #    When a runner starts it:
-#      a. Checks for an existing `rinse:running` label on the PR.
-#      b. If absent, adds the label and posts a hidden lock comment with
-#         metadata (hostname, PID, timestamp, lock_id).
+#      a. Checks for an existing lock comment (containing the hidden marker) on
+#         the PR. The `rinse:running` label is added as a visible signal but is
+#         NOT used as the primary lock check (_gh_lock_label_exists is available
+#         but not wired into the acquisition flow).
+#      b. If no active lock comment is found, adds the label and posts a hidden
+#         lock comment with metadata (timestamp, lock_id). Hostname and PID are
+#         omitted from the comment to avoid embedding internal hostnames in
+#         PR-visible metadata; a random lock_id is used for self-identification.
 #      c. Sleeps briefly and re-reads the comment to verify it won the race.
 #      d. If another runner already holds the lock (and it is not stale), this
 #         runner exits cleanly with RC=2.
-#    On exit (clean or crash) the lock is released: label removed, comment
-#    updated to "done".  Stale locks (default: 4 h) are automatically stolen.
+#    On exit (clean or crash) the lock is released: label removed, lock comment
+#    deleted.  Stale locks (default: 4 h) are automatically stolen.
 #
 # Usage — source this file then call the functions:
 #
@@ -50,7 +55,9 @@ RINSE_LOCK_TIMEOUT="${RINSE_LOCK_TIMEOUT:-14400}"
 RINSE_RUNNING_LABEL="${RINSE_RUNNING_LABEL:-rinse:running}"
 
 # Magic marker in the lock comment body (must not appear in normal PR comments)
-_RINSE_LOCK_MARKER="<!-- rinse-lock-metadata -->"
+# The full comment body is: <!-- rinse-lock-metadata\n<json>\n-->
+# so the metadata JSON is hidden from the PR conversation.
+_RINSE_LOCK_MARKER="<!-- rinse-lock-metadata"
 
 # ─── Internal globals (set by session_init) ───────────────────────────────────
 
@@ -60,6 +67,7 @@ _SESSION_FILE=""       # full path to the session JSON file
 _SESSION_HOSTNAME=""   # $(hostname)
 _SESSION_PID=$$        # this runner's PID
 _LOCK_COMMENT_ID=""    # GitHub comment ID of the lock comment we created
+_RINSE_LOCK_ID=""      # random lock_id for this acquire (used for self-identification)
 
 # ─── Session: init ────────────────────────────────────────────────────────────
 
@@ -88,7 +96,13 @@ session_update() {
   jq -n \
     --arg hostname "$_SESSION_HOSTNAME" \
     --argjson pid "$_SESSION_PID" \
-    --arg started_at "$(cat "${_SESSION_FILE}" 2>/dev/null | jq -r '.started_at // ""')" \
+    --arg started_at "$(
+      if [[ -f "$_SESSION_FILE" ]]; then
+        jq -r '.started_at // ""' "$_SESSION_FILE" 2>/dev/null || echo ""
+      else
+        echo ""
+      fi
+    )" \
     --arg updated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --argjson iter "$iter" \
     --arg last_review_id "$last_rid" \
@@ -113,16 +127,18 @@ session_update() {
 # After calling this, inspect:
 #   RECOVER_REVIEW_ID — last_review_id from the crashed session (may be empty)
 #   RECOVER_ITER      — last iter from the crashed session
+#   RECOVER_LOCK_ID   — lock_id held by the crashed session (may be empty)
 session_recover() {
   RECOVER_REVIEW_ID=""
   RECOVER_ITER=0
+  RECOVER_LOCK_ID=""
 
   [[ -f "$_SESSION_FILE" ]] || return 1
 
   local pid hostname status
-  pid=$(jq -r '.pid // 0' "$_SESSION_FILE")
-  hostname=$(jq -r '.hostname // ""' "$_SESSION_FILE")
-  status=$(jq -r '.status // "unknown"' "$_SESSION_FILE")
+  pid=$(jq -r '.pid // 0' "$_SESSION_FILE" 2>/dev/null || echo 0)
+  hostname=$(jq -r '.hostname // ""' "$_SESSION_FILE" 2>/dev/null || echo "")
+  status=$(jq -r '.status // "unknown"' "$_SESSION_FILE" 2>/dev/null || echo "unknown")
 
   # Only recover sessions from this host (cross-host crash → gh_lock will handle dedup)
   if [[ "$hostname" != "$_SESSION_HOSTNAME" ]]; then
@@ -139,8 +155,9 @@ session_recover() {
   fi
 
   # PID is dead but status is "running" → this was a crash
-  RECOVER_REVIEW_ID=$(jq -r '.last_review_id // ""' "$_SESSION_FILE")
-  RECOVER_ITER=$(jq -r '.iter // 0' "$_SESSION_FILE")
+  RECOVER_REVIEW_ID=$(jq -r '.last_review_id // ""' "$_SESSION_FILE" 2>/dev/null || echo "")
+  RECOVER_ITER=$(jq -r '.iter // 0' "$_SESSION_FILE" 2>/dev/null || echo 0)
+  RECOVER_LOCK_ID=$(jq -r '.lock_id // ""' "$_SESSION_FILE" 2>/dev/null || echo "")
 
   return 0
 }
@@ -153,8 +170,24 @@ session_clear() {
   [[ -z "$_SESSION_FILE" ]] && return 0
   if [[ -f "$_SESSION_FILE" ]]; then
     local tmp
-    tmp=$(jq '.status = "done"' "$_SESSION_FILE") && echo "$tmp" > "$_SESSION_FILE"
+    if tmp=$(jq '.status = "done"' "$_SESSION_FILE" 2>/dev/null); then
+      echo "$tmp" > "$_SESSION_FILE" || true
+    fi
     rm -f "$_SESSION_FILE"
+  fi
+}
+
+# ─── Session: save lock_id ────────────────────────────────────────────────────
+
+# session_save_lock_id <lock_id>
+# Persists the active lock_id into the session file so that after a crash
+# the runner can reclaim its own lock comment without waiting for the stale
+# timeout.  Safe to call when no session file exists (no-op).
+session_save_lock_id() {
+  [[ -z "$_SESSION_FILE" || ! -f "$_SESSION_FILE" ]] && return 0
+  local tmp
+  if tmp=$(jq --arg lid "$1" '.lock_id = $lid' "$_SESSION_FILE" 2>/dev/null); then
+    echo "$tmp" > "$_SESSION_FILE" || true
   fi
 }
 
@@ -202,8 +235,15 @@ _gh_lock_find_comment() {
 # Outputs the embedded JSON blob from the lock comment body.
 _gh_lock_parse_metadata() {
   local body="$1"
-  # Extract the JSON block between the marker line and the closing HTML comment
-  echo "$body" | grep -A1 "${_RINSE_LOCK_MARKER}" | tail -1
+  # Best-effort extraction: print the line immediately after the marker line
+  # if present and not the closing "-->" line; otherwise print nothing.
+  printf '%s\n' "$body" | awk -v marker="${_RINSE_LOCK_MARKER}" '
+    found {
+      if ($0 != "-->") print
+      exit
+    }
+    index($0, marker) { found=1 }
+  '
 }
 
 _gh_lock_is_stale() {
@@ -239,8 +279,19 @@ _gh_lock_is_stale() {
 gh_lock_acquire() {
   [[ -z "$_SESSION_REPO" ]] && { >&2 echo "[rinse-lock] session_init not called"; return 0; }
 
+  # On crash recovery, reuse the lock_id from the crashed session so the
+  # self-identification check below can reclaim the existing lock comment
+  # immediately, without waiting for RINSE_LOCK_TIMEOUT to expire.
   local lock_id
-  lock_id="$(date -u +%Y%m%dT%H%M%S)-${_SESSION_PID}"
+  if [[ -n "${RECOVER_LOCK_ID:-}" ]]; then
+    lock_id="$RECOVER_LOCK_ID"
+    >&2 echo "[rinse-lock] Crash recovery: reusing lock_id ${lock_id}"
+  else
+    # Generate a new random lock_id for this run.
+    lock_id="$(cat /proc/sys/kernel/random/uuid 2>/dev/null || \
+      printf '%s-%s-%s' "$(date -u +%Y%m%dT%H%M%S)" "${_SESSION_PID}" "${RANDOM}${RANDOM}")"
+  fi
+  _RINSE_LOCK_ID="$lock_id"
 
   # Ensure the label exists in the repo
   _gh_lock_ensure_label_created
@@ -255,27 +306,26 @@ gh_lock_acquire() {
     existing_meta=$(_gh_lock_parse_metadata "$body")
 
     if [[ -n "$existing_meta" ]]; then
-      local existing_host existing_pid existing_locked_at
-      existing_host=$(echo "$existing_meta" | jq -r '.hostname // ""')
-      existing_pid=$(echo "$existing_meta" | jq -r '.pid // 0')
-      existing_locked_at=$(echo "$existing_meta" | jq -r '.locked_at // ""')
+      local existing_lid existing_locked_at
+      existing_lid=$(echo "$existing_meta" | jq -r '.lock_id // ""' 2>/dev/null || printf '%s' "")
+      existing_locked_at=$(echo "$existing_meta" | jq -r '.locked_at // ""' 2>/dev/null || printf '%s' "")
 
-      # Is this our own lock (same host, same PID)? Re-use it.
-      if [[ "$existing_host" == "$_SESSION_HOSTNAME" && "$existing_pid" == "$_SESSION_PID" ]]; then
+      # Is this our own lock (same lock_id)? Re-use it.
+      if [[ -n "$_RINSE_LOCK_ID" && "$existing_lid" == "$_RINSE_LOCK_ID" ]]; then
         _LOCK_COMMENT_ID=$(echo "$existing_comment" | jq -r '.id')
         return 0
       fi
 
       # Is the lock stale?
       if _gh_lock_is_stale "$existing_locked_at"; then
-        >&2 echo "[rinse-lock] Stale lock from ${existing_host} (PID ${existing_pid}, locked at ${existing_locked_at}) — stealing"
+        >&2 echo "[rinse-lock] Stale lock (locked at ${existing_locked_at}) — stealing"
         # Delete the stale comment so we can replace it
         local stale_id
         stale_id=$(echo "$existing_comment" | jq -r '.id')
         gh api "repos/${_SESSION_REPO}/issues/comments/${stale_id}" -X DELETE >/dev/null 2>&1 || true
       else
-        >&2 echo "[rinse-lock] PR #${_SESSION_PR} is already locked by ${existing_host} (PID ${existing_pid})"
-        >&2 echo "[rinse-lock] Lock held since ${existing_locked_at} — skipping to avoid duplicate run"
+        >&2 echo "[rinse-lock] PR #${_SESSION_PR} is already locked (since ${existing_locked_at})"
+        >&2 echo "[rinse-lock] Skipping to avoid duplicate run"
         return 1
       fi
     fi
@@ -286,17 +336,13 @@ gh_lock_acquire() {
   locked_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
   local meta_json
-  meta_json=$(jq -n \
-    --arg hostname "$_SESSION_HOSTNAME" \
-    --argjson pid "$_SESSION_PID" \
+  meta_json=$(jq -cn \
     --arg locked_at "$locked_at" \
     --arg lock_id "$lock_id" \
-    '{hostname: $hostname, pid: $pid, locked_at: $locked_at, lock_id: $lock_id}')
+    '{locked_at: $locked_at, lock_id: $lock_id}')
 
   local comment_body
-  comment_body="$(printf '%s\n%s' "$_RINSE_LOCK_MARKER" "$meta_json")"
-
-  _gh_lock_add_label
+  comment_body="$(printf '%s\n%s\n%s' "$_RINSE_LOCK_MARKER" "$meta_json" "-->")"
 
   local created_comment
   created_comment=$(gh api "repos/${_SESSION_REPO}/issues/${_SESSION_PR}/comments" \
@@ -307,7 +353,12 @@ gh_lock_acquire() {
     return 0
   }
 
+  _gh_lock_add_label
+
   _LOCK_COMMENT_ID=$(echo "$created_comment" | jq -r '.id')
+
+  # Persist the lock_id so a subsequent crash-recovery run can reclaim this lock.
+  session_save_lock_id "$lock_id"
 
   # ── Phase 3: Race-check (wait 3 s, re-read, verify we still hold the lock) ─
   sleep 3
@@ -316,14 +367,14 @@ gh_lock_acquire() {
   verify_comment=$(_gh_lock_find_comment)
   if [[ -n "$verify_comment" ]]; then
     verify_meta=$(_gh_lock_parse_metadata "$(echo "$verify_comment" | jq -r '.body // ""')")
-    verify_lid=$(echo "$verify_meta" | jq -r '.lock_id // ""')
+    verify_lid=$(echo "$verify_meta" | jq -r '.lock_id // ""' 2>/dev/null || printf '%s' "")
     if [[ "$verify_lid" != "$lock_id" ]]; then
       # Another runner's comment is now the canonical one — we lost the race
       >&2 echo "[rinse-lock] Lost the acquisition race (another runner's comment took precedence)"
-      # Clean up our own comment
+      # Clean up our own comment only. Do not remove the shared PR label here,
+      # because the winning runner may still be active and relying on it.
       gh api "repos/${_SESSION_REPO}/issues/comments/${_LOCK_COMMENT_ID}" -X DELETE >/dev/null 2>&1 || true
       _LOCK_COMMENT_ID=""
-      _gh_lock_remove_label
       return 1
     fi
   fi
@@ -333,11 +384,42 @@ gh_lock_acquire() {
 
 # ─── GH lock: release ────────────────────────────────────────────────────────
 
+# _gh_lock_is_current_holder
+# Return success only if the current lock comment still belongs to this runner.
+_gh_lock_is_current_holder() {
+  [[ -z "$_SESSION_REPO" || -z "$_RINSE_LOCK_ID" ]] && return 1
+
+  local comment body meta lid
+  comment=""
+
+  if [[ -n "$_LOCK_COMMENT_ID" ]]; then
+    comment=$(
+      gh api "repos/${_SESSION_REPO}/issues/comments/${_LOCK_COMMENT_ID}" 2>/dev/null || true
+    )
+  fi
+
+  if [[ -z "$comment" ]]; then
+    comment=$(_gh_lock_find_comment)
+  fi
+
+  [[ -z "$comment" ]] && return 1
+
+  body=$(echo "$comment" | jq -r '.body // ""' 2>/dev/null || printf '')
+  meta=$(_gh_lock_parse_metadata "$body")
+  [[ -z "$meta" ]] && return 1
+  lid=$(printf '%s\n' "$meta" | jq -r '.lock_id // ""' 2>/dev/null || printf '')
+
+  [[ -n "$lid" && "$lid" == "$_RINSE_LOCK_ID" ]]
+}
+
 # gh_lock_release
 # Remove the running label and delete the lock comment.
 # Safe to call multiple times (idempotent).
 gh_lock_release() {
   [[ -z "$_SESSION_REPO" ]] && return 0
+
+  # Only the current lock holder may clear shared lock state.
+  _gh_lock_is_current_holder || return 0
 
   _gh_lock_remove_label
 
@@ -346,18 +428,17 @@ gh_lock_release() {
       -X DELETE >/dev/null 2>&1 || true
     _LOCK_COMMENT_ID=""
   else
-    # Fallback: find and delete any lock comment left by this host/PID
+    # Fallback: find and delete any lock comment that carries our lock_id
     local comment
     comment=$(_gh_lock_find_comment)
     if [[ -n "$comment" ]]; then
-      local body meta host pid
-      body=$(echo "$comment" | jq -r '.body // ""')
+      local body meta lid
+      body=$(printf '%s\n' "$comment" | jq -r '.body // ""' 2>/dev/null || printf '')
       meta=$(_gh_lock_parse_metadata "$body")
-      host=$(echo "$meta" | jq -r '.hostname // ""')
-      pid=$(echo "$meta" | jq -r '.pid // 0')
-      if [[ "$host" == "$_SESSION_HOSTNAME" && "$pid" == "$_SESSION_PID" ]]; then
+      lid=$(printf '%s\n' "$meta" | jq -r '.lock_id // ""' 2>/dev/null || printf '')
+      if [[ -n "$_RINSE_LOCK_ID" && "$lid" == "$_RINSE_LOCK_ID" ]]; then
         local cid
-        cid=$(echo "$comment" | jq -r '.id')
+        cid=$(printf '%s\n' "$comment" | jq -r '.id // ""' 2>/dev/null || printf '')
         gh api "repos/${_SESSION_REPO}/issues/comments/${cid}" -X DELETE >/dev/null 2>&1 || true
       fi
     fi

@@ -42,6 +42,16 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=pr-review-ui.sh
 source "${SCRIPT_DIR}/pr-review-ui.sh"
 
+# ─── Session / distributed lock ───────────────────────────────────────────────
+
+# shellcheck source=pr-review-session.sh
+source "${SCRIPT_DIR}/pr-review-session.sh"
+
+# ─── Stats / telemetry (opt-in) ───────────────────────────────────────────────
+
+# shellcheck source=pr-review-stats.sh
+source "${SCRIPT_DIR}/pr-review-stats.sh"
+
 # ─── Args ─────────────────────────────────────────────────────────────────────
 
 if [[ $# -lt 1 || "$1" == "--help" || "$1" == "-h" ]]; then
@@ -116,10 +126,46 @@ fi
 # ─── Scoped state & logs (per-repo isolation for parallel runs) ───────────────
 
 REPO_SLUG="${REPO//\//_}"  # owner/repo → owner_repo
-STATE_DIR="/tmp/pr-review-state/${REPO_SLUG}"
+# State lives under ~/.pr-review/state/ (persistent — survives reboots, enables crash recovery)
+STATE_DIR="${HOME}/.pr-review/state/${REPO_SLUG}"
 LOGFILE="${HOME}/.pr-review/logs/${REPO_SLUG}-pr-${PR_NUMBER}.log"
 mkdir -p "$STATE_DIR" "$(dirname "$LOGFILE")"
 STATE_FILE="${STATE_DIR}/pr-${PR_NUMBER}-last-review"
+
+# ─── Stats init (opt-in prompt fires here on first run) ───────────────────────
+stats_init "$REPO" "$PR_NUMBER" "$MODEL"
+
+# Record stats on any exit (trap captures the final exit code).
+# _RINSE_OUTCOME is set to the semantic outcome just before each exit; when an
+# exit path forgets to set it, derive a fallback from the shell exit status so
+# telemetry does not get mislabeled as "aborted" by default.
+_RINSE_OUTCOME=""
+# _stats_exit_trap [exit_code]
+# Accepts an explicit exit code so the EXIT handler can pass $? captured before
+# any cleanup commands overwrite it.  Falls back to $? when called directly.
+_stats_exit_trap() {
+  local exit_code="${1:-$?}"
+  local outcome="${_RINSE_OUTCOME:-}"
+
+  if [[ -z "$outcome" ]]; then
+    # Map to outcomes supported by the stats schema:
+    # approved|clean|merged|closed|max_iter|error|aborted|dry_run
+    case "$exit_code" in
+      0)   outcome="clean" ;;
+      124) outcome="aborted" ;;
+      *)   outcome="error" ;;
+    esac
+  fi
+
+  stats_record "$outcome"
+}
+
+# Install a base EXIT trap immediately after stats_init so that all exit paths
+# after this point (including early exits before the worktree trap is registered)
+# record telemetry.  The worktree path overrides this with cleanup_pr_worktree;
+# the non-worktree path overrides it with _cleanup_session_lock — both also call
+# _stats_exit_trap, so telemetry is always recorded exactly once.
+trap '_stats_exit_trap $?' EXIT
 
 # ─── Worktree isolation (optional — used by orchestrator for parallel runs) ───
 
@@ -139,11 +185,15 @@ if [[ "$USE_WORKTREE" == true ]]; then
   mkdir -p "$(dirname "$WORKTREE_DIR")"
 
   cleanup_pr_worktree() {
+    local _trapped_exit=$?
     if [[ -n "$WORKTREE_DIR" && -d "$WORKTREE_DIR" ]]; then
       log "Cleaning up worktree at ${WORKTREE_DIR}..."
       git -C "$REPO_ROOT" worktree remove --force "$WORKTREE_DIR" 2>/dev/null || true
       rm -rf "$WORKTREE_DIR" 2>/dev/null || true
     fi
+    session_clear
+    gh_lock_release
+    _stats_exit_trap "$_trapped_exit"
   }
   trap cleanup_pr_worktree EXIT
 
@@ -399,14 +449,55 @@ log "   Model:       ${MODEL}"
 log "   Wait max:    ${WAIT_MAX}s   (unlimited iterations)"
 log "   Log file:    ${LOGFILE}"
 
+# ── Session init & crash recovery ────────────────────────────────────────────
+
+session_init "$REPO" "$PR_NUMBER"
+
+if session_recover; then
+  log "⚠️  Previous session crashed (iter ${RECOVER_ITER}, last review: ${RECOVER_REVIEW_ID:-none})"
+  log "   Recovering — will resume from last known state"
+  # Pre-populate STATE_FILE with the recovered review ID so the loop doesn't
+  # re-fix comments that were already addressed before the crash.
+  if [[ -n "$RECOVER_REVIEW_ID" ]]; then
+    echo "$RECOVER_REVIEW_ID" > "$STATE_FILE"
+    log "   Restored last-known review ID: ${RECOVER_REVIEW_ID}"
+  fi
+fi
+
+# Register cleanup trap for the non-worktree path.
+# (The worktree path registered its own trap above, which also calls these.)
+if [[ "$USE_WORKTREE" == false ]]; then
+  _cleanup_session_lock() {
+    local _trapped_exit=$?
+    session_clear
+    gh_lock_release
+    _stats_exit_trap "$_trapped_exit"
+  }
+  trap _cleanup_session_lock EXIT
+fi
+
+# ── Cross-machine deduplication ───────────────────────────────────────────────
+
+if [[ "$DRY_RUN" != true ]]; then
+  if ! gh_lock_acquire; then
+    log "🔒 Another RINSE runner already holds the lock for PR #${PR_NUMBER} — exiting to avoid duplicate run"
+    _RINSE_OUTCOME="aborted"
+    exit 2
+  fi
+  log "🔑 Acquired distributed lock for PR #${PR_NUMBER}"
+fi
+
+# ── Initial session write (iter 0, pre-loop) ──────────────────────────────────
+session_update 0 "$(cat "$STATE_FILE" 2>/dev/null || echo "")"
+
 pr_json=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" 2>/dev/null)
 pr_state=$(echo "$pr_json" | jq -r '.state')
 merged_at=$(echo "$pr_json" | jq -r '.merged_at // ""')
 
 if [[ "$pr_state" == "closed" && -n "$merged_at" ]]; then
-  log "🎉 PR already merged — nothing to do."; exit 0
+  log "🎉 PR already merged — nothing to do."; _RINSE_OUTCOME="merged"; exit 0
 elif [[ "$pr_state" == "closed" ]]; then
-  log "📕 PR closed (not merged) — nothing to do."; exit 1
+  log "📕 PR closed (not merged) — nothing to do."; _RINSE_OUTCOME="closed"; exit 1
 fi
 
 log "🔍 Checking existing reviews..."
@@ -426,7 +517,7 @@ else
   rat=$(echo "$latest" | jq -r '.submitted_at')
 
   if [[ "$rstate" == "APPROVED" ]]; then
-    log "✅ PR already APPROVED by Copilot — nothing to do."; exit 0
+    log "✅ PR already APPROVED by Copilot — nothing to do."; _RINSE_OUTCOME="approved"; exit 0
   fi
 
   comments=$(get_review_comments "$rid")
@@ -445,7 +536,7 @@ else
   fi
 fi
 
-[[ "$DRY_RUN" == true ]] && { log "[DRY RUN] Exiting."; exit 0; }
+[[ "$DRY_RUN" == true ]] && { log "[DRY RUN] Exiting."; _RINSE_OUTCOME="dry_run"; exit 0; }
 echo ""
 
 # ─── Main loop ────────────────────────────────────────────────────────────────
@@ -457,6 +548,7 @@ SESSION_COMMENTS_BY_ITER=()
 while true; do
   iter=$(( iter + 1 ))
   ui_iter_header "$iter"
+  session_update "$iter" "$(cat "$STATE_FILE" 2>/dev/null || echo "")"
 
   # ── Step 1: Request review if needed ──────────────────────────────────────
 
@@ -515,6 +607,7 @@ while true; do
     ui_outcome "✅" "Copilot APPROVED PR #${PR_NUMBER}! Ready to merge."
     log "✅ Copilot APPROVED PR #${PR_NUMBER}! Ready to merge."
     echo "$rid" > "$STATE_FILE"
+    _RINSE_OUTCOME="approved"
     if [[ "$AUTO_MERGE" == true ]]; then
       log "🔀 Auto-merging and deleting branch..."
       local_branch=$(git -C "$CWD" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
@@ -555,6 +648,7 @@ while true; do
     ui_outcome "✅" "Clean review — 0 comments. PR #${PR_NUMBER} is ready to merge."
     log "✅ Clean review — 0 comments. PR #${PR_NUMBER} is ready to merge."
     echo "$rid" > "$STATE_FILE"
+    _RINSE_OUTCOME="clean"
     if [[ "$AUTO_MERGE" == true ]]; then
       log "🔀 Auto-merging and deleting branch..."
       local_branch=$(git -C "$CWD" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
@@ -672,6 +766,7 @@ PROMPT_EOF
       kill "$reflect_pid" 2>/dev/null || true
       ui_reflect_log "killed (opencode failed)" false
     fi
+    _RINSE_OUTCOME="error"
     exit 1
   fi
 
@@ -691,6 +786,7 @@ PROMPT_EOF
   echo "$rid" > "$STATE_FILE"
   SESSION_COMMENTS_BY_ITER+=("$comment_count")
   log "💾 Saved last-known review ID: ${rid}"
+  stats_add_iteration "$comment_count"
 
   if [[ "$REFLECT_OPTIMIZE" == true ]] && (( iter % 3 == 0 )); then
     log "🔁 Running mid-cycle optimize pass (iteration ${iter})..."

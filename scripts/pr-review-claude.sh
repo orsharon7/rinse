@@ -75,6 +75,40 @@ fi
 
 REPO_FLAG="--repo ${REPO}"
 
+# ─── Stats / telemetry (opt-in) ───────────────────────────────────────────────
+
+SCRIPT_DIR_STATS="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=pr-review-stats.sh
+source "${SCRIPT_DIR_STATS}/pr-review-stats.sh"
+stats_init "$REPO" "$PR_NUMBER" ""   # model unknown for legacy claude script
+
+_RINSE_OUTCOME="aborted"
+_stats_exit_trap() {
+  local exit_code=$?
+  if [[ "$_RINSE_OUTCOME" == "aborted" ]]; then
+    local final_status_json final_status
+    final_status_json=$(bash "$PR_REVIEW" "$PR_NUMBER" status $REPO_FLAG 2>/dev/null || true)
+    final_status=$(echo "$final_status_json" | jq -r '.status // "unknown"' 2>/dev/null || echo "unknown")
+
+    case "$final_status" in
+      approved) _RINSE_OUTCOME="approved" ;;
+      clean)    _RINSE_OUTCOME="clean" ;;
+      merged)   _RINSE_OUTCOME="merged" ;;
+      closed)   _RINSE_OUTCOME="closed" ;;
+      *)
+        # If the outcome wasn't set explicitly and the script exited non-zero,
+        # record it as an error rather than the misleading "aborted".
+        if [[ $exit_code -ne 0 ]]; then
+          _RINSE_OUTCOME="error"
+        fi
+        ;;
+    esac
+  fi
+
+  stats_record "$_RINSE_OUTCOME"
+}
+trap _stats_exit_trap EXIT
+
 log "🚀 Claude PR review loop starting"
 log "   PR:          ${REPO}#${PR_NUMBER}"
 log "   Local path:  ${CWD}"
@@ -89,7 +123,8 @@ log "   Log file:    ${LOGFILE}"
 log "🔍 Checking current PR state..."
 startup_status=$(bash "$PR_REVIEW" "$PR_NUMBER" status $REPO_FLAG 2>/dev/null) || true
 startup_state=$(echo "$startup_status" | jq -r '.status // "unknown"')
-STATE_DIR="/tmp/pr-review-state"
+REPO_SLUG="${REPO//\//_}"
+STATE_DIR="${HOME}/.pr-review/state/${REPO_SLUG}"
 STATE_FILE="${STATE_DIR}/pr-${PR_NUMBER}-last-review"
 
 case "$startup_state" in
@@ -122,7 +157,7 @@ case "$startup_state" in
     ;;
   approved)
     log "   State: Already APPROVED — nothing to do"
-    exit 0
+    _RINSE_OUTCOME="approved"; exit 0
     ;;
   no_reviews)
     log "   State: No Copilot reviews yet — cycle will request the first one"
@@ -164,28 +199,33 @@ for iter in $(seq 1 "$MAX_ITER"); do
     approved)
       log "✅ Copilot APPROVED PR #${PR_NUMBER}! Ready to merge."
       echo "$review_result"
+      _RINSE_OUTCOME="approved"
       exit 0
       ;;
 
     clean)
       log "✅ Clean review — Copilot returned 0 comments. PR #${PR_NUMBER} is ready to merge."
       echo "$review_result"
+      _RINSE_OUTCOME="clean"
       exit 0
       ;;
 
     merged)
       log "🎉 PR #${PR_NUMBER} is already merged."
+      _RINSE_OUTCOME="merged"
       exit 0
       ;;
 
     closed)
       log "📕 PR #${PR_NUMBER} was closed without merging."
+      _RINSE_OUTCOME="closed"
       exit 1
       ;;
 
     error)
       msg=$(echo "$review_result" | jq -r '.message // "unknown error"')
       log "❌ pr-review cycle error: ${msg}"
+      _RINSE_OUTCOME="error"
       exit 1
       ;;
 
@@ -287,6 +327,7 @@ PROMPT_EOF
 
   if [[ $claude_exit -ne 0 ]]; then
     log "❌ Claude exited with code ${claude_exit} — aborting (last-known NOT saved, same review will retry)"
+    _RINSE_OUTCOME="error"
     exit 1
   fi
 
@@ -295,10 +336,10 @@ PROMPT_EOF
   # and returns new_review again — infinite loop on the same comments.
   # pr-review.sh reads this file in load_last_known() and uses it to detect
   # whether Copilot has posted a *new* review since our last fix.
-  STATE_DIR="/tmp/pr-review-state"
   mkdir -p "$STATE_DIR"
   echo "$review_id" > "${STATE_DIR}/pr-${PR_NUMBER}-last-review"
   log "💾 Saved last-known review ID: ${review_id}"
+  stats_add_iteration "$comment_count"
 
   log "✓ Claude finished iteration ${iter} — cycling back for next Copilot review..."
   echo ""
@@ -306,4 +347,5 @@ PROMPT_EOF
 done
 
 log "⚠️  Max iterations (${MAX_ITER}) reached without approval. Check ${LOGFILE} for details."
+_RINSE_OUTCOME="max_iter"
 exit 1
