@@ -16,6 +16,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/orsharon7/rinse/internal/db"
 	"github.com/orsharon7/rinse/internal/notify"
 	"github.com/orsharon7/rinse/internal/session"
 	"github.com/orsharon7/rinse/internal/stats"
@@ -1686,6 +1687,17 @@ func RunMonitor(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge,
 			// Persist — non-fatal on failure.
 			if saveErr := sess.Save(); saveErr != nil {
 				fmt.Fprintf(os.Stderr, "rinse: could not save session: %v\n", saveErr)
+			}
+			// Persist patterns to telemetry DB (best-effort, non-fatal).
+			if len(patterns) > 0 {
+				if tdb, dbErr := db.OpenDefault(); dbErr == nil {
+					prNum := 0
+					fmt.Sscanf(mm.pr, "%d", &prNum)
+					if sid, _ := tdb.FindSessionID(mm.repo, prNum); sid != "" {
+						_ = tdb.SavePatterns(sid, patterns)
+					}
+					tdb.Close()
+				}
 			}
 			// Print the summary only on successful completion.
 			if mm.exitCode == 0 {

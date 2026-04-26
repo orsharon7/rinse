@@ -87,6 +87,56 @@ WHERE id = ?`
 	return nil
 }
 
+// FindSessionID returns the most recent session ID for a given repo and PR number.
+// Returns ("", nil) if no matching session is found.
+func (d *DB) FindSessionID(repo string, prNumber int) (string, error) {
+	if d == nil {
+		return "", nil
+	}
+	var id string
+	err := d.sql.QueryRow(
+		`SELECT id FROM sessions WHERE repo = ? AND pr_number = ? ORDER BY started_at DESC LIMIT 1`,
+		repo, prNumber,
+	).Scan(&id)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("db: find session id repo=%s pr=%d: %w", repo, prNumber, err)
+	}
+	return id, nil
+}
+
+// SavePatterns inserts zero or more pattern strings for a session.
+// It is a convenience wrapper that generates UUIDs and calls InsertPattern for
+// each entry. Duplicate patterns within the same session are silently skipped
+// (INSERT OR IGNORE). Non-fatal: errors are returned but callers may discard them.
+func (d *DB) SavePatterns(sessionID string, patterns []string) error {
+	if d == nil || len(patterns) == 0 {
+		return nil
+	}
+	for i, p := range patterns {
+		if p == "" {
+			continue
+		}
+		// Use a deterministic-ish ID: sessionID + index, hashed to UUID format.
+		id := fmt.Sprintf("%s-pat-%04d", sessionID, i)
+		if len(id) > 36 {
+			id = id[:36]
+		}
+		if err := d.InsertPattern(PatternRow{
+			ID:        id,
+			SessionID: sessionID,
+			Pattern:   p,
+			Count:     1,
+		}); err != nil {
+			// Non-fatal — log but continue.
+			continue
+		}
+	}
+	return nil
+}
+
 // FinalizeSession updates the session row with completion data.
 // This is a convenience wrapper over UpdateSession for the runner's fire-and-forget path.
 func (d *DB) FinalizeSession(id string, completedAt time.Time, durationSec, commentCount, iterations int, outcome string) error {
