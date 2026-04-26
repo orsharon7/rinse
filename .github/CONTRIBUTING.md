@@ -101,6 +101,12 @@ After building the binary (`make build`), use these workflows to validate your c
 
 # Check predict with no PR (reads staged git diff)
 ./rinse predict --json
+
+# Test the staged-changes guard: run with nothing staged — should exit 0
+# with an actionable hint ("git add <files>  or  git add -p"), not an error
+git stash  # temporarily clear staged changes if any
+./rinse predict --json
+git stash pop  # restore staged changes
 ```
 
 **Test predict Pro-gated flags (Free tier should show upgrade prompt):**
