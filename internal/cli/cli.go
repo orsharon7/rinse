@@ -1378,7 +1378,7 @@ FILES
   macOS:  ~/Library/Application Support/rinse/config.json
   Linux:  ~/.config/rinse/config.json
                   Platform config dir. Stores per-machine runner settings:
-                  model, reflect, reflect_branch, auto_merge, notify.
+                  engine, model, reflect, reflect_branch, auto_merge, notify.
                   Written by the settings screen (press s in the PR picker).
                   Not committed — settings stay local to your machine.
 
