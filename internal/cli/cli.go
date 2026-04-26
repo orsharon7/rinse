@@ -1228,6 +1228,11 @@ COMMANDS
     If nothing is staged, RINSE prints an actionable hint and exits 0 — run
     "git add <files>" first, then re-run rinse predict.
 
+    If <pr> is omitted and there are no staged changes, rinse predict exits 0
+    with an actionable hint: "Stage changes or pass --pr <N> --repo <owner/repo>".
+    No error is returned — this is intentional so the command is safe to run in
+    any working-tree state (e.g. CI pre-commit hooks or shell aliases).
+
     --repo <owner/repo>   Override repository detection (required when using --pr)
     --pr <number>         PR number (alternative to positional argument)
     --json                Emit a JSON result object instead of styled text
