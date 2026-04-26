@@ -450,6 +450,7 @@ func (m monitorModel) renderHelp() string {
 		{"↓ / j", "scroll down"},
 		{"g", "jump to top"},
 		{"G", "jump to bottom"},
+		{"h", "toggle iteration history"},
 		{"t", "timing tooltip"},
 		{"S", "save full session log"},
 		{"s", "save reflect log"},
