@@ -101,6 +101,14 @@ var migrations = []migration{
 			return err
 		},
 	},
+	{
+		Version: 5,
+		Name:    "idx_sessions_repo_pr",
+		Up: func(tx *sql.Tx) error {
+			_, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_sessions_repo_pr ON sessions(repo, pr_number)`)
+			return err
+		},
+	},
 }
 
 type migration struct {
