@@ -1348,6 +1348,19 @@ FILES
   .rinse.json     Per-repo config (created by rinse init). Commit to share
                   settings with your team.
 
+  ~/.rinse/config.json
+                  Home-dir config file. Stores your stats opt-in preference
+                  (stats_opt_in) and Pro activation flag (pro). Written by
+                  'rinse opt-in', 'rinse opt-out', and Pro activation. Not
+                  repo-specific — applies to all RINSE usage on this machine.
+
+  macOS:  ~/Library/Application Support/rinse/config.json
+  Linux:  ~/.config/rinse/config.json
+                  Platform config dir. Stores runner settings: engine, model,
+                  reflect, auto_merge, notify. Managed by 'rinse settings'.
+                  Separate from ~/.rinse/config.json — holds workflow
+                  preferences, not account/stats state.
+
   .rinseignore    Optional file in your repo root. Excludes paths from RINSE
                   review cycles. Uses .gitignore syntax: glob patterns, one per
                   line, # for comments.
