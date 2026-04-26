@@ -1227,6 +1227,8 @@ COMMANDS
 
     When <pr> is omitted, prediction is based on local git diff only (no GitHub
     API call). Pass a PR number to include the PR diff and open comments.
+    If nothing is staged, RINSE prints an actionable hint and exits 0 — run
+    "git add <files>" first, then re-run rinse predict.
 
     --repo <owner/repo>   Override repository detection (required when using --pr)
     --pr <number>         PR number (alternative to positional argument)
