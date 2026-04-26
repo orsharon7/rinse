@@ -215,6 +215,11 @@ func Run(opts Opts) (Result, error) {
 		if dbErr := opts.DB.FinalizeSession(sessionID, now, dur, totalComments, iterations, outcome); dbErr != nil {
 			log.Warn("runner: telemetry: finalize session", "error", dbErr)
 		}
+		if len(session.Patterns) > 0 {
+			if dbErr := opts.DB.InsertPatterns(sessionID, session.Patterns); dbErr != nil {
+				log.Warn("runner: telemetry: insert patterns", "error", dbErr)
+			}
+		}
 	}
 
 	// ── 4. Main cycle loop ────────────────────────────────────────────────────
