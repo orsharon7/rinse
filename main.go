@@ -95,6 +95,11 @@ func main() {
 		return
 	}
 
+	// Guard: when no --pr flag is given, check that the user has staged changes.
+	// If nothing is staged, show an actionable hint and exit 0 — this is not an
+	// error; there simply is nothing for RINSE to do yet.
+	cli.CheckStagedChanges()
+
 	if err := tui.Run(version); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)

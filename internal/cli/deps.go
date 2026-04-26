@@ -167,6 +167,57 @@ func printDepError(missing []missingDep) {
 	fmt.Fprintln(os.Stderr)
 }
 
+// ── Staged-changes guard ──────────────────────────────────────────────────────
+
+// hasPRFlag reports whether args contains a --pr flag. When --pr is present the
+// review targets a pull-request diff, not the local staging area, so the
+// staged-changes guard must be skipped.
+func hasPRFlag(args []string) bool {
+	for _, arg := range args {
+		if arg == "--pr" {
+			return true
+		}
+	}
+	return false
+}
+
+// CheckStagedChanges guards the interactive TUI entry point. When nothing is
+// staged and no --pr flag is present, it prints an actionable hint and exits 0
+// (nothing to do — not an error).
+//
+// Skip conditions (fall through silently):
+//   - --pr is present in os.Args (diff comes from the PR, not the staging area)
+//   - git diff --cached fails (not a git repo — the runner will surface a cleaner error)
+func CheckStagedChanges() {
+	// When --pr is supplied the review targets a PR diff, not staged files.
+	if hasPRFlag(os.Args[1:]) {
+		return
+	}
+
+	out, err := exec.Command("git", "diff", "--cached", "--name-only").Output()
+	if err != nil {
+		// Not a git repo or git unavailable — fall through; the TUI / runner
+		// will surface a cleaner error.
+		return
+	}
+	if strings.TrimSpace(string(out)) != "" {
+		// Files are staged — proceed normally.
+		return
+	}
+
+	// Nothing staged: print the actionable empty-state hint and exit 0.
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
+	tealStyle := lipgloss.NewStyle().Foreground(theme.Teal)
+
+	fmt.Println()
+	fmt.Println("  " + mutedStyle.Render(theme.IconDiamond+"  Nothing staged."))
+	fmt.Println("     " + mutedStyle.Render("Stage your changes first:"))
+	fmt.Println("     " + tealStyle.Render("git add <files>") + mutedStyle.Render("  or  ") + tealStyle.Render("git add -p"))
+	fmt.Println()
+	os.Exit(0)
+}
+
+
 func printAuthError() {
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintln(os.Stderr, sep())
