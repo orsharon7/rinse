@@ -1356,7 +1356,7 @@ FILES
 
   macOS:  ~/Library/Application Support/rinse/config.json
   Linux:  ~/.config/rinse/config.json
-                  Platform config dir. Stores runner settings: engine, model,
+                  Platform config dir. Stores runner settings: model,
                   reflect, auto_merge, notify. Managed by 'rinse settings'.
                   Separate from ~/.rinse/config.json — holds workflow
                   preferences, not account/stats state.
@@ -1394,7 +1394,7 @@ FILES
   macOS:  ~/Library/Application Support/rinse/config.json
   Linux:  ~/.config/rinse/config.json
                   Platform config dir. Stores per-machine runner settings:
-                  engine, model, reflect, reflect_branch, auto_merge, notify.
+                  model, reflect, reflect_branch, auto_merge, notify.
                   Written by the settings screen (press s in the PR picker).
                   Not committed — settings stay local to your machine.
 
