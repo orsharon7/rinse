@@ -107,6 +107,14 @@ func (d *DB) FindSessionID(repo string, prNumber int) (string, error) {
 	return id, nil
 }
 
+// InsertPatterns persists zero or more pattern strings for a session.
+// Each pattern is stored as a row in the patterns table.
+// Duplicate patterns within the same session are silently skipped (INSERT OR IGNORE).
+// Non-fatal: if d is nil or patterns is empty the call is a no-op.
+func (d *DB) InsertPatterns(sessionID string, patterns []string) error {
+	return d.SavePatterns(sessionID, patterns)
+}
+
 // SavePatterns inserts zero or more pattern strings for a session.
 // It is a convenience wrapper that generates UUIDs and calls InsertPattern for
 // each entry. Duplicate patterns within the same session are silently skipped
