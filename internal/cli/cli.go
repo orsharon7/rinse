@@ -1077,9 +1077,7 @@ SETTINGS  (press s inside the PR picker)
                 cycle completes. macOS uses osascript; Linux uses notify-send.
                 No-op in headless/CI environments.
 
-  Settings are saved per-repo in:
-    macOS:  ~/Library/Application Support/rinse/config.json
-    Linux:  ~/.config/rinse/config.json
+  Settings are saved per-machine in the platform config dir (see FILES).
 
 COMMANDS
 
@@ -1368,6 +1366,19 @@ FILES
                   handling) and what to skip (style, formatting, naming),
                   reducing review noise for your language. Commit this file
                   — Copilot uses it for every PR in the repo.
+
+  ~/.rinse/config.json
+                  Home-dir global config. Stores the stats opt-in flag
+                  ({"stats_opt_in": true/false}) and Pro status ({"pro": true}).
+                  Written by rinse opt-in, rinse opt-out, and Pro activation.
+                  Set RINSE_PRO=1 to enable Pro without editing this file.
+
+  macOS:  ~/Library/Application Support/rinse/config.json
+  Linux:  ~/.config/rinse/config.json
+                  Platform config dir. Stores per-machine runner settings:
+                  engine, model, reflect, reflect_branch, auto_merge, notify.
+                  Written by the settings screen (press s in the PR picker).
+                  Not committed — settings stay local to your machine.
 
 EXAMPLES
 
