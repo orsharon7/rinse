@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // SessionRow is the data RINSE writes per review session.
@@ -83,6 +85,64 @@ WHERE id = ?`
 	)
 	if err != nil {
 		return fmt.Errorf("db: update session %s: %w", s.ID, err)
+	}
+	return nil
+}
+
+// FindSessionID returns the most recent session ID for a given repo and PR number.
+// Returns ("", nil) if no matching session is found.
+func (d *DB) FindSessionID(repo string, prNumber int) (string, error) {
+	if d == nil {
+		return "", nil
+	}
+	var id string
+	err := d.sql.QueryRow(
+		`SELECT id FROM sessions WHERE repo = ? AND pr_number = ? ORDER BY started_at DESC LIMIT 1`,
+		repo, prNumber,
+	).Scan(&id)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("db: find session id repo=%s pr=%d: %w", repo, prNumber, err)
+	}
+	return id, nil
+}
+
+// InsertPatterns persists zero or more pattern strings for a session.
+// Each pattern is stored as a row in the patterns table.
+// Duplicate patterns within the same session are silently skipped (INSERT OR IGNORE).
+// Non-fatal: if d is nil or patterns is empty the call is a no-op.
+func (d *DB) InsertPatterns(sessionID string, patterns []string) error {
+	return d.SavePatterns(sessionID, patterns)
+}
+
+// SavePatterns inserts zero or more pattern strings for a session in a single
+// transaction. Each pattern gets a fresh UUID. Empty strings are skipped.
+// If d is nil or patterns is empty the call is a no-op.
+func (d *DB) SavePatterns(sessionID string, patterns []string) error {
+	if d == nil || len(patterns) == 0 {
+		return nil
+	}
+
+	tx, err := d.sql.Begin()
+	if err != nil {
+		return fmt.Errorf("db: save patterns begin tx: %w", err)
+	}
+
+	const q = `INSERT OR IGNORE INTO patterns (id, session_id, pattern, count) VALUES (?, ?, ?, 1)`
+	for _, p := range patterns {
+		if p == "" {
+			continue
+		}
+		if _, err := tx.Exec(q, uuid.New().String(), sessionID, p); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("db: save pattern session=%s: %w", sessionID, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("db: save patterns commit: %w", err)
 	}
 	return nil
 }
