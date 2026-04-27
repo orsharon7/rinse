@@ -26,9 +26,17 @@ The `outcome` column on the `sessions` table (and the equivalent field in legacy
 > outcome TEXT CHECK(outcome IN ('merged','closed','open','failed','approved')),
 > ```
 > This constraint is missing `max_iterations`, `error`, `aborted`, `clean`, and `dry_run`.
-> It also includes `open` and `failed`, which are not defined as `Outcome` constants and are
-> never written by the current runner. Inserting a session with one of the missing values
-> (e.g. `error` after a fatal agent failure) will violate the CHECK constraint and cause
+> It also includes two legacy values that predate the current `Outcome` type:
+>
+> - **`open`** — written by the old runner as the initial `outcome` value on session insert,
+>   before `FinalizeSession` overwrote it with the terminal outcome. Legacy DB rows may still
+>   carry `open` for sessions that were interrupted before finalization.
+> - **`failed`** — a legacy error sentinel used before `OutcomeError` (`"error"`) was
+>   introduced. No longer written by the current runner; may exist in older DB files.
+>
+> Neither `open` nor `failed` is defined as an `Outcome` constant in `internal/stats/stats.go`,
+> and neither is written by the current runner. Inserting a session with one of the missing
+> values (e.g. `error` after a fatal agent failure) will violate the CHECK constraint and cause
 > the DB write to fail silently (the runner logs the error and continues). The JSON session
 > file is written first and is unaffected. Fixing the constraint is tracked separately.
 
