@@ -62,6 +62,8 @@ The `--model` flag accepts any valid opencode model string (e.g. `github-copilot
 
 ```bash
 # Interactive TUI wizard — recommended first run
+# Requires staged changes: run `git add <files>` first.
+# To review an existing PR without staging, use: rinse start <pr> --repo owner/repo
 rinse
 
 # Predict what Copilot will comment on — before you open the PR
