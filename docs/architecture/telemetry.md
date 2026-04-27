@@ -7,7 +7,30 @@
 
 ## Session Outcome Values
 
-The `outcome` column on the `sessions` table (and the equivalent field in legacy JSON session files) is written by the runner at the end of every session. All valid values are defined in `internal/stats/stats.go`.
+The `outcome` column on the `sessions` table is written by the runner. There are two distinct
+sets of outcome values in use:
+
+**DB outcomes** — raw string literals written directly by `internal/runner/runner.go` to the
+SQLite telemetry DB. These do not have typed constants in `internal/stats/stats.go`.
+
+**JSON session outcomes** — typed `Outcome` constants from `internal/stats/stats.go`, written
+to the JSON session file under `~/.rinse/sessions/`. These are the canonical outcome set for
+analytics and the TUI.
+
+### DB outcome values (runner.go)
+
+| Value    | Written by                         | Meaning                                                                     |
+| -------- | ---------------------------------- | --------------------------------------------------------------------------- |
+| `open`   | Session insert (`runner.go:201`)   | In-progress sentinel: written on session creation, overwritten at the end.  |
+| `failed` | Error/timeout paths (`runner.go`)  | Runner hit a hard agent error or max-wait-polls timeout.                    |
+
+`open` and `failed` are not defined as `Outcome` constants — they are raw string literals
+written directly by the runner's DB path. A session row that is still `open` after a run
+indicates the runner exited before `FinalizeSession` could write the terminal outcome.
+
+### JSON session outcome values (stats.go)
+
+All values below are defined as typed `Outcome` constants in `internal/stats/stats.go`.
 
 | Value            | Go constant          | Meaning                                                                   |
 | ---------------- | -------------------- | ------------------------------------------------------------------------- |
@@ -20,25 +43,17 @@ The `outcome` column on the `sessions` table (and the equivalent field in legacy
 | `clean`          | `OutcomeClean`       | Dry-run detected no Copilot comments; no fixes were needed.               |
 | `dry_run`        | `OutcomeDryRun`      | Session ran in dry-run mode and exited without pushing any changes.       |
 
-> **Known gap — DB CHECK constraint does not match the full outcome set.**
-> The `sessions` table schema in `internal/db/db.go` contains:
+> **Known gap — DB CHECK constraint does not cover the full outcome set.**
+> The `sessions` table schema in `internal/db/db.go` currently contains (fresh installs after
+> the migration in PR #222):
 > ```sql
-> outcome TEXT CHECK(outcome IN ('merged','closed','open','failed','approved')),
+> outcome TEXT CHECK(outcome IN ('merged','closed','open','failed','approved','error','aborted','max_iterations')),
 > ```
-> This constraint is missing `max_iterations`, `error`, `aborted`, `clean`, and `dry_run`.
-> It also includes two legacy values that predate the current `Outcome` type:
->
-> - **`open`** — written by the old runner as the initial `outcome` value on session insert,
->   before `FinalizeSession` overwrote it with the terminal outcome. Legacy DB rows may still
->   carry `open` for sessions that were interrupted before finalization.
-> - **`failed`** — a legacy error sentinel used before `OutcomeError` (`"error"`) was
->   introduced. No longer written by the current runner; may exist in older DB files.
->
-> Neither `open` nor `failed` is defined as an `Outcome` constant in `internal/stats/stats.go`,
-> and neither is written by the current runner. Inserting a session with one of the missing
-> values (e.g. `error` after a fatal agent failure) will violate the CHECK constraint and cause
-> the DB write to fail silently (the runner logs the error and continues). The JSON session
-> file is written first and is unaffected. Fixing the constraint is tracked separately.
+> This constraint is still missing `clean` and `dry_run`. Existing installs that have not run
+> the migration retain the older five-value constraint and will also reject `error`, `aborted`,
+> and `max_iterations`. Inserting a session with a missing value causes the DB write to fail
+> silently (the runner logs the error and continues). The JSON session file is written first
+> and is unaffected. Fixing the remaining gap (`clean`, `dry_run`) is tracked separately.
 
 ---
 
