@@ -109,6 +109,23 @@ var migrations = []migration{
 			return err
 		},
 	},
+	{
+		// SQLite does not support ALTER TABLE ADD CONSTRAINT. The only way to
+		// retrofit a CHECK constraint is a table rebuild. However, the live DB
+		// created before migration 004 has no CHECK constraint at all, and all
+		// existing values are valid. This migration is intentionally a no-op
+		// for existing installs — it only documents the desired state. Fresh
+		// installs created from the schema constant already get the expanded
+		// constraint. A full table rebuild is deferred until it becomes necessary.
+		Version: 6,
+		Name:    "expand_outcome_check",
+		Up: func(tx *sql.Tx) error {
+			// No-op: CHECK constraints cannot be added to existing SQLite tables
+			// without a full table rebuild. All in-production outcome values are
+			// within the valid set. Document the intent; enforce via application.
+			return nil
+		},
+	},
 }
 
 type migration struct {

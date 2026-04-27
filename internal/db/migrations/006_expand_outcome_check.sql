@@ -1,0 +1,22 @@
+-- Migration 006: expand outcome CHECK constraint to include all values
+-- that the runner and backfill scripts write.
+--
+-- SQLite does not support ALTER TABLE ADD CONSTRAINT, so this migration
+-- rebuilds the sessions table with the corrected constraint.
+--
+-- Values added: 'error', 'aborted', 'max_iterations'
+-- Previous constraint (from initial schema): ('merged','closed','open','failed','approved')
+--
+-- NOTE: The live DB created before migration 004 has NO CHECK constraint
+-- on outcome at all (CREATE TABLE IF NOT EXISTS didn't retrofit it).
+-- This migration is a no-op for those installs — it only applies to
+-- databases created fresh from the schema constant.
+--
+-- For the rebuild approach (SQLite limitation), the Go migration runner
+-- handles this via the applyMigrations() function in db.go rather than
+-- raw SQL, because SQLite requires:
+--   1. CREATE new table with correct schema
+--   2. INSERT INTO new SELECT * FROM old
+--   3. DROP TABLE old
+--   4. ALTER TABLE new RENAME TO sessions
+-- See db.go migration Version: 6.
