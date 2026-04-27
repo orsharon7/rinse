@@ -1214,6 +1214,30 @@ COMMANDS
       1   Max iterations reached without approval
       2   Unexpected error
 
+    NDJSON event stream (--json):
+      Each line is a JSON object with an "event" field. Events in order:
+
+      {"event":"phase","phase":"<name>","iteration":<n>,"timestamp":"..."}
+        Phase names: "applying_fixes", "waiting_for_copilot"
+
+      {"event":"iteration_start","iteration":<n>,"max_iterations":<n>,"timestamp":"..."}
+        Emitted before each agent invocation.
+
+      {"event":"poll","iteration":<n>,"poll_count":<n>,"phase":"<name>","timestamp":"..."}
+        Emitted each time the runner sleeps waiting for a Copilot review.
+
+      {"event":"iteration_complete","iteration":<n>,"comments_addressed":<n>,
+       "total_comments_addressed":<n>,"timestamp":"..."}
+        Emitted after each successful agent iteration.
+
+      {"event":"done","approved":<bool>,"iterations":<n>,"total_comments_addressed":<n>,
+       "elapsed_seconds":<n>,"exit_code":<n>,"timestamp":"...",
+       "remaining_comments":<n>}
+        Final event. "remaining_comments" is omitted when approved.
+
+      {"event":"error","error":"<code>","message":"<detail>","exit_code":2}
+        Emitted on fatal errors (no timestamp — process exits immediately).
+
     Note: --max-iterations and --poll-interval are reserved for a future release.
 
   rinse predict [<pr>] [--repo <owner/repo>] [--json] [--no-log]
