@@ -312,7 +312,7 @@ func loadFromDB() ([]Session, error) {
 			Model:          r.Model,
 			TotalComments:  r.TotalCommentsFixed,
 			Iterations:     r.Iterations,
-			Approved:       r.Outcome == "merged",
+			Approved:       r.Outcome == "merged" || r.Outcome == "approved",
 			RulesExtracted: r.RulesExtracted,
 			Patterns:       r.Patterns,
 		}
