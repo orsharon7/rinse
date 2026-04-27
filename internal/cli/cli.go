@@ -1381,8 +1381,11 @@ FILES
                   — Copilot uses it for every PR in the repo.
 
   ~/.rinse/config.json
-                  Home-dir global config. Stores the stats opt-in flag
-                  ({"stats_opt_in": true/false}) and Pro status ({"pro": true}).
+                  Home-dir global config. Stores:
+                    {"stats_opt_in": true/false}  — stats collection opt-in
+                    {"pro": true}                 — Pro feature enablement
+                    {"doc_drift": true}           — enable --doc-drift without
+                                                    passing the flag each time
                   Written by rinse opt-in, rinse opt-out, and Pro activation.
                   Set RINSE_PRO=1 to enable Pro without editing this file.
 
