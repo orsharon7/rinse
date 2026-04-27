@@ -1291,20 +1291,40 @@ SESSION DATA
 
   Schema:
     {
+      "session_id":     "550e8400-e29b-41d4-a716-446655440000",  // UUID v4
+      "schema_version": 1,                          // omitted on legacy files
       "pr":             "42",
+      "pr_title":       "fix: handle nil pointer in auth",
       "repo":           "owner/repo",
-      "runner_name":    "opencode",               // "opencode" or "claude"
-      "started_at":     "2026-04-18T10:23:01Z",  // RFC 3339
+      "runner":         "opencode",                 // "opencode" or "claude"
+      "model":          "claude-sonnet-4-5",
+      "started_at":     "2026-04-18T10:23:01Z",    // RFC 3339
       "ended_at":       "2026-04-18T10:31:44Z",
+      "outcome":        "approved",                 // approved | merged | closed |
+                                                    // max_iterations | error |
+                                                    // aborted | clean | dry_run
       "approved":       true,
       "iterations":     2,
+      "copilot_comments_by_iteration": [3, 2],      // comment count per iteration
       "total_comments": 7,
-      "comments_by_round": [3, 2],                // optional: comments per iteration
-      "patterns":       ["error_handling", "nil_check"]
+      "estimated_time_saved_seconds": 480,
+      "patterns":       ["error_handling", "nil_check"],
                                            // snake_case labels, classified from Copilot comment text.
                                            // Possible values: error_handling, naming, docs, formatting,
                                            // performance, security, testing, concurrency, nil_check,
                                            // unused_code, imports, complexity, type_safety, logging, other
+      "quality": {                                  // omitted when not computed
+        "comments_before":  3,
+        "comments_after":   0,
+        "category_before":  { "security": 1, "correctness": 2,
+                              "error_handling": 0, "style": 0, "unknown": 0 },
+        "category_after":   { "security": 0, "correctness": 0,
+                              "error_handling": 0, "style": 0, "unknown": 0 },
+        "score_before":     0.42,
+        "score_after":      1.0,
+        "fix_rate_lambda":  0.55,
+        "resolution_rate":  1.0
+      }
     }
 
   rinse stats reads all session files and aggregates them.
