@@ -1272,11 +1272,18 @@ COMMANDS
     JSON output (--json):
       {
         "ok": true,
-        "source": "git-diff",
+        "source": "staged changes",        // "staged changes" or "PR #42 (owner/repo)"
         "predictions": [
-          {"pattern": "Missing error handling", "confidence": 0.87, "file": "main.go", "line": 42}
+          {
+            "pattern":    "Missing error handling",
+            "confidence": 0.87,
+            "file":       "main.go",  // omitted when not applicable
+            "line":       42,          // omitted when not applicable
+            "detail":     "os.WriteFile return value discarded"  // omitted when empty
+          }
         ]
       }
+      {"ok":false,"source":"","predictions":null,"error":"no diff available"}
 
 STATS OPT-IN / OPT-OUT
 
