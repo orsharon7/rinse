@@ -1463,6 +1463,15 @@ EXAMPLES
   # View prediction hit-rate dashboard
   rinse stats --predict
 
+  # View 30-day rolling session stats
+  rinse stats
+
+  # View today's PR review dashboard
+  rinse report
+
+  # Enable session stats collection (required once before rinse stats works)
+  rinse opt-in
+
   # Native Go runner — NDJSON lifecycle events on stdout (CI)
   rinse run 42 --repo owner/repo --json
 
