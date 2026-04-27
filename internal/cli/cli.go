@@ -1295,6 +1295,17 @@ COMMANDS
 
 STATS OPT-IN / OPT-OUT
 
+  Stats collection is opt-in. If you have never set a preference, RINSE will
+  prompt you interactively after your first completed review cycle (TTY only;
+  silently skipped in CI/non-TTY environments):
+
+    RINSE can collect anonymous usage stats to improve the product.
+    Enable stats? [y/N]:
+
+  Answer y to enable or n/Enter to decline. Your choice is saved to
+  ~/.rinse/config.json and never prompted again. You can also set the
+  preference explicitly before running any cycle:
+
   rinse opt-in
 
     Enable session stats collection. Each completed review cycle is saved as a
