@@ -995,7 +995,7 @@ USAGE
 
   rinse              Launch the interactive PR picker (recommended)
   rinse init         Create a per-repo .rinse.json config (guided setup)
-  rinse stats        Show session history and time-saved metrics (30-day rolling)
+  rinse stats        Show session history, aggregate metrics, and recent sessions
   rinse stats --predict  Show prediction hit-rate dashboard (rolling 10-PR + all-time)
   rinse report       Show today's PR review dashboard (approval rate, time saved)
   rinse predict      Scan staged diff or PR for predicted Copilot comments
@@ -1132,19 +1132,24 @@ COMMANDS
 
   rinse stats [--predict]
 
-    Reads session history and prints a 30-day rolling summary:
+    Reads session history from ~/.rinse/sessions/ and prints an aggregate
+    summary plus a table of up to the 10 most recent sessions:
 
-      RINSE Stats (last 30 days)
-      PRs reviewed:     23
-      Comments fixed:   187
-      Avg iterations:   2.1
-      Est. time saved:  ~9.4 hours
-      Approved:         18          // shown only when > 0
+      ● RINSE  session history
 
-      Top patterns:
-        1. error_handling  (41x)
-        2. nil_check       (28x)
-        3. naming          (19x)
+      Total sessions          23
+      Approved                18 / 23
+      Comments fixed          187
+      Time saved              ~94 min
+      Iterations              49
+
+      Recent sessions
+
+        ✓  2026-04-18  PR #42    7 comments  ~4 min
+        ○  2026-04-17  PR #38   12 comments  ~18 min
+        ✓  2026-04-16  PR #35    3 comments  ~2 min
+
+    ✓ = Copilot approved   ○ = not yet approved
 
     --predict   Show prediction hit-rate dashboard instead of the standard
                 summary. Correlates rinse predict runs with actual session
@@ -1419,7 +1424,7 @@ SESSION DATA
     clean          Dry-run detected no Copilot comments; no fixes needed.
     dry_run        Session ran in dry-run mode; no changes pushed.
 
-  rinse stats reads all session files and aggregates them.
+  rinse stats reads all session files from ~/.rinse/sessions/ and aggregates them.
 
   rinse stats --predict
     Shows prediction accuracy over time by correlating predict_generated events
@@ -1532,7 +1537,7 @@ EXAMPLES
   # View prediction hit-rate dashboard
   rinse stats --predict
 
-  # View 30-day rolling session stats
+  # View session history and aggregate metrics
   rinse stats
 
   # View today's PR review dashboard
