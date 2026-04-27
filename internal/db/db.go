@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   estimated_time_saved_seconds  INTEGER,
   iterations                    INTEGER DEFAULT 0,
   total_comments_fixed          INTEGER DEFAULT 0,
-  outcome TEXT CHECK(outcome IN ('merged','closed','open','failed','approved','error','aborted','max_iterations')),
+  outcome TEXT CHECK(outcome IN ('merged','closed','open','failed','approved','error','aborted','max_iterations','clean','dry_run')),
   rules_extracted               INTEGER DEFAULT 0,
   created_at                    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -146,6 +146,17 @@ var migrations = []migration{
 			_, err = tx.Exec(`ALTER TABLE sessions ADD COLUMN rules_extracted INTEGER DEFAULT 0`)
 			return err
 		},
+	},
+	{
+		// Version 8: expand_outcome_check_clean_dryrun — no-op migration.
+		// The schema constant CHECK constraint is extended to include 'clean' and
+		// 'dry_run' so fresh installs accept all outcome values defined in
+		// internal/stats/stats.go. Existing installs are unaffected (no CHECK on
+		// live DB). The runner does not yet write these values to the DB directly,
+		// but this ensures the schema is permissive for future write paths.
+		Version: 8,
+		Name:    "expand_outcome_check_clean_dryrun",
+		Up:      func(tx *sql.Tx) error { return nil },
 	},
 }
 

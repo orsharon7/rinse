@@ -1,0 +1,18 @@
+-- Migration 008: expand_outcome_check_clean_dryrun (no-op for existing installs)
+--
+-- Extends the schema constant CHECK constraint to include 'clean' and 'dry_run',
+-- completing coverage of all outcome values defined in internal/stats/stats.go:
+--
+--   'merged', 'closed', 'open', 'failed', 'approved',
+--   'error', 'aborted', 'max_iterations', 'clean', 'dry_run'
+--
+-- Existing installs have no CHECK constraint on the live DB because
+-- CREATE TABLE IF NOT EXISTS cannot retrofit constraints on existing tables.
+-- This migration is recorded in schema_migrations to document the intent.
+--
+-- The runner does not currently write 'clean' or 'dry_run' to the DB directly
+-- (only to JSON session files). This constraint expansion ensures fresh installs
+-- are permissive for future write-path changes.
+--
+-- No DDL change is needed; the schema constant is authoritative for new installs.
+SELECT 1; -- no-op
