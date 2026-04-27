@@ -1154,7 +1154,7 @@ COMMANDS
     --predict   Show prediction hit-rate dashboard instead of the standard
                 summary. Correlates rinse predict runs with actual session
                 outcomes over the last 10 PRs and all time. Pro users see
-                the full session table; Free users see the last 3 sessions.
+                the last 5 sessions; Free users see the last 3 sessions.
                 See SESSION DATA section for hit-rate calculation details.
 
   rinse report
@@ -1399,6 +1399,7 @@ SESSION DATA
       "total_comments":  7,
       "estimated_time_saved_seconds": 420,
       "copilot_comments_by_iteration": [5, 2],    // optional: comments per iteration
+      "rules_extracted":  3,                       // optional: coding rules committed by --reflect
       "patterns":        ["error_handling", "nil_check"],
                                            // snake_case labels, classified from Copilot comment text.
                                            // Possible values: error_handling, naming, docs, formatting,
@@ -1436,7 +1437,7 @@ SESSION DATA
       • Gate to auto-fix          — 85% threshold for unlocking auto-fix mode
       • Recent sessions table    — per-session breakdown (last 5 / last 3 for Free)
 
-    Pro users see the full session table. Free users see 3 sessions + an upgrade
+    Pro users see the last 5 sessions. Free users see 3 sessions + an upgrade
     teaser. Upgrade at rinse.sh/#pro.
 
     Hit rate is computed by matching predict_generated events to the session
@@ -1492,6 +1493,8 @@ FILES
                       "last_repo": "owner/repo",
                       "repos": {
                         "owner/repo": {
+                          "path":           "/path/to/checkout",
+                          "runner":         0,
                           "model":          "",
                           "reflect":        false,
                           "reflect_branch": "main",
@@ -1500,6 +1503,10 @@ FILES
                         }
                       }
                     }
+                  Field notes:
+                    path     Local checkout directory for this repo.
+                    runner   Runner index: 0 = opencode, 1 = claude.
+                    model    Empty string means the runner's default model.
 
 EXAMPLES
 
