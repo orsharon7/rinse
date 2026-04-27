@@ -1368,11 +1368,24 @@ ENVIRONMENT VARIABLES
 
 REQUIREMENTS
 
-  gh v2.88+   GitHub CLI — used by all runners
-  opencode    Required for the opencode runner
-  claude      Required for the claude runner
-  jq          Required by shell scripts
-  git         Required by the reflection agent
+  Required (checked at startup — RINSE will not run without these):
+
+  git         Git — used for repository detection, branch tracking, and the
+              reflection agent. Install: https://git-scm.com/downloads
+  gh v2.88+   GitHub CLI — PR listing, review polling, merge operations.
+              Install: https://cli.github.com
+
+  Runner dependencies (only needed when using that runner):
+
+  opencode    Required for the opencode runner (default). Used by rinse start
+              and rinse run. Install: https://opencode.ai
+  claude      Required for the claude runner. Used by rinse start --runner claude.
+              Install: https://claude.ai/code
+
+  Shell script dependency (rinse start only, not needed by rinse run):
+
+  jq          Required by the shell scripts invoked by rinse start.
+              Not needed when using rinse run (native Go runner).
 
 SESSION DATA
 
