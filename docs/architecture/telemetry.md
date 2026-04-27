@@ -5,6 +5,35 @@
 
 ---
 
+## Session Outcome Values
+
+The `outcome` column on the `sessions` table (and the equivalent field in legacy JSON session files) is written by the runner at the end of every session. All valid values are defined in `internal/stats/stats.go`.
+
+| Value            | Go constant          | Meaning                                                                   |
+| ---------------- | -------------------- | ------------------------------------------------------------------------- |
+| `approved`       | `OutcomeApproved`    | Copilot approved the PR.                                                  |
+| `merged`         | `OutcomeMerged`      | PR was merged (Copilot-approved or already merged when RINSE started).    |
+| `closed`         | `OutcomeClosed`      | PR was closed without merging.                                            |
+| `max_iterations` | `OutcomeMaxIter`     | Loop exited because the iteration cap was reached without approval.       |
+| `error`          | `OutcomeError`       | Runner encountered a fatal error (agent failure, network issue, etc.).    |
+| `aborted`        | `OutcomeAborted`     | User interrupted the session (SIGINT / `rinse stop`).                     |
+| `clean`          | `OutcomeClean`       | Dry-run detected no Copilot comments; no fixes were needed.               |
+| `dry_run`        | `OutcomeDryRun`      | Session ran in dry-run mode and exited without pushing any changes.       |
+
+> **Known gap — DB CHECK constraint does not match the full outcome set.**
+> The `sessions` table schema in `internal/db/db.go` contains:
+> ```sql
+> outcome TEXT CHECK(outcome IN ('merged','closed','open','failed','approved')),
+> ```
+> This constraint is missing `max_iterations`, `error`, `aborted`, `clean`, and `dry_run`.
+> It also includes `open` and `failed`, which are not defined as `Outcome` constants and are
+> never written by the current runner. Inserting a session with one of the missing values
+> (e.g. `error` after a fatal agent failure) will violate the CHECK constraint and cause
+> the DB write to fail silently (the runner logs the error and continues). The JSON session
+> file is written first and is unaffected. Fixing the constraint is tracked separately.
+
+---
+
 ## Phase 1: Local SQLite Schema (Proposed)
 
 > **Not yet implemented.** RINSE currently stores session history as JSON files under `~/.rinse/sessions/`. There is no SQLite database in the current codebase. The schema below is a proposal for future structured persistence.
