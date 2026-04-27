@@ -87,7 +87,55 @@ func TestRulesExtractedRoundTrip(t *testing.T) {
 	}
 }
 
-// TestOutcomeCleanDryRunAllowed verifies migration 008: clean and dry_run
+// TestSetRulesExtracted verifies the targeted update helper used by the TUI monitor.
+func TestSetRulesExtracted(t *testing.T) {
+	tmp, err := os.CreateTemp("", "rinse-test-*.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp.Close()
+	defer os.Remove(tmp.Name())
+
+	d, err := Open(tmp.Name())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer d.Close()
+
+	s := SessionRow{
+		ID: "test-001", Repo: "test/repo", PRNumber: 1,
+		StartedAt: time.Now(),
+	}
+	if err := d.InsertSession(s); err != nil {
+		t.Fatalf("InsertSession: %v", err)
+	}
+
+	// Initially 0
+	rows, _ := d.LoadSessions()
+	if rows[0].RulesExtracted != 0 {
+		t.Fatalf("want 0 initially, got %d", rows[0].RulesExtracted)
+	}
+
+	// Set to 4
+	if err := d.SetRulesExtracted("test-001", 4); err != nil {
+		t.Fatalf("SetRulesExtracted: %v", err)
+	}
+
+	rows, _ = d.LoadSessions()
+	if rows[0].RulesExtracted != 4 {
+		t.Fatalf("want 4 after set, got %d", rows[0].RulesExtracted)
+	}
+
+	// No-op when count=0
+	if err := d.SetRulesExtracted("test-001", 0); err != nil {
+		t.Fatalf("SetRulesExtracted(0): %v", err)
+	}
+	rows, _ = d.LoadSessions()
+	if rows[0].RulesExtracted != 4 {
+		t.Fatalf("want 4 unchanged after no-op, got %d", rows[0].RulesExtracted)
+	}
+}
+
 // are accepted by a fresh install's CHECK constraint.
 func TestOutcomeCleanDryRunAllowed(t *testing.T) {
 	tmp, err := os.CreateTemp("", "rinse-test-*.db")

@@ -1689,12 +1689,17 @@ func RunMonitor(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge,
 				fmt.Fprintf(os.Stderr, "rinse: could not save session: %v\n", saveErr)
 			}
 			// Persist patterns to telemetry DB (best-effort, non-fatal).
-			if len(patterns) > 0 {
+			if len(patterns) > 0 || mm.rulesExtracted > 0 {
 				if tdb, dbErr := db.OpenDefault(); dbErr == nil {
 					prNum := 0
 					fmt.Sscanf(mm.pr, "%d", &prNum)
 					if sid, _ := tdb.FindSessionID(mm.repo, prNum); sid != "" {
-						_ = tdb.SavePatterns(sid, patterns)
+						if len(patterns) > 0 {
+							_ = tdb.SavePatterns(sid, patterns)
+						}
+						if mm.rulesExtracted > 0 {
+							_ = tdb.SetRulesExtracted(sid, mm.rulesExtracted)
+						}
 					}
 					tdb.Close()
 				}

@@ -150,6 +150,24 @@ func (d *DB) SavePatterns(sessionID string, patterns []string) error {
 	return nil
 }
 
+// SetRulesExtracted updates only the rules_extracted field for an existing session.
+// This is used by the TUI monitor after the reflect agent runs, without
+// overwriting other terminal fields (outcome, duration, etc.).
+// Non-fatal: if d is nil or count is 0 the call is a no-op.
+func (d *DB) SetRulesExtracted(id string, count int) error {
+	if d == nil || count == 0 {
+		return nil
+	}
+	_, err := d.sql.Exec(
+		`UPDATE sessions SET rules_extracted = ? WHERE id = ?`,
+		count, id,
+	)
+	if err != nil {
+		return fmt.Errorf("db: set rules_extracted session=%s: %w", id, err)
+	}
+	return nil
+}
+
 // FinalizeSession updates the session row with completion data.
 // This is a convenience wrapper over UpdateSession for the runner's fire-and-forget path.
 func (d *DB) FinalizeSession(id string, completedAt time.Time, durationSec, commentCount, iterations int, outcome string) error {
