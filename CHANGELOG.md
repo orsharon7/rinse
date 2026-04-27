@@ -39,7 +39,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`rinse predict --doc-drift` (Pro)** — uses the Copilot API (≤10 calls/run) to detect stale godoc, missing godoc on exported symbols, and README examples referencing outdated APIs.
 - **`rinse stats --predict`** — prediction hit-rate dashboard: rolling 10-PR accuracy, all-time accuracy, 85% gate for auto-fix mode, and a per-session breakdown (last 5 sessions for Pro, last 3 for Free).
 - **`rules_extracted` in session stats** — when the reflection agent extracts new rules from a cycle, the count is surfaced in `rinse stats` output and persisted to `~/.rinse/rinse.db`.
-- **Monitor TUI keyboard shortcuts** — during an active review cycle, press `h`/`?` to toggle a help overlay showing all live controls: `t` toggle timestamps, `s` save log, `S` save full log, `g`/`G` jump to top/bottom, `Ctrl+C` abort.
+- **Monitor TUI keyboard shortcuts** — during an active review cycle, press `?` to toggle the help overlay. Keys: `h` toggle iteration history, `t` timing tooltip, `s` save reflect log, `S` save full session log, `g`/`G` jump to top/bottom, `Ctrl+C` abort.
 - **Empty staged-changes guard** — `rinse` (no PR number) now exits `0` with an actionable hint (`git add <files>  or  git add -p`) when nothing is staged. Safe for pre-commit hooks and shell aliases.
 - **`.rinseignore` auto-reply** — when a Copilot comment targets a file excluded by `.rinseignore`, RINSE automatically posts a reply explaining the skip so reviewers know why it wasn't auto-fixed.
 - **`RINSE_PRO` env var** — set to `1` to enable Pro features (`--interactive`, `--doc-drift`) without a config file. Useful for CI.
