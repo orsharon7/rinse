@@ -85,13 +85,34 @@ CREATE INDEX idx_patterns_session       ON patterns(session_id);
 
 ### Outcome values
 
-| Value | Meaning |
-|-------|---------|
-| `open` | session in progress (initial insert) |
-| `approved` | Copilot approved the PR |
-| `closed` | PR was closed without approval |
-| `merged` | PR was merged (legacy, from pre-runner sessions) |
-| `failed` | runner error or max iterations reached |
+**DB (SQLite CHECK constraint on `sessions.outcome`)** — these are the only values the
+runner ever writes to SQLite:
+
+| Value | Set by | Meaning |
+|-------|--------|---------|
+| `open` | `db.InsertSession` | session in progress (initial insert) |
+| `approved` | `db.FinalizeSession` | Copilot approved the PR |
+| `failed` | `db.FinalizeSession` | runner error **or** max iterations reached |
+| `closed` | `db.FinalizeSession` | PR was closed without approval |
+| `merged` | legacy path | PR was merged (pre-runner JSON sessions backfilled into DB) |
+
+**`stats.go` in-memory constants** (`internal/stats/stats.go`) — used for JSON session
+files (`~/.rinse/sessions/*.json`) and as typed aliases when reading sessions.  These
+constants extend the vocabulary beyond the DB CHECK set:
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `OutcomeApproved` | `"approved"` | Copilot approved |
+| `OutcomeMerged` | `"merged"` | PR merged (legacy) |
+| `OutcomeClosed` | `"closed"` | PR closed without approval |
+| `OutcomeMaxIter` | `"max_iterations"` | hit iteration cap (JSON sessions only) |
+| `OutcomeError` | `"error"` | runner error (JSON sessions only) |
+| `OutcomeAborted` | `"aborted"` | run aborted by user (JSON sessions only) |
+
+> **Note:** `"max_iterations"`, `"error"`, and `"aborted"` are **not** in the DB CHECK
+> constraint. Fresh runner sessions map both errors and max-iterations to `"failed"` in
+> SQLite. The richer constants exist for legacy JSON session compatibility and future
+> per-cause reporting (see Known Gaps below).
 
 ### Migration versioning
 
@@ -233,4 +254,5 @@ add as migration 006 when sync is being implemented).
 | # | Gap | Resolution |
 |---|-----|------------|
 | Live DB has no `outcome` CHECK constraint | `CREATE TABLE IF NOT EXISTS` can't retrofit constraints; fresh installs get it | Acceptable — runner only writes valid values |
+| DB CHECK constraint vs runner outcome vocabulary mismatch | DB allows `('merged','closed','open','failed','approved')`; runner writes only `"failed"` for both errors and max-iterations; `stats.go` defines richer constants (`"error"`, `"aborted"`, `"max_iterations"`) not in the constraint — these are JSON-session-only values | Add `"error"`, `"aborted"`, `"max_iterations"` to DB CHECK and differentiate in `FinalizeSession` call sites when per-cause reporting is needed |
 | `synced_at` column missing | Needed for Phase 2 sync tracking | Add as migration 006 when sync ships |
