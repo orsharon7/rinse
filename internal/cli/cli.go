@@ -1350,27 +1350,50 @@ SESSION DATA
   Each run is saved as a JSON file in ~/.rinse/sessions/. No data leaves
   your machine. Use these files to build dashboards or custom reports.
 
-  File naming: <repo_underscored>-pr<number>-<timestamp>-<nanoseconds>.json
-  Example:     orsharon7_rinse-pr42-20260418-102301-000000000.json
+  File naming: <timestamp>-<nanoseconds>-<repo-slug>-PR<number>.json
+  Example:     20260418-102301-000000000-orsharon7-rinse-PR42.json
 
   Schema:
     {
-      "pr":             "42",
-      "repo":           "owner/repo",
-      "runner_name":    "opencode",               // "opencode" or "claude"
-      "started_at":     "2026-04-18T10:23:01Z",  // RFC 3339
-      "ended_at":       "2026-04-18T10:31:44Z",
-      "approved":       true,
-      "iterations":     2,
-      "total_comments": 7,
-      "rules_extracted": 3,                       // optional: new coding rules committed by --reflect
-      "comments_by_round": [3, 2],                // optional: comments per iteration
-      "patterns":       ["error_handling", "nil_check"]
+      "session_id":      "550e8400-e29b-41d4-a716-446655440000",  // UUID
+      "schema_version":  1,
+      "pr":              "42",
+      "pr_title":        "Fix nil pointer in handler",            // optional
+      "repo":            "owner/repo",
+      "runner":          "opencode",               // "opencode" or "claude"
+      "model":           "github-copilot/claude-sonnet-4.6",     // optional
+      "started_at":      "2026-04-18T10:23:01Z",  // RFC 3339
+      "ended_at":        "2026-04-18T10:31:44Z",
+      "outcome":         "approved",               // see outcome values below
+      "approved":        true,
+      "iterations":      2,
+      "total_comments":  7,
+      "estimated_time_saved_seconds": 420,
+      "copilot_comments_by_iteration": [5, 2],    // optional: comments per iteration
+      "patterns":        ["error_handling", "nil_check"],
                                            // snake_case labels, classified from Copilot comment text.
                                            // Possible values: error_handling, naming, docs, formatting,
                                            // performance, security, testing, concurrency, nil_check,
                                            // unused_code, imports, complexity, type_safety, logging, other
+      "quality": {                         // optional: populated when quality metrics are available
+        "comments_before":  5,
+        "comments_after":   0,
+        "score_before":     0.42,
+        "score_after":      1.0,
+        "resolution_rate":  1.0,
+        "fix_rate_lambda":  0.85
+      }
     }
+
+  Outcome values (the "outcome" field):
+    approved       Copilot approved the PR.
+    merged         PR was merged (Copilot-approved or already merged at start).
+    closed         PR was closed without merging.
+    max_iterations Loop exited because the iteration cap was reached.
+    error          Runner encountered a fatal error.
+    aborted        User interrupted the session (SIGINT).
+    clean          Dry-run detected no Copilot comments; no fixes needed.
+    dry_run        Session ran in dry-run mode; no changes pushed.
 
   rinse stats reads all session files and aggregates them.
 
