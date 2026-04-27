@@ -1149,7 +1149,7 @@ COMMANDS
     --predict   Show prediction hit-rate dashboard instead of the standard
                 summary. Correlates rinse predict runs with actual session
                 outcomes over the last 10 PRs and all time. Pro users see
-                the full session table; Free users see the last 3 sessions.
+                the last 5 sessions; Free users see the last 3 sessions.
                 See SESSION DATA section for hit-rate calculation details.
 
   rinse report
@@ -1431,7 +1431,7 @@ SESSION DATA
       • Gate to auto-fix          — 85% threshold for unlocking auto-fix mode
       • Recent sessions table    — per-session breakdown (last 5 / last 3 for Free)
 
-    Pro users see the full session table. Free users see 3 sessions + an upgrade
+    Pro users see the last 5 sessions. Free users see 3 sessions + an upgrade
     teaser. Upgrade at rinse.sh/#pro.
 
     Hit rate is computed by matching predict_generated events to the session
