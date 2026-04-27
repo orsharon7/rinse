@@ -1355,6 +1355,7 @@ SESSION DATA
       "approved":       true,
       "iterations":     2,
       "total_comments": 7,
+      "rules_extracted": 3,                       // optional: new coding rules committed by --reflect
       "comments_by_round": [3, 2],                // optional: comments per iteration
       "patterns":       ["error_handling", "nil_check"]
                                            // snake_case labels, classified from Copilot comment text.
