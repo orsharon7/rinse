@@ -1119,6 +1119,7 @@ COMMANDS
       Comments fixed:   187
       Avg iterations:   2.1
       Est. time saved:  ~9.4 hours
+      Approved:         18         (only shown when > 0)
 
       Top patterns:
         1. error_handling  (41x)
