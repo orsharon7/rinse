@@ -71,6 +71,7 @@ rinse predict
 rinse init
 
 # Show session history and time-saved metrics (30-day rolling)
+# Requires opt-in: run `rinse opt-in` once to enable stats collection
 rinse stats
 
 # Show today's PR review dashboard (approval rate, timing)
@@ -111,6 +112,9 @@ rinse stats        # show session history and time-saved metrics (30-day)
 rinse report       # show today's PR review dashboard (approval rate, timing)
 rinse status <pr>  # print Copilot review status (agent/CI use)
 rinse start <pr>   # start review loop non-interactively (no TTY)
+rinse run <pr>     # native Go runner — NDJSON lifecycle events (CI)
+rinse opt-in       # enable session stats collection (required for stats/report)
+rinse opt-out      # disable session stats collection
 rinse --version    # print installed version
 rinse --help       # show full help
 ```
