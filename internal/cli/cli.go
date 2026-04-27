@@ -1016,6 +1016,13 @@ QUICK START
   RINSE auto-detects your repository and lists open PRs. Press Enter to
   launch the review cycle on the selected PR.
 
+  Requires staged changes: if nothing is staged when you run rinse without
+  a PR number, RINSE exits with an actionable hint:
+    ◇  Nothing staged.
+       Stage your changes first:
+       git add <files>  or  git add -p
+  This guard is skipped when you pass a PR number (e.g. rinse start 42).
+
 FIRST RUN
 
   The very first time you run rinse, it checks prerequisites and then
