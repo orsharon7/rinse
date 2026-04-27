@@ -85,15 +85,30 @@ CREATE INDEX idx_patterns_session       ON patterns(session_id);
 
 ### Outcome values
 
+The `outcome` column is written by two sources with different value sets:
+
+**Runner-written values** (via `db.FinalizeSession`):
+
 | Value | Meaning |
 |-------|---------|
-| `open` | session in progress (initial insert) |
+| `open` | session in progress (initial insert only) |
 | `approved` | Copilot approved the PR |
-| `closed` | PR was closed without approval |
-| `merged` | PR was merged (legacy, from pre-runner sessions) |
-| `failed` | runner error or max iterations reached |
+| `failed` | any error, max iterations reached, or aborted — runner always writes `"failed"` for all non-approved terminal states |
 
-### Migration versioning
+**Backfill-script-written values** (historic sessions inserted via `scripts/backfill-sessions.py` / `.sh`):
+
+| Value | Meaning |
+|-------|---------|
+| `merged` | PR was merged (detected from log output) |
+| `closed` | PR was closed without merge |
+| `approved` | Copilot approved (same as runner value) |
+| `max_iterations` | max iterations reached |
+| `error` | runner error |
+| `aborted` | run aborted |
+
+> **Note:** The stats in-memory layer (`internal/stats/stats.go`) uses richer `Outcome` constants (`OutcomeError`, `OutcomeAborted`, `OutcomeMaxIter`) loaded from JSON session files. These do not map 1:1 to DB `outcome` values — the DB value is always one of the runner-written set for live runs.
+
+`session.Approved` is derived from `outcome IN ('approved', 'merged')`.
 
 Migrations are tracked in `schema_migrations`. `db.Open()` calls `applyMigrations()`
 on every open — each migration runs at most once per install.
@@ -233,4 +248,5 @@ add as migration 006 when sync is being implemented).
 | # | Gap | Resolution |
 |---|-----|------------|
 | Live DB has no `outcome` CHECK constraint | `CREATE TABLE IF NOT EXISTS` can't retrofit constraints; fresh installs get it | Acceptable — runner only writes valid values |
-| `synced_at` column missing | Needed for Phase 2 sync tracking | Add as migration 006 when sync ships |
+| `outcome` CHECK constraint on fresh installs only lists `('merged','closed','open','failed','approved')` | Backfill scripts write `'error'`, `'aborted'`, `'max_iterations'` which would violate this constraint | Expand or drop the CHECK constraint in a future migration (migration 006) |
+| `synced_at` column missing | Needed for Phase 2 sync tracking | Add as migration 007 when sync ships |
