@@ -1487,6 +1487,8 @@ FILES
                       "last_repo": "owner/repo",
                       "repos": {
                         "owner/repo": {
+                          "path":           "/path/to/checkout",
+                          "runner":         0,
                           "model":          "",
                           "reflect":        false,
                           "reflect_branch": "main",
@@ -1495,6 +1497,10 @@ FILES
                         }
                       }
                     }
+                  Field notes:
+                    path     Local checkout directory for this repo.
+                    runner   Runner index: 0 = opencode, 1 = claude.
+                    model    Empty string means the runner's default model.
 
 EXAMPLES
 
