@@ -1053,6 +1053,8 @@ FIRST RUN
 
 INTERACTIVE CONTROLS
 
+  PR picker (the list of open PRs):
+
   ↑ ↓ / j k    Navigate the PR list
   Enter         Launch review cycle on the selected PR
   g / G         Jump to top / bottom of list
@@ -1061,6 +1063,17 @@ INTERACTIVE CONTROLS
   r             Refresh PR list from GitHub
   ?             Toggle keyboard shortcuts overlay
   q / Ctrl+C    Quit
+
+  Monitor (during an active review cycle):
+
+  ↑ ↓ / j k    Scroll the live log
+  g / G         Jump to top / bottom of log
+  h             Toggle iteration history panel
+  t             Show/hide timing tooltip
+  s             Save reflect log to rinse-reflect-<timestamp>.txt
+  S             Save full session log to rinse-log-<timestamp>.txt
+  ?             Toggle monitor shortcuts overlay
+  Ctrl+C        Quit RINSE (terminates the runner)
 
 SETTINGS  (press s inside the PR picker)
 
