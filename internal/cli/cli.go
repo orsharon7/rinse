@@ -1286,6 +1286,12 @@ ENVIRONMENT VARIABLES
   VISUAL                Editor used by the e key in rinse predict --interactive.
                         Detection order: $VISUAL → $EDITOR → vi.
   EDITOR                Fallback editor when $VISUAL is not set.
+  RINSE_COPILOT_TOKEN   Override the Copilot auth token used by --doc-drift.
+                        Normally obtained via "gh auth token". Set this in CI
+                        environments where gh is not authenticated.
+  RINSE_STATS_OPTIN     Force stats opt-in (1 or true) or opt-out (0 or false)
+                        without modifying ~/.rinse/config.json. Useful in CI
+                        pipelines and test environments.
 
 REQUIREMENTS
 
