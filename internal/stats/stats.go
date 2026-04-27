@@ -311,7 +311,7 @@ func loadFromDB() ([]Session, error) {
 			Model:         r.Model,
 			TotalComments: r.TotalCommentsFixed,
 			Iterations:    r.Iterations,
-			Approved:      r.Outcome == "merged",
+			Approved:      r.Outcome == "merged" || r.Outcome == "approved",
 			Patterns:      r.Patterns,
 		}
 		if r.CompletedAt != nil {
