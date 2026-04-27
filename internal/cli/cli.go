@@ -1283,6 +1283,7 @@ ENVIRONMENT VARIABLES
                         Set this when running a non-standard backend.
   NO_COLOR              When set to any non-empty value, RINSE disables all
                         ANSI colour output. Follows the no-color.org standard.
+                        TERM=dumb has the same effect.
   VISUAL                Editor used by the e key in rinse predict --interactive.
                         Detection order: $VISUAL → $EDITOR → vi.
   EDITOR                Fallback editor when $VISUAL is not set.
@@ -1292,6 +1293,10 @@ ENVIRONMENT VARIABLES
   RINSE_STATS_OPTIN     Force stats opt-in (1 or true) or opt-out (0 or false)
                         without modifying ~/.rinse/config.json. Useful in CI
                         pipelines and test environments.
+  RINSE_SESSIONS_DIR    Override the directory where session JSON files are
+                        written and read. Default: ~/.rinse/sessions/.
+                        Useful in CI environments or when redirecting session
+                        storage to a shared path.
 
 REQUIREMENTS
 
