@@ -33,6 +33,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`.github/copilot-instructions.md`** — Copilot review instructions tuned for RINSE: focus on bugs, error handling, security, races; skip style/formatting.
 - **ROADMAP.md** — phase-by-phase product plan.
 - **GitHub Actions hardening** — bot filter, author-association check, job-level concurrency, and timeout on the PR review workflow.
+- **`rinse run`** — native Go runner that emits structured NDJSON lifecycle events (`phase`, `iteration_start`, `poll`, `iteration_complete`, `done`, `error`) to stdout. Preferred for CI pipelines. Auto-switches to JSON mode when stdout is not a TTY. Exit codes: `0` approved, `1` max iterations, `2` error.
+- **`rinse predict`** — scans staged changes or a PR diff for patterns likely to trigger Copilot review comments before you push. Outputs predictions with confidence scores. Supports `--json`, `--no-log`, `--interactive` (Pro TUI review loop), and `--doc-drift` (Pro LLM-backed documentation drift detection).
+- **`rinse predict --interactive` (Pro)** — Bubble Tea TUI that steps through predictions one at a time. Keys: `y` apply, `n`/`space` skip, `e` open in `$EDITOR`, `←/→` navigate, `q` quit.
+- **`rinse predict --doc-drift` (Pro)** — uses the Copilot API (≤10 calls/run) to detect stale godoc, missing godoc on exported symbols, and README examples referencing outdated APIs.
+- **`rinse stats --predict`** — prediction hit-rate dashboard: rolling 10-PR accuracy, all-time accuracy, 85% gate for auto-fix mode, and a per-session breakdown (last 5 sessions for Pro, last 3 for Free).
+- **`rules_extracted` in session stats** — when the reflection agent extracts new rules from a cycle, the count is surfaced in `rinse stats` output and persisted to `~/.rinse/rinse.db`.
+- **Monitor TUI keyboard shortcuts** — during an active review cycle, press `?` to toggle the help overlay. Keys: `h` toggle iteration history, `t` timing tooltip, `s` save reflect log, `S` save full session log, `g`/`G` jump to top/bottom, `Ctrl+C` abort.
+- **Empty staged-changes guard** — `rinse` (no PR number) now exits `0` with an actionable hint (`git add <files>  or  git add -p`) when nothing is staged. Safe for pre-commit hooks and shell aliases.
+- **`.rinseignore` auto-reply** — when a Copilot comment targets a file excluded by `.rinseignore`, RINSE automatically posts a reply explaining the skip so reviewers know why it wasn't auto-fixed.
+- **`RINSE_PRO` env var** — set to `1` to enable Pro features (`--interactive`, `--doc-drift`) without a config file. Useful for CI.
+- **`RINSE_SESSIONS_DIR` env var** — override where session JSON files are written and read (default: `~/.rinse/sessions/`). Useful in CI or when redirecting to shared storage.
+- **`RINSE_STATS_OPTIN` env var** — force stats opt-in (`1`/`true`) or opt-out (`0`/`false`) without modifying `~/.rinse/config.json`. Useful in ephemeral CI environments.
+- **`RINSE_COPILOT_TOKEN` env var** — override the Copilot auth token used by `--doc-drift`. For CI environments where `gh` is not authenticated.
+- **`RINSE_API_URL` env var** — override the pro backend URL used by the first-run onboarding wizard (default: `http://localhost:7433`).
 
 ### Changed
 
@@ -44,6 +58,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **First-run wizard copy**: welcome screen leads with value proposition; "review session" renamed to "cycle" throughout for consistency; Step C toggle labels rewritten with concrete, specific language; Step E completion screen orients the user to the PR picker.
 - **CONTRIBUTING.md label system section**: added two-tier rationale (RINSE-managed vs human-applied) and a warning not to manually remove `rinse:running` during an active cycle.
 - **`--help` env vars section**: removed `RINSE_WEBHOOK_URL` (not implemented in Go); added `NO_COLOR`; added FILES section documenting `.rinse.json` and `.rinseignore`; documented `--pr` flag alias on `rinse status`.
+- **`rinse stats` description**: corrected from "30-day rolling summary" to "all-sessions aggregate" — `session.PrintStats()` shows all historical data, not a 30-day window.
+- **README CI section**: added "Environment variables for CI" reference table (`RINSE_STATS_OPTIN`, `RINSE_SESSIONS_DIR`, `RINSE_SCRIPT_DIR`, `RINSE_API_URL`, `RINSE_PRO`, `RINSE_COPILOT_TOKEN`).
 
 ### Fixed
 
@@ -54,6 +70,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **LICENSE badge**: README badge corrected from MIT to BSL 1.1.
 - **Stale log path in README**: clarified that shell script logs go to `~/.pr-review/logs/` and Go binary session data goes to `~/.rinse/sessions/`.
 - **`isProcessAlive` on Unix and Windows**: fixed platform-specific lock correctness.
+- **`rinse stats` sample output**: was showing output from `stats.Print()` (wrong function); corrected to match `session.PrintStats()` which is the function actually called by `rinse stats`. Removed three stale "30-day rolling" references.
+- **`rinse stats --predict` Pro table size**: was documented as "full session table"; corrected to "last 5 sessions (Pro) / last 3 (Free)".
+- **REQUIREMENTS section**: clarified hard requirements (git + gh only) vs runner-specific (opencode/claude) vs shell-script-only (jq). Fixed incorrect claim that jq was a hard requirement.
+- **Platform config.json format**: added missing `path` and `runner` fields to the per-repo config schema documented in FILES.
 
 ---
 
