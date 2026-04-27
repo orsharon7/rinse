@@ -1031,7 +1031,7 @@ FIRST RUN
        ● Splash screen with the RINSE wordmark.
        ● Welcome — choose "Get started" or "Skip setup — take me straight in".
        ● Step A — Overview of how the review loop works.
-       ● Step B — Name your first session (e.g. "Frontend refactor").
+        ● Step B — Name your first cycle (e.g. "Frontend refactor").
        ● Step C — Toggle three preferences (notifications, auto-advance,
                   save history). Sensible defaults are pre-selected.
        ● Step D — Preview your settings; press Enter to start your first cycle.
