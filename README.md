@@ -72,7 +72,7 @@ rinse predict
 # Create a per-repo config (.rinse.json) for shared team settings
 rinse init
 
-# Show session history and time-saved metrics (30-day rolling)
+# Show session history, aggregate metrics, and recent sessions table
 # Requires opt-in: run `rinse opt-in` once to enable stats collection
 rinse stats
 
@@ -110,7 +110,7 @@ The interactive TUI walks you through setup — pick a PR, configure the runner,
 rinse              # launch interactive TUI (PR picker)
 rinse predict      # predict Copilot comments before you push
 rinse init         # scaffold a per-repo .rinse.json config (guided setup)
-rinse stats        # show session history and time-saved metrics (30-day)
+rinse stats        # show session history, aggregate metrics, and recent sessions
 rinse report       # show today's PR review dashboard (approval rate, timing)
 rinse status <pr>  # print Copilot review status (agent/CI use)
 rinse start <pr>   # start review loop non-interactively (no TTY)
@@ -169,7 +169,7 @@ Fastest cycle           4 min  PR #42
 Longest cycle           18 min  PR #38
 ```
 
-Use `rinse stats` instead for a 30-day rolling summary.
+Use `rinse stats` instead for an all-sessions aggregate summary.
 
 ### `rinse status`
 
