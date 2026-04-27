@@ -86,6 +86,7 @@ type Session struct {
 	TotalComments              int      `json:"total_comments"`
 	EstimatedTimeSavedSeconds  int      `json:"estimated_time_saved_seconds"`
 	Approved                   bool     `json:"approved"`
+	RulesExtracted             int      `json:"rules_extracted,omitempty"`
 	Patterns                   []string `json:"patterns,omitempty"`
 
 	// Quality metrics (populated when available)
@@ -304,15 +305,16 @@ func loadFromDB() ([]Session, error) {
 	sessions := make([]Session, 0, len(rows))
 	for _, r := range rows {
 		s := Session{
-			StartedAt:     r.StartedAt,
-			Repo:          r.Repo,
-			PR:            fmt.Sprintf("%d", r.PRNumber),
-			Runner:        r.Runner,
-			Model:         r.Model,
-			TotalComments: r.TotalCommentsFixed,
-			Iterations:    r.Iterations,
-			Approved:      r.Outcome == "merged" || r.Outcome == "approved",
-			Patterns:      r.Patterns,
+			StartedAt:      r.StartedAt,
+			Repo:           r.Repo,
+			PR:             fmt.Sprintf("%d", r.PRNumber),
+			Runner:         r.Runner,
+			Model:          r.Model,
+			TotalComments:  r.TotalCommentsFixed,
+			Iterations:     r.Iterations,
+			Approved:       r.Outcome == "merged" || r.Outcome == "approved",
+			RulesExtracted: r.RulesExtracted,
+			Patterns:       r.Patterns,
 		}
 		if r.CompletedAt != nil {
 			s.EndedAt = *r.CompletedAt
@@ -396,14 +398,15 @@ func sortByStarted(sessions []Session) []Session {
 
 // Summary holds aggregated metrics across a set of sessions.
 type Summary struct {
-	TotalSessions        int
-	TotalComments        int
-	TotalIterations      int
-	ApprovedSessions     int
-	TotalDurationSec     float64
+	TotalSessions         int
+	TotalComments         int
+	TotalIterations       int
+	ApprovedSessions      int
+	TotalDurationSec      float64
 	TotalTimeSavedSeconds int
-	PatternCounts        map[string]int
-	OutcomeCounts        map[Outcome]int
+	TotalRulesExtracted   int
+	PatternCounts         map[string]int
+	OutcomeCounts         map[Outcome]int
 	// Last30Days is a filtered summary over the last 30 days.
 	// It is always populated by Summarize and is the zero value when no sessions match.
 	Last30Days *Summary
@@ -474,6 +477,7 @@ func Summarize(sessions []Session) Summary {
 			sum.TotalComments += s.TotalComments
 			sum.TotalIterations += s.Iterations
 			sum.TotalDurationSec += s.DurationSeconds()
+			sum.TotalRulesExtracted += s.RulesExtracted
 			if s.Outcome == OutcomeApproved {
 				sum.ApprovedSessions++
 			}
@@ -680,6 +684,9 @@ func Print(sessions []Session) {
 	fmt.Printf("  Est. time saved:  ~%.1f hours\n", display.EstTimeSavedHours())
 	if n := display.ApprovedSessions; n > 0 {
 		fmt.Printf("  Approved:         %d\n", n)
+	}
+	if n := display.TotalRulesExtracted; n > 0 {
+		fmt.Printf("  Rules learned:    %d\n", n)
 	}
 
 	top := display.TopPatterns(5)
