@@ -58,7 +58,11 @@ func (s Session) ElapsedWall() time.Duration {
 
 // sessionsDir is the directory resolver for session persistence.
 // It is a variable so tests can override it with a temp directory.
+// RINSE_SESSIONS_DIR, if set, overrides the default ~/.rinse/sessions path.
 var sessionsDir = func() (string, error) {
+	if envDir := os.Getenv("RINSE_SESSIONS_DIR"); envDir != "" {
+		return envDir, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("session: resolve home dir: %w", err)
