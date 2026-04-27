@@ -1140,6 +1140,7 @@ COMMANDS
       Avg iterations:   2.1
       Est. time saved:  ~9.4 hours
       Approved:         18          // shown only when > 0
+      Rules learned:    3           // shown only when > 0 (requires --reflect)
 
       Top patterns:
         1. error_handling  (41x)
@@ -1394,6 +1395,7 @@ SESSION DATA
       "total_comments":  7,
       "estimated_time_saved_seconds": 420,
       "copilot_comments_by_iteration": [5, 2],    // optional: comments per iteration
+      "rules_extracted":  3,                       // optional: coding rules committed by --reflect
       "patterns":        ["error_handling", "nil_check"],
                                            // snake_case labels, classified from Copilot comment text.
                                            // Possible values: error_handling, naming, docs, formatting,

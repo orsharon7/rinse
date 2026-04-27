@@ -308,6 +308,38 @@ func TestSummarize_CutoffBoundaryExact30Days(t *testing.T) {
 	}
 }
 
+func TestSummarize_TotalRulesExtracted(t *testing.T) {
+	sessions := []stats.Session{
+		{
+			StartedAt:      time.Now().AddDate(0, 0, -1),
+			EndedAt:        time.Now().AddDate(0, 0, -1).Add(5 * time.Minute),
+			Outcome:        stats.OutcomeApproved,
+			RulesExtracted: 3,
+		},
+		{
+			StartedAt:      time.Now().AddDate(0, 0, -2),
+			EndedAt:        time.Now().AddDate(0, 0, -2).Add(5 * time.Minute),
+			Outcome:        stats.OutcomeClean,
+			RulesExtracted: 0,
+		},
+		{
+			StartedAt:      time.Now().AddDate(0, 0, -3),
+			EndedAt:        time.Now().AddDate(0, 0, -3).Add(5 * time.Minute),
+			Outcome:        stats.OutcomeApproved,
+			RulesExtracted: 7,
+		},
+	}
+
+	sum := stats.Summarize(sessions)
+
+	if sum.TotalRulesExtracted != 10 {
+		t.Errorf("TotalRulesExtracted: want 10, got %d", sum.TotalRulesExtracted)
+	}
+	if sum.Last30Days.TotalRulesExtracted != 10 {
+		t.Errorf("Last30Days.TotalRulesExtracted: want 10, got %d", sum.Last30Days.TotalRulesExtracted)
+	}
+}
+
 // TestSave_HappyPath verifies that Save writes a session file when the user
 // has opted in, and that the written file can be re-loaded with Load() with
 // SchemaVersion and Outcome preserved.
