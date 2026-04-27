@@ -200,7 +200,13 @@ rinse/
 | `RINSE_SCRIPT_DIR` | binary dir | Directory containing runner scripts |
 | `PR_REVIEW_SCRIPT_DIR` | — | Legacy alias for `RINSE_SCRIPT_DIR` |
 | `RINSE_API_URL` | `http://localhost:7433` | Override the local RINSE backend URL |
-| `NO_COLOR` | — | Disable ANSI colour output (follows no-color.org) |
+| `RINSE_PRO` | — | Set to `1` to enable Pro features (`--interactive`, `--doc-drift`) without editing `~/.rinse/config.json`. Useful in CI and local dev. |
+| `RINSE_STATS_OPTIN` | — | Set to `1` or `true` to force stats opt-in, `0` or `false` to force opt-out, without modifying `~/.rinse/config.json`. Useful in tests. |
+| `RINSE_COPILOT_TOKEN` | — | Override the Copilot auth token used by `--doc-drift`. Set in CI environments where `gh` is not authenticated. |
+| `RINSE_SESSIONS_DIR` | `~/.rinse/sessions/` | Override the directory where session JSON files are written and read. Useful in CI or when redirecting session storage. |
+| `NO_COLOR` | — | Disable ANSI colour output (follows no-color.org). `TERM=dumb` has the same effect. |
+| `VISUAL` | — | Editor launched by the `e` key in `rinse predict --interactive`. Detection order: `$VISUAL` → `$EDITOR` → `vi`. |
+| `EDITOR` | — | Fallback editor when `$VISUAL` is not set. |
 
 ---
 
