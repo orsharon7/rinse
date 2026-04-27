@@ -33,7 +33,7 @@ CREATE TABLE sessions (
   estimated_time_saved_seconds  INTEGER,            -- heuristic: 4 min × comments
   iterations                    INTEGER DEFAULT 0,
   total_comments_fixed          INTEGER DEFAULT 0,
-  outcome TEXT CHECK(outcome IN ('merged','closed','open','failed','approved')),
+  outcome TEXT CHECK(outcome IN ('merged','closed','open','failed','approved','error','aborted','max_iterations','clean','dry_run')),
   created_at                    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -109,10 +109,11 @@ constants extend the vocabulary beyond the DB CHECK set:
 | `OutcomeError` | `"error"` | runner error (JSON sessions only) |
 | `OutcomeAborted` | `"aborted"` | run aborted by user (JSON sessions only) |
 
-> **Note:** `"max_iterations"`, `"error"`, and `"aborted"` are **not** in the DB CHECK
-> constraint. Fresh runner sessions map both errors and max-iterations to `"failed"` in
-> SQLite. The richer constants exist for legacy JSON session compatibility and future
-> per-cause reporting (see Known Gaps below).
+> **Note:** `"max_iterations"`, `"error"`, and `"aborted"` lack Go `Outcome` constants
+> but the DB CHECK constraint was expanded by PR #222 (merged) to include them for fresh
+> installs. Existing installs without the migration still have the old 5-value constraint —
+> that is the remaining gap. The richer `stats.go` constants exist for legacy JSON session
+> compatibility and future per-cause reporting (see Known Gaps below).
 
 ### Migration versioning
 
@@ -254,5 +255,5 @@ add as migration 006 when sync is being implemented).
 | # | Gap | Resolution |
 |---|-----|------------|
 | Live DB has no `outcome` CHECK constraint | `CREATE TABLE IF NOT EXISTS` can't retrofit constraints; fresh installs get it | Acceptable — runner only writes valid values |
-| DB CHECK constraint vs runner outcome vocabulary mismatch | DB allows `('merged','closed','open','failed','approved')`; runner writes only `"failed"` for both errors and max-iterations; `stats.go` defines richer constants (`"error"`, `"aborted"`, `"max_iterations"`) not in the constraint — these are JSON-session-only values | Add `"error"`, `"aborted"`, `"max_iterations"` to DB CHECK and differentiate in `FinalizeSession` call sites when per-cause reporting is needed |
+| DB CHECK constraint vs runner outcome vocabulary mismatch | DB allows `('merged','closed','open','failed','approved','error','aborted','max_iterations','clean','dry_run')` for fresh installs (PR #222 expanded the constraint); `open` and `failed` are written as raw string literals by the runner (no typed `Outcome` constants); `stats.go` defines `"error"`, `"aborted"`, `"max_iterations"` as typed constants for JSON-session compatibility | Existing installs without migration 006 still have the old 5-value constraint — acceptable since the runner only writes valid values; differentiate `FinalizeSession` call sites for per-cause reporting when needed |
 | `synced_at` column missing | Needed for Phase 2 sync tracking | Add as migration 006 when sync ships |
