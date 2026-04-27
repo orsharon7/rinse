@@ -28,6 +28,7 @@ type SessionRow struct {
 	EstimatedTimeSavedSeconds   *int
 	Iterations                  int
 	TotalCommentsFixed          int
+	RulesExtracted              int    // number of coding rules committed by --reflect
 	Outcome                     string // "open" while running
 	Model                       string
 	Patterns                    []string
@@ -39,15 +40,15 @@ func (d *DB) InsertSession(s SessionRow) error {
 	const q = `
 INSERT INTO sessions
   (id, repo, pr_number, pr_title, branch, runner, started_at, iterations,
-   total_comments_fixed, outcome, model)
+   total_comments_fixed, rules_extracted, outcome, model)
 VALUES
-  (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err := d.sql.Exec(q,
 		s.ID, s.Repo, s.PRNumber, nullString(s.PRTitle), nullString(s.Branch),
 		nullString(s.Runner),
 		s.StartedAt.UTC().Format(time.RFC3339),
-		s.Iterations, s.TotalCommentsFixed,
+		s.Iterations, s.TotalCommentsFixed, s.RulesExtracted,
 		coalesceOutcome(s.Outcome, "open"),
 		nullString(s.Model),
 	)
@@ -66,6 +67,7 @@ UPDATE sessions SET
   estimated_time_saved_seconds = ?,
   iterations                   = ?,
   total_comments_fixed         = ?,
+  rules_extracted              = ?,
   outcome                      = ?
 WHERE id = ?`
 
@@ -80,6 +82,7 @@ WHERE id = ?`
 		nullInt(s.EstimatedTimeSavedSeconds),
 		s.Iterations,
 		s.TotalCommentsFixed,
+		s.RulesExtracted,
 		coalesceOutcome(s.Outcome, "open"),
 		s.ID,
 	)
@@ -164,6 +167,9 @@ func (d *DB) FinalizeSession(id string, completedAt time.Time, durationSec, comm
 		TotalCommentsFixed:        commentCount,
 		Iterations:                iterations,
 		Outcome:                   outcome,
+		// RulesExtracted is not available at finalize time in the runner path;
+		// it is set via UpdateSession directly by callers that have the value
+		// (e.g. TUI monitor after reflect agent runs).
 	})
 }
 
@@ -177,6 +183,7 @@ SELECT
   started_at,
   completed_at, duration_seconds, estimated_time_saved_seconds,
   iterations, total_comments_fixed,
+  COALESCE(rules_extracted,0),
   COALESCE(outcome,'open'), COALESCE(model,'')
 FROM sessions
 ORDER BY started_at ASC`
@@ -200,6 +207,7 @@ ORDER BY started_at ASC`
 			&startedAtStr,
 			&completedAtStr, &durationSec, &estSaved,
 			&s.Iterations, &s.TotalCommentsFixed,
+			&s.RulesExtracted,
 			&s.Outcome, &s.Model,
 		); err != nil {
 			return nil, fmt.Errorf("db: scan session row: %w", err)

@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   iterations                    INTEGER DEFAULT 0,
   total_comments_fixed          INTEGER DEFAULT 0,
   outcome TEXT CHECK(outcome IN ('merged','closed','open','failed','approved','error','aborted','max_iterations')),
+  rules_extracted               INTEGER DEFAULT 0,
   created_at                    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -106,6 +107,43 @@ var migrations = []migration{
 		Name:    "idx_sessions_repo_pr",
 		Up: func(tx *sql.Tx) error {
 			_, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_sessions_repo_pr ON sessions(repo, pr_number)`)
+			return err
+		},
+	},
+	{
+		// Version 6: expand_outcome_check — no-op migration.
+		// The CHECK constraint in the schema constant was expanded to include
+		// 'error','aborted','max_iterations' for fresh installs. Existing installs
+		// have no CHECK on the live DB (CREATE TABLE IF NOT EXISTS cannot retrofit
+		// constraints). This entry records the intent in schema_migrations.
+		Version: 6,
+		Name:    "expand_outcome_check",
+		Up:      func(tx *sql.Tx) error { return nil },
+	},
+	{
+		// Version 7: add rules_extracted column to sessions.
+		// Populated by the reflect agent; previously only written to JSON files.
+		Version: 7,
+		Name:    "add_rules_extracted_column",
+		Up: func(tx *sql.Tx) error {
+			rows, err := tx.Query(`PRAGMA table_info(sessions)`)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var cid int
+				var name, typ string
+				var notnull, pk int
+				var dflt sql.NullString
+				if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+					return err
+				}
+				if name == "rules_extracted" {
+					return nil // already exists
+				}
+			}
+			_, err = tx.Exec(`ALTER TABLE sessions ADD COLUMN rules_extracted INTEGER DEFAULT 0`)
 			return err
 		},
 	},
