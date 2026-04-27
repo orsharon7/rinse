@@ -285,7 +285,26 @@ Notifications are best-effort — a failure to notify never interrupts or fails 
 
 ## 🤖 CI / pipeline usage
 
-`rinse start` and `rinse status` are designed for non-interactive use in agent pipelines and CI.
+`rinse start`, `rinse run`, and `rinse status` are designed for non-interactive use in agent pipelines and CI.
+
+### Run the review loop in CI
+
+**`rinse run`** is the preferred CI command — it's the native Go runner with structured NDJSON output, no shell-script wrapper, and automatic JSON mode when stdout is not a TTY:
+
+```bash
+# Stream NDJSON lifecycle events on stdout, exit with structured result
+rinse run 42 --repo owner/repo --json
+```
+
+Each output line is a JSON event (`phase`, `iteration_start`, `poll`, `iteration_complete`, `done`, `error`). See `rinse --help` for the full event schema.
+
+Exit codes: `0` = approved · `1` = max iterations · `2` = error
+
+**`rinse start`** wraps the shell-script runners and is useful when you need the `claude` runner or want shell-level output:
+
+```bash
+rinse start 42 --repo owner/repo --json
+```
 
 ### Check PR status
 
@@ -344,7 +363,7 @@ When Copilot comments on an ignored path, RINSE:
 
 - TUI source is in `internal/tui/` (Go + Charm Bubble Tea)
 - Run `make` to build, `make install` to install locally
-- Logs: session data is stored in `~/.rinse/sessions/`; shell script runner logs land in `~/.rinse/logs/` (set `RINSE_SCRIPT_DIR` to your local `scripts/` dir if needed)
+- Logs: session data is stored in `~/.rinse/sessions/`; shell script runner logs land in `~/.pr-review/logs/` (set `RINSE_SCRIPT_DIR` to your local `scripts/` dir if needed)
 
 ---
 
