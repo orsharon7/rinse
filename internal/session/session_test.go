@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+// realSessionsDir holds the original sessionsDir implementation so tests
+// that exercise the env-var path can restore it without the withTempSessions
+// override in place.
+var realSessionsDir = sessionsDir
+
 // withTempSessions redirects sessionsDir to a temp directory for the test.
 func withTempSessions(t *testing.T) string {
 	t.Helper()
@@ -146,5 +151,56 @@ func TestLoadAll_MissingDir(t *testing.T) {
 	}
 	if sessions != nil {
 		t.Errorf("expected nil sessions for missing dir, got %v", sessions)
+	}
+}
+
+// TestSessionsDir_EnvVar verifies that RINSE_SESSIONS_DIR is honoured by the
+// real sessionsDir resolver (not the test override).
+func TestSessionsDir_EnvVar(t *testing.T) {
+	customDir := filepath.Join(t.TempDir(), "custom-sessions")
+	t.Setenv("RINSE_SESSIONS_DIR", customDir)
+
+	// Restore the real resolver so the env var is actually exercised.
+	orig := sessionsDir
+	sessionsDir = realSessionsDir
+	t.Cleanup(func() { sessionsDir = orig })
+
+	got, err := sessionsDir()
+	if err != nil {
+		t.Fatalf("sessionsDir: %v", err)
+	}
+	if got != customDir {
+		t.Errorf("sessionsDir() = %q, want %q", got, customDir)
+	}
+}
+
+// TestSave_EnvVarDirCreated verifies that Save creates the directory pointed
+// to by RINSE_SESSIONS_DIR when it does not yet exist.
+func TestSave_EnvVarDirCreated(t *testing.T) {
+	customDir := filepath.Join(t.TempDir(), "env-sessions")
+	t.Setenv("RINSE_SESSIONS_DIR", customDir)
+
+	// Restore real resolver so the env var takes effect.
+	orig := sessionsDir
+	sessionsDir = realSessionsDir
+	t.Cleanup(func() { sessionsDir = orig })
+
+	s := makeSession("99", time.Now().UTC().Truncate(time.Second), true, 1)
+	if err := s.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	entries, err := os.ReadDir(customDir)
+	if err != nil {
+		t.Fatalf("ReadDir %q: %v", customDir, err)
+	}
+	var jsonFiles int
+	for _, e := range entries {
+		if filepath.Ext(e.Name()) == ".json" {
+			jsonFiles++
+		}
+	}
+	if jsonFiles != 1 {
+		t.Errorf("expected 1 json file in %q, got %d", customDir, jsonFiles)
 	}
 }

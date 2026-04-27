@@ -746,6 +746,18 @@ func runPredictCmd(args []string) {
 		}
 	}
 
+	// Guard: if no PR is specified and nothing is staged, show an actionable
+	// hint and exit cleanly. Skip when --pr is given (diff comes from the PR).
+	if pr == 0 {
+		out, gitErr := exec.Command("git", "diff", "--cached", "--name-only").Output()
+		if gitErr == nil && strings.TrimSpace(string(out)) == "" {
+			fmt.Println(theme.StyleMuted.Render("  " + theme.IconDiamond + "  Nothing staged."))
+			fmt.Println(theme.StyleMuted.Render("     Stage your changes first:"))
+			fmt.Println("     " + theme.StyleCharm.Render("git add <files>") + theme.StyleMuted.Render("  or  ") + theme.StyleCharm.Render("git add -p"))
+			os.Exit(0)
+		}
+	}
+
 	report, err := predict.Run(pr, repo)
 	if err != nil {
 		if asJSON {
@@ -1065,9 +1077,7 @@ SETTINGS  (press s inside the PR picker)
                 cycle completes. macOS uses osascript; Linux uses notify-send.
                 No-op in headless/CI environments.
 
-  Settings are saved per-repo in:
-    macOS:  ~/Library/Application Support/rinse/config.json
-    Linux:  ~/.config/rinse/config.json
+  Settings are saved per-machine in the platform config dir (see FILES).
 
 COMMANDS
 
@@ -1204,6 +1214,30 @@ COMMANDS
       1   Max iterations reached without approval
       2   Unexpected error
 
+    NDJSON event stream (--json):
+      Each line is a JSON object with an "event" field. Events in order:
+
+      {"event":"phase","phase":"<name>","iteration":<n>,"timestamp":"..."}
+        Phase names: "applying_fixes", "waiting_for_copilot"
+
+      {"event":"iteration_start","iteration":<n>,"max_iterations":<n>,"timestamp":"..."}
+        Emitted before each agent invocation.
+
+      {"event":"poll","iteration":<n>,"poll_count":<n>,"phase":"<name>","timestamp":"..."}
+        Emitted each time the runner sleeps waiting for a Copilot review.
+
+      {"event":"iteration_complete","iteration":<n>,"comments_addressed":<n>,
+       "total_comments_addressed":<n>,"timestamp":"..."}
+        Emitted after each successful agent iteration.
+
+      {"event":"done","approved":<bool>,"iterations":<n>,"total_comments_addressed":<n>,
+       "elapsed_seconds":<n>,"exit_code":<n>,"timestamp":"...",
+       "remaining_comments":<n>}
+        Final event. "remaining_comments" is omitted when approved.
+
+      {"event":"error","error":"<code>","message":"<detail>","exit_code":2}
+        Emitted on fatal errors (no timestamp — process exits immediately).
+
     Note: --max-iterations and --poll-interval are reserved for a future release.
 
   rinse predict [<pr>] [--repo <owner/repo>] [--json] [--no-log]
@@ -1215,6 +1249,10 @@ COMMANDS
 
     When <pr> is omitted, prediction is based on local git diff only (no GitHub
     API call). Pass a PR number to include the PR diff and open comments.
+    If nothing is staged, rinse predict exits 0 with an actionable hint:
+    "git add <files>  or  git add -p". No error is returned — this is
+    intentional so the command is safe in any working-tree state (e.g. CI
+    pre-commit hooks or shell aliases).
 
     --repo <owner/repo>   Override repository detection (required when using --pr)
     --pr <number>         PR number (alternative to positional argument)
@@ -1234,11 +1272,18 @@ COMMANDS
     JSON output (--json):
       {
         "ok": true,
-        "source": "git-diff",
+        "source": "staged changes",        // "staged changes" or "PR #42 (owner/repo)"
         "predictions": [
-          {"pattern": "Missing error handling", "confidence": 0.87, "file": "main.go", "line": 42}
+          {
+            "pattern":    "Missing error handling",
+            "confidence": 0.87,
+            "file":       "main.go",  // omitted when not applicable
+            "line":       42,          // omitted when not applicable
+            "detail":     "os.WriteFile return value discarded"  // omitted when empty
+          }
         ]
       }
+      {"ok":false,"source":"","predictions":null,"error":"no diff available"}
 
 STATS OPT-IN / OPT-OUT
 
@@ -1269,9 +1314,20 @@ ENVIRONMENT VARIABLES
                         Set this when running a non-standard backend.
   NO_COLOR              When set to any non-empty value, RINSE disables all
                         ANSI colour output. Follows the no-color.org standard.
+                        TERM=dumb has the same effect.
   VISUAL                Editor used by the e key in rinse predict --interactive.
                         Detection order: $VISUAL → $EDITOR → vi.
   EDITOR                Fallback editor when $VISUAL is not set.
+  RINSE_COPILOT_TOKEN   Override the Copilot auth token used by --doc-drift.
+                        Normally obtained via "gh auth token". Set this in CI
+                        environments where gh is not authenticated.
+  RINSE_STATS_OPTIN     Force stats opt-in (1 or true) or opt-out (0 or false)
+                        without modifying ~/.rinse/config.json. Useful in CI
+                        pipelines and test environments.
+  RINSE_SESSIONS_DIR    Override the directory where session JSON files are
+                        written and read. Default: ~/.rinse/sessions/.
+                        Useful in CI environments or when redirecting session
+                        storage to a shared path.
 
 REQUIREMENTS
 
@@ -1299,6 +1355,7 @@ SESSION DATA
       "approved":       true,
       "iterations":     2,
       "total_comments": 7,
+      "rules_extracted": 3,                       // optional: new coding rules committed by --reflect
       "comments_by_round": [3, 2],                // optional: comments per iteration
       "patterns":       ["error_handling", "nil_check"]
                                            // snake_case labels, classified from Copilot comment text.
@@ -1355,6 +1412,22 @@ FILES
                   reducing review noise for your language. Commit this file
                   — Copilot uses it for every PR in the repo.
 
+  ~/.rinse/config.json
+                  Home-dir global config. Stores:
+                    {"stats_opt_in": true/false}  — stats collection opt-in
+                    {"pro": true}                 — Pro feature enablement
+                    {"doc_drift": true}           — enable --doc-drift without
+                                                    passing the flag each time
+                  Written by rinse opt-in, rinse opt-out, and Pro activation.
+                  Set RINSE_PRO=1 to enable Pro without editing this file.
+
+  macOS:  ~/Library/Application Support/rinse/config.json
+  Linux:  ~/.config/rinse/config.json
+                  Platform config dir. Stores per-machine runner settings:
+                  model, reflect, reflect_branch, auto_merge, notify.
+                  Written by the settings screen (press s in the PR picker).
+                  Not committed — settings stay local to your machine.
+
 EXAMPLES
 
   # Interactive TUI — recommended first run
@@ -1390,6 +1463,15 @@ EXAMPLES
 
   # View prediction hit-rate dashboard
   rinse stats --predict
+
+  # View 30-day rolling session stats
+  rinse stats
+
+  # View today's PR review dashboard
+  rinse report
+
+  # Enable session stats collection (required once before rinse stats works)
+  rinse opt-in
 
   # Native Go runner — NDJSON lifecycle events on stdout (CI)
   rinse run 42 --repo owner/repo --json

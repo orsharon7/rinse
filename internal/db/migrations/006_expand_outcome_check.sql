@@ -1,0 +1,13 @@
+-- Migration 006: expand_outcome_check (no-op for existing installs)
+--
+-- The CHECK constraint in the schema constant was expanded so fresh installs
+-- accept all outcome values written by the runner and backfill scripts:
+--   'merged', 'closed', 'open', 'failed', 'approved',
+--   'error', 'aborted', 'max_iterations'
+--
+-- Existing installs have no CHECK constraint on the live DB because
+-- CREATE TABLE IF NOT EXISTS cannot retrofit constraints on existing tables.
+-- This migration is recorded in schema_migrations to document the intent.
+--
+-- No DDL change is needed; the schema constant is authoritative for new installs.
+SELECT 1; -- no-op

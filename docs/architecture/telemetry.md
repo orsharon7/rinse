@@ -1,7 +1,7 @@
 # RINSE Telemetry Architecture
 
-> **This document is a forward-looking specification, not a description of current behavior.**
-> Phase 1 (local SQLite) → Phase 2 (Supabase + multi-tenant). Paths, schemas, and commands below are proposals; none are implemented yet unless noted otherwise.
+Local-first telemetry: all data is written to SQLite on the developer's machine.
+Phase 2 (not yet built) adds a Supabase cloud sync path with multi-tenant RLS.
 
 ---
 
@@ -47,208 +47,264 @@ All values below are defined as typed `Outcome` constants in `internal/stats/sta
 > The `sessions` table schema in `internal/db/db.go` currently contains (fresh installs after
 > the migration in PR #222):
 > ```sql
-> outcome TEXT CHECK(outcome IN ('merged','closed','open','failed','approved','error','aborted','max_iterations')),
+> outcome TEXT CHECK(outcome IN ('merged','closed','open','failed','approved','error','aborted','max_iterations','clean','dry_run')),
 > ```
-> This constraint is still missing `clean` and `dry_run`. Existing installs that have not run
-> the migration retain the older five-value constraint and will also reject `error`, `aborted`,
-> and `max_iterations`. Inserting a session with a missing value causes the DB write to fail
-> silently (the runner logs the error and continues). The JSON session file is written first
-> and is unaffected. Fixing the remaining gap (`clean`, `dry_run`) is tracked separately.
+> Existing installs that have not run the migration retain the older five-value constraint and
+> will also reject `error`, `aborted`, and `max_iterations`. Inserting a session with a missing
+> value causes the DB write to fail silently (the runner logs the error and continues). The JSON
+> session file is written first and is unaffected.
 
 ---
 
-## Phase 1: Local SQLite Schema (Proposed)
+## Phase 1: Local SQLite (Current)
 
-> **Not yet implemented.** RINSE currently stores session history as JSON files under `~/.rinse/sessions/`. There is no SQLite database in the current codebase. The schema below is a proposal for future structured persistence.
+### Database location
+
+```
+~/.rinse/rinse.db
+```
+
+Opened via `db.OpenDefault()` in `internal/db/db.go`. Created on first run.
+WAL mode enabled; single writer, safe for concurrent readers.
+
+### Schema
 
 ```sql
 CREATE TABLE sessions (
-  id          TEXT PRIMARY KEY,      -- UUID
-  started_at  DATETIME NOT NULL,
-  ended_at    DATETIME,
-  duration_s  INTEGER,
-  cycle_count INTEGER DEFAULT 0,     -- PR review iterations
-  notes       TEXT
+  id                            TEXT PRIMARY KEY,   -- UUID v4
+  repo                          TEXT NOT NULL,       -- "owner/repo"
+  pr_number                     INTEGER NOT NULL,
+  pr_title                      TEXT,
+  branch                        TEXT,
+  runner                        TEXT,               -- "opencode" | "claude"
+  model                         TEXT,
+  started_at                    DATETIME NOT NULL,
+  completed_at                  DATETIME,
+  duration_seconds              INTEGER,
+  estimated_time_saved_seconds  INTEGER,            -- heuristic: 4 min × comments
+  iterations                    INTEGER DEFAULT 0,
+  total_comments_fixed          INTEGER DEFAULT 0,
+  outcome TEXT CHECK(outcome IN ('merged','closed','open','failed','approved','error','aborted','max_iterations','clean','dry_run')),
+  created_at                    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE cycles (
-  id          TEXT PRIMARY KEY,      -- UUID
-  session_id  TEXT NOT NULL REFERENCES sessions(id),
-  type        TEXT NOT NULL,         -- e.g. 'fix_iteration' | 'review_wait'
-  started_at  DATETIME NOT NULL,
-  ended_at    DATETIME,
-  duration_s  INTEGER,
-  completed   BOOLEAN DEFAULT FALSE
+CREATE TABLE comment_events (
+  id            TEXT PRIMARY KEY,
+  session_id    TEXT REFERENCES sessions(id) ON DELETE CASCADE,
+  iteration     INTEGER NOT NULL,
+  comment_count INTEGER NOT NULL,
+  recorded_at   DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE config_snapshots (
-  id          TEXT PRIMARY KEY,
-  session_id  TEXT NOT NULL REFERENCES sessions(id),
-  runner      TEXT,                  -- e.g. 'opencode' | 'claude'
-  model       TEXT,
-  captured_at DATETIME NOT NULL
+CREATE TABLE patterns (
+  id         TEXT PRIMARY KEY,
+  session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE,
+  pattern    TEXT NOT NULL,
+  count      INTEGER DEFAULT 1
+);
+
+-- Migration versioning (added in migration 004+)
+CREATE TABLE schema_migrations (
+  version     INTEGER PRIMARY KEY,
+  name        TEXT NOT NULL,
+  applied_at  DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
+### Indexes
+
+```sql
+CREATE INDEX idx_sessions_repo        ON sessions(repo);
+CREATE INDEX idx_sessions_started_at  ON sessions(started_at);
+CREATE INDEX idx_sessions_outcome     ON sessions(outcome);
+CREATE INDEX idx_sessions_repo_pr     ON sessions(repo, pr_number);  -- FindSessionID
+CREATE INDEX idx_comment_events_session ON comment_events(session_id);
+CREATE INDEX idx_patterns_session       ON patterns(session_id);
+```
+
+### Write path
+
+**Runner path** (`internal/runner/runner.go`):
+1. `db.InsertSession(...)` — outcome=`"open"` on start
+2. `db.InsertCommentEvent(...)` — one row per iteration
+3. `db.FinalizeSession(...)` — stamps `completed_at`, `outcome`, `duration_seconds`
+4. `db.InsertPatterns(...)` — pattern strings extracted from reflect output
+
+**TUI monitor path** (`internal/tui/monitor.go`):
+- On session end: `db.FindSessionID(repo, prNumber)` → `db.SavePatterns(sessionID, patterns)`
+- Patterns are extracted from reflect-phase output lines
+
+### Outcome values
+
+**DB (SQLite CHECK constraint on `sessions.outcome`)** — these are the only values the
+runner ever writes to SQLite:
+
+| Value | Set by | Meaning |
+|-------|--------|---------|
+| `open` | `db.InsertSession` | session in progress (initial insert) |
+| `approved` | `db.FinalizeSession` | Copilot approved the PR |
+| `failed` | `db.FinalizeSession` | runner error **or** max iterations reached |
+| `closed` | `db.FinalizeSession` | PR was closed without approval |
+| `merged` | legacy path | PR was merged (pre-runner JSON sessions backfilled into DB) |
+
+**`stats.go` in-memory constants** (`internal/stats/stats.go`) — used for JSON session
+files (`~/.rinse/sessions/*.json`) and as typed aliases when reading sessions.  These
+constants extend the vocabulary beyond the DB CHECK set:
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `OutcomeApproved` | `"approved"` | Copilot approved |
+| `OutcomeMerged` | `"merged"` | PR merged (legacy) |
+| `OutcomeClosed` | `"closed"` | PR closed without approval |
+| `OutcomeMaxIter` | `"max_iterations"` | hit iteration cap (JSON sessions only) |
+| `OutcomeError` | `"error"` | runner error (JSON sessions only) |
+| `OutcomeAborted` | `"aborted"` | run aborted by user (JSON sessions only) |
+
+> **Note:** `"max_iterations"`, `"error"`, and `"aborted"` lack Go `Outcome` constants
+> but the DB CHECK constraint was expanded by PR #222 (merged) to include them for fresh
+> installs. Existing installs without the migration still have the old 5-value constraint —
+> that is the remaining gap. The richer `stats.go` constants exist for legacy JSON session
+> compatibility and future per-cause reporting (see Known Gaps below).
+
+### Migration versioning
+
+Migrations are tracked in `schema_migrations`. `db.Open()` calls `applyMigrations()`
+on every open — each migration runs at most once per install.
+
+| Version | Name | SQL |
+|---------|------|-----|
+| 001–003 | Initial schema + indexes + Phase 2 Supabase spec | `migrations/001_initial_schema.sql` |
+| 004 | Add `runner` column to `sessions` | `migrations/004_add_runner_column.sql` |
+| 005 | Composite index `idx_sessions_repo_pr` | `migrations/005_idx_sessions_repo_pr.sql` |
+
+### Stats integration
+
+`internal/stats/stats.go` reads from both SQLite (preferred) and `~/.rinse/sessions/*.json`
+(legacy fallback). Sessions are deduped by `(repo, pr_number, started_at truncated to minute)`.
+DB sessions take precedence over JSON sessions for the same fingerprint.
+
+`session.Approved` is derived from `outcome IN ('approved', 'merged')`.
+
 ---
 
-## Phase 2: Schema Diff (Supabase + Multi-Tenancy)
+## Phase 2: Supabase Multi-Tenant (Design — Not Yet Built)
 
-### New tables
+### Local dev setup
+
+```bash
+brew install supabase/tap/supabase
+cd /path/to/rinse
+supabase init      # creates supabase/ config dir
+supabase start     # starts local Supabase stack via Docker
+# Studio:    http://localhost:54323
+# DB:        postgresql://postgres:postgres@localhost:54322/postgres
+# API URL:   http://localhost:54321
+# Anon key:  printed by `supabase start`
+```
+
+### Schema additions (from migration 003)
+
+New tables:
 
 ```sql
 CREATE TABLE teams (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name       TEXT NOT NULL,
   slug       TEXT NOT NULL UNIQUE,
-  created_at TIMESTAMPTZ DEFAULT now()
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE team_members (
   team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
-  user_id UUID NOT NULL,             -- Supabase auth.users.id
-  role    TEXT NOT NULL DEFAULT 'member', -- 'owner' | 'member'
+  user_id UUID NOT NULL,
+  role    TEXT NOT NULL DEFAULT 'member' CHECK(role IN ('owner','admin','member')),
   PRIMARY KEY (team_id, user_id)
 );
 ```
 
-### Additions to Phase 1 tables
-
-Every Phase 1 table gets `team_id uuid NOT NULL REFERENCES teams(id)`:
+Column additions to all Phase 1 tables:
 
 ```sql
-ALTER TABLE sessions         ADD COLUMN team_id UUID NOT NULL REFERENCES teams(id);
-ALTER TABLE cycles           ADD COLUMN team_id UUID NOT NULL REFERENCES teams(id);
-ALTER TABLE config_snapshots ADD COLUMN team_id UUID NOT NULL REFERENCES teams(id);
+ALTER TABLE sessions       ADD COLUMN team_id UUID NOT NULL REFERENCES teams(id);
+ALTER TABLE comment_events ADD COLUMN team_id UUID NOT NULL REFERENCES teams(id);
+ALTER TABLE patterns       ADD COLUMN team_id UUID NOT NULL REFERENCES teams(id);
 ```
 
-Index for common query patterns:
+### Row-Level Security
 
 ```sql
-CREATE INDEX idx_sessions_team    ON sessions(team_id, started_at DESC);
-CREATE INDEX idx_cycles_team      ON cycles(team_id, started_at DESC);
-```
+ALTER TABLE sessions       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE comment_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE patterns       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE teams          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE team_members   ENABLE ROW LEVEL SECURITY;
 
----
-
-## Row-Level Security (RLS)
-
-All tables have RLS enabled. Policy: a row is visible only when `team_id` matches the `team_id` claim in the caller's JWT.
-
-```sql
--- Enable RLS
-ALTER TABLE sessions         ENABLE ROW LEVEL SECURITY;
-ALTER TABLE cycles           ENABLE ROW LEVEL SECURITY;
-ALTER TABLE config_snapshots ENABLE ROW LEVEL SECURITY;
-ALTER TABLE teams            ENABLE ROW LEVEL SECURITY;
-ALTER TABLE team_members     ENABLE ROW LEVEL SECURITY;
-
--- Sessions
-CREATE POLICY team_isolation ON sessions
+CREATE POLICY "team_isolation" ON sessions
   FOR ALL USING (team_id = (auth.jwt() ->> 'team_id')::uuid);
 
--- Cycles
-CREATE POLICY team_isolation ON cycles
+CREATE POLICY "team_isolation" ON comment_events
   FOR ALL USING (team_id = (auth.jwt() ->> 'team_id')::uuid);
 
--- Config snapshots
-CREATE POLICY team_isolation ON config_snapshots
+CREATE POLICY "team_isolation" ON patterns
   FOR ALL USING (team_id = (auth.jwt() ->> 'team_id')::uuid);
 
--- Teams: members can see their own team only
-CREATE POLICY team_self ON teams
-  FOR SELECT USING (
-    id IN (SELECT team_id FROM team_members WHERE user_id = auth.uid())
-  );
+CREATE POLICY "own_teams" ON teams
+  FOR ALL USING (id = (auth.jwt() ->> 'team_id')::uuid);
 
--- Team members: visible to members of same team
-CREATE POLICY "team_members_visible" ON team_members
-  FOR SELECT USING (
-    team_id IN (SELECT team_id FROM team_members WHERE user_id = auth.uid())
-  );
+CREATE POLICY "own_team_members" ON team_members
+  FOR ALL USING (team_id = (auth.jwt() ->> 'team_id')::uuid);
 ```
 
----
-
-## Auth Flow (Proposed — Not Yet Implemented)
-
-> **Not yet implemented.** The `rinse login` command, JWT storage path, and refresh-token logic below are proposals for Phase 2 and do not exist in the current codebase.
+### Auth flow
 
 ```
-rinse login  [proposed]
+rinse login  [not yet implemented]
   └─> opens browser → Supabase OAuth (GitHub / email)
-  └─> Supabase issues JWT with claims:
+  └─> Supabase issues JWT:
         { "sub": "<user_id>", "team_id": "<team_uuid>", "role": "member" }
-  └─> JWT stored in ~/.rinse/token (file-mode 600)  [proposed path]
+  └─> JWT stored at ~/.rinse/token  (file mode 600)
 
-Every sync request:
+Each request:
   Authorization: Bearer <JWT>
-  → Supabase validates signature + expiry
-  → RLS policies enforce team_id isolation automatically
+  → RLS automatically enforces team_id isolation
 ```
 
-JWT refresh: `rinse` checks `exp` before each sync. If within 5 min of expiry, refreshes silently using the stored refresh token. (Proposed — not yet implemented.)
+JWT refresh: check `exp` before each sync; refresh silently if within 5 min of expiry.
 
----
+### Sync strategy
 
-## Sync Strategy (Proposed — Not Yet Implemented)
-
-> **Not yet implemented.** The `rinse sync` command and the sync strategy below are proposals for Phase 2.
-
-Local-first. Data is always written to SQLite first. Cloud sync is best-effort.
+Local-first. SQLite is the source of truth; Supabase is the sync target.
 
 ```
-rinse stop  (or auto-trigger on session end)  [proposed]
-  └─> write session + cycles to local SQLite
-  └─> rinse sync  [proposed command]
-        └─> read unsynced rows (WHERE synced_at IS NULL)
-        └─> upsert to Supabase via REST API (idempotent by primary key UUID)
-        └─> mark rows synced_at = now() in local DB
-
-rinse sync --force  → re-upsert all rows regardless of synced_at  [proposed]
+rinse sync  [not yet implemented]
+  └─> read rows WHERE synced_at IS NULL
+  └─> upsert to Supabase (ON CONFLICT (id) DO UPDATE)
+  └─> mark synced_at = now() in local DB
 ```
 
-Conflict resolution: **last-write-wins by `id` (UUID)**. Because IDs are generated client-side as UUIDs, there are no key collisions across devices. If the same session is pushed twice, `ON CONFLICT (id) DO UPDATE` overwrites with the latest values — safe because a session is complete before sync.
+Conflict resolution: last-write-wins by UUID primary key. No cross-device collisions
+because UUIDs are generated client-side. Offline: accumulate unsynced rows, push on
+next successful sync.
 
 ```sql
--- Example upsert (Supabase PostgREST handles this via Prefer: resolution=merge-duplicates)
+-- Supabase upsert (via PostgREST Prefer: resolution=merge-duplicates)
 INSERT INTO sessions (...) VALUES (...)
 ON CONFLICT (id) DO UPDATE SET
-  ended_at    = EXCLUDED.ended_at,
-  duration_s  = EXCLUDED.duration_s,
-  cycle_count = EXCLUDED.cycle_count;
+  completed_at                 = EXCLUDED.completed_at,
+  duration_seconds             = EXCLUDED.duration_seconds,
+  total_comments_fixed         = EXCLUDED.total_comments_fixed,
+  outcome                      = EXCLUDED.outcome;
 ```
 
-Offline behaviour: `rinse sync` exits 0 with a warning if Supabase is unreachable. Unsynced rows accumulate and are pushed on next successful sync.
+A `synced_at TIMESTAMPTZ` column is needed in all Phase 1 tables (not yet added —
+add as migration 006 when sync is being implemented).
 
 ---
 
-## Local Dev Setup
+## Known gaps / future migrations
 
-```bash
-brew install supabase/tap/supabase
-cd /path/to/rinse
-supabase init
-supabase start
-# Studio:    http://localhost:54323
-# DB:        postgresql://postgres:postgres@localhost:54322/postgres
-# API URL:   http://localhost:54321
-# Anon key:  printed by supabase start
-```
-
-Environment config for local dev. RINSE currently stores config as JSON in your user config directory (on Linux, typically `~/.config/rinse/config.json`). The TOML format below is a proposed future alternative:
-
-```toml
-# Proposed future config format
-[supabase]
-url     = "http://localhost:54321"
-anon_key = "<local-anon-key>"
-```
-
----
-
-## Open Questions / Phase 3 Notes
-
-- Dashboard UI: separate web app or embedded in `rinse tui`? (not scoped to Phase 2)
-- Team provisioning: self-serve signup or invite-only? (affects `teams` insert policy)
-- Rate limiting on `rinse sync`: consider exponential backoff on 429/503
+| # | Gap | Resolution |
+|---|-----|------------|
+| Live DB has no `outcome` CHECK constraint | `CREATE TABLE IF NOT EXISTS` can't retrofit constraints; fresh installs get it | Acceptable — runner only writes valid values |
+| DB CHECK constraint vs runner outcome vocabulary mismatch | DB allows `('merged','closed','open','failed','approved','error','aborted','max_iterations','clean','dry_run')` for fresh installs (PR #222 expanded the constraint); `open` and `failed` are written as raw string literals by the runner (no typed `Outcome` constants); `stats.go` defines `"error"`, `"aborted"`, `"max_iterations"` as typed constants for JSON-session compatibility | Existing installs without migration 006 still have the old 5-value constraint — acceptable since the runner only writes valid values; differentiate `FinalizeSession` call sites for per-cause reporting when needed |
+| `synced_at` column missing | Needed for Phase 2 sync tracking | Add as migration 006 when sync ships |

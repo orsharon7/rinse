@@ -71,6 +71,7 @@ rinse predict
 rinse init
 
 # Show session history and time-saved metrics (30-day rolling)
+# Requires opt-in: run `rinse opt-in` once to enable stats collection
 rinse stats
 
 # Show today's PR review dashboard (approval rate, timing)
@@ -105,12 +106,15 @@ The interactive TUI walks you through setup — pick a PR, configure the runner,
 
 ```
 rinse              # launch interactive TUI (PR picker)
-rinse predict      # predict Copilot comments before you push (new in v0.3)
+rinse predict      # predict Copilot comments before you push
 rinse init         # scaffold a per-repo .rinse.json config (guided setup)
 rinse stats        # show session history and time-saved metrics (30-day)
 rinse report       # show today's PR review dashboard (approval rate, timing)
 rinse status <pr>  # print Copilot review status (agent/CI use)
 rinse start <pr>   # start review loop non-interactively (no TTY)
+rinse run <pr>     # native Go runner — NDJSON lifecycle events (CI)
+rinse opt-in       # enable session stats collection (required for stats/report)
+rinse opt-out      # disable session stats collection
 rinse --version    # print installed version
 rinse --help       # show full help
 ```
@@ -138,7 +142,7 @@ $ rinse predict
 
 AST-based analysis — no network call, no LLM. Confidence scores tell you which issues Copilot is most likely to flag. Fix the high-confidence ones before review, ship cleaner PRs.
 
-**Pro (v0.4):** `rinse predict --interactive` opens a TUI review loop so you can fix predictions in-terminal. `rinse predict --doc-drift` uses an LLM to detect where your docs have drifted from your code.
+**Pro (v0.4):** `rinse predict --interactive` (or `-i`) opens a TUI review loop so you can step through predictions and fix or open each one in your editor (`e` to open in `$EDITOR`). `rinse predict --doc-drift` uses an LLM to detect where your docs have drifted from your code.
 
 ### `rinse init`
 
@@ -281,13 +285,44 @@ Notifications are best-effort — a failure to notify never interrupts or fails 
 
 ## 🤖 CI / pipeline usage
 
-`rinse start` and `rinse status` are designed for non-interactive use in agent pipelines and CI.
+`rinse start`, `rinse run`, and `rinse status` are designed for non-interactive use in agent pipelines and CI.
+
+### Run the review loop in CI
+
+**`rinse run`** is the preferred CI command — it's the native Go runner with structured NDJSON output, no shell-script wrapper, and automatic JSON mode when stdout is not a TTY:
+
+```bash
+# Stream NDJSON lifecycle events on stdout, exit with structured result
+rinse run 42 --repo owner/repo --json
+```
+
+Each output line is a JSON event (`phase`, `iteration_start`, `poll`, `iteration_complete`, `done`, `error`). See `rinse --help` for the full event schema.
+
+Exit codes: `0` = approved · `1` = max iterations · `2` = error
+
+**`rinse start`** wraps the shell-script runners and is useful when you need the `claude` runner or want shell-level output:
+
+```bash
+rinse start 42 --repo owner/repo --json
+```
 
 ### Check PR status
 
 ```bash
 # Human-readable
 rinse status 42 --repo owner/repo
+
+# Machine-readable (for scripts and pipelines)
+rinse status 42 --repo owner/repo --json
+```
+
+JSON schema:
+```json
+{"ok": true,  "pr": "42", "repo": "owner/repo", "status": "approved"}
+{"ok": false, "pr": "42", "repo": "owner/repo", "status": "error", "error": "..."}
+```
+
+`status` values: `approved` · `pending` · `new_review` · `no_reviews` · `merged` · `closed` · `error`
 
 ---
 
@@ -316,40 +351,6 @@ When Copilot comments on an ignored path, RINSE:
 
 ---
 
-## Commands
-
-```
-rinse              Launch the interactive PR picker
-rinse stats        Show session history and time-saved metrics
-rinse --version    Print the installed version
-rinse --help       Show this help
-```
-
-JSON schema:
-```json
-{"ok": true,  "pr": "42", "repo": "owner/repo", "status": "approved"}
-{"ok": false, "pr": "42", "repo": "owner/repo", "status": "error", "error": "..."}
-```
-
-`status` values: `approved` · `pending` · `new_review` · `no_reviews` · `merged` · `closed` · `error`
-
-### Run the fix loop non-interactively
-
-```bash
-# Stream output to stderr, capture JSON result on stdout
-rinse start 42 --repo owner/repo --json 2>rinse.log
-```
-
-JSON schema:
-```json
-{"ok": true,  "pr": "42", "repo": "owner/repo", "runner": "opencode", "model": "github-copilot/claude-sonnet-4.6", "exit_code": 0}
-{"ok": false, "pr": "42", "repo": "owner/repo", "runner": "opencode", "model": "",                                   "exit_code": 1, "error": "runner failed"}
-```
-
-Add `--notify` to get a desktop notification when the cycle finishes (macOS / Linux; no-op in headless).
-
----
-
 ## 🤝 Contributing
 
 1. Fork the repo and create a branch: `git checkout -b feat/my-change`
@@ -362,7 +363,7 @@ Add `--notify` to get a desktop notification when the cycle finishes (macOS / Li
 
 - TUI source is in `internal/tui/` (Go + Charm Bubble Tea)
 - Run `make` to build, `make install` to install locally
-- Logs: shell script runner logs land in `~/.pr-review/logs/<owner_repo>-pr-<n>.log`; Go binary session data is stored in `~/.rinse/sessions/`
+- Logs: session data is stored in `~/.rinse/sessions/`; shell script runner logs land in `~/.pr-review/logs/` (set `RINSE_SCRIPT_DIR` to your local `scripts/` dir if needed)
 
 ---
 
