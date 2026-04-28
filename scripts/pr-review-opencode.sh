@@ -76,6 +76,153 @@ source "${SCRIPT_DIR}/pr-review-session.sh"
 # shellcheck source=pr-review-stats.sh
 source "${SCRIPT_DIR}/pr-review-stats.sh"
 
+# ─── .rinseignore filtering ───────────────────────────────────────────────────
+#
+# Mirrors internal/ignore/ignore.go (the Go-side reference implementation).
+# Subset of .gitignore semantics: blank lines and #-comments skipped, glob
+# patterns matched against basename when the pattern has no "/", directory
+# prefix when the pattern ends with "/", and "**/" prefix supported.
+#
+# Three public functions:
+#   load_rinseignore <repo_root>
+#       Populates _RINSE_IGNORE_PATTERNS (newline-separated). Idempotent.
+#       No-op when <repo_root>/.rinseignore is missing.
+#
+#   filter_comments_by_rinseignore <comments_json>
+#       Partitions a JSON array of comment objects into (active, skipped) by
+#       ".path" against loaded patterns. Writes results to two global
+#       variables — _RINSE_ACTIVE_JSON and _RINSE_SKIPPED_JSON — because
+#       bash command substitution strips NUL bytes, so a single-value
+#       stdout protocol cannot reliably return two JSON arrays.
+#
+#   acknowledge_ignored_comments <repo> <pr> <skipped_json>
+#       Posts a "Skipped — file is excluded by .rinseignore" reply to each
+#       skipped top-level comment via gh api. Best-effort; failures are
+#       logged but never fatal.
+#
+# Implemented after sourcing pr-review-stats.sh so all utilities (log, gum)
+# from earlier sources are available, but before the runner main loop.
+
+_RINSE_IGNORE_PATTERNS=""
+_RINSE_ACTIVE_JSON="[]"
+_RINSE_SKIPPED_JSON="[]"
+
+load_rinseignore() {
+  local repo_root="${1:-$PWD}"
+  local file="${repo_root}/.rinseignore"
+  _RINSE_IGNORE_PATTERNS=""
+  [[ -f "$file" ]] || return 0
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    # Strip CR (Windows line endings) and trailing whitespace.
+    line="${line%$'\r'}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [[ -z "$line" || "${line:0:1}" == "#" ]] && continue
+    _RINSE_IGNORE_PATTERNS+="${line}"$'\n'
+  done < "$file"
+}
+
+# _rinse_path_matches_ignore <path>
+# Returns 0 if the path matches any loaded pattern, 1 otherwise.
+_rinse_path_matches_ignore() {
+  local path="$1"
+  [[ -z "${_RINSE_IGNORE_PATTERNS:-}" ]] && return 1
+  # Strip leading "./" for normalisation (mirrors Go Matches()).
+  path="${path#./}"
+  local base="${path##*/}"
+  local pat
+  while IFS= read -r pat; do
+    [[ -z "$pat" ]] && continue
+    # Directory prefix pattern (ends with "/").
+    if [[ "${pat: -1}" == "/" ]]; then
+      local dir="${pat%/}"
+      if [[ "$path" == "$dir" || "$path" == "$dir"/* ]]; then
+        return 0
+      fi
+      continue
+    fi
+    # Pattern without "/" — match basename (gitignore behavior).
+    if [[ "$pat" != */* ]]; then
+      # shellcheck disable=SC2053  # intentional glob, not literal
+      if [[ "$base" == $pat ]]; then
+        return 0
+      fi
+    fi
+    # Full-path glob.
+    # shellcheck disable=SC2053
+    if [[ "$path" == $pat ]]; then
+      return 0
+    fi
+    # "**/" prefix — match suffix anywhere in the path.
+    if [[ "$pat" == \*\*/* ]]; then
+      local suffix="${pat#**/}"
+      # shellcheck disable=SC2053
+      if [[ "$path" == "$suffix" || "$path" == */"$suffix" ]]; then
+        return 0
+      fi
+    fi
+  done <<< "$_RINSE_IGNORE_PATTERNS"
+  return 1
+}
+
+filter_comments_by_rinseignore() {
+  local comments_json="${1:-[]}"
+  _RINSE_ACTIVE_JSON="[]"
+  _RINSE_SKIPPED_JSON="[]"
+
+  # Fast path: no patterns loaded → everything is active, nothing skipped.
+  if [[ -z "${_RINSE_IGNORE_PATTERNS:-}" ]]; then
+    _RINSE_ACTIVE_JSON="$comments_json"
+    return 0
+  fi
+
+  local count
+  count="$(echo "$comments_json" | jq 'length')"
+  if [[ "$count" -eq 0 ]]; then
+    return 0
+  fi
+
+  local active_indices=() skipped_indices=()
+  local i path
+  for ((i = 0; i < count; i++)); do
+    path="$(echo "$comments_json" | jq -r ".[$i].path // empty")"
+    if [[ -n "$path" ]] && _rinse_path_matches_ignore "$path"; then
+      skipped_indices+=("$i")
+    else
+      active_indices+=("$i")
+    fi
+  done
+
+  local active_idx_json='[]' skipped_idx_json='[]'
+  if [[ ${#active_indices[@]} -gt 0 ]]; then
+    active_idx_json="[$(IFS=,; echo "${active_indices[*]}")]"
+  fi
+  if [[ ${#skipped_indices[@]} -gt 0 ]]; then
+    skipped_idx_json="[$(IFS=,; echo "${skipped_indices[*]}")]"
+  fi
+
+  _RINSE_ACTIVE_JSON="$(echo "$comments_json" | jq --argjson idx "$active_idx_json" '[ .[$idx[]] ]')"
+  _RINSE_SKIPPED_JSON="$(echo "$comments_json" | jq --argjson idx "$skipped_idx_json" '[ .[$idx[]] ]')"
+}
+
+acknowledge_ignored_comments() {
+  local repo="$1" pr="$2" skipped_json="$3"
+  local n
+  n="$(echo "$skipped_json" | jq 'length' 2>/dev/null || echo 0)"
+  [[ "$n" -eq 0 ]] && return 0
+
+  local i comment_id
+  for ((i = 0; i < n; i++)); do
+    comment_id="$(echo "$skipped_json" | jq -r ".[$i].id // empty")"
+    [[ -z "$comment_id" ]] && continue
+    # Reply to the top-level comment thread; best-effort, never fatal.
+    gh api "repos/${repo}/pulls/${pr}/comments/${comment_id}/replies" \
+      -X POST \
+      -f body="Skipped — file is excluded by .rinseignore" \
+      >/dev/null 2>&1 || true
+  done
+}
+
 # ─── Args ─────────────────────────────────────────────────────────────────────
 
 if [[ $# -lt 1 || "$1" == "--help" || "$1" == "-h" ]]; then
@@ -725,9 +872,11 @@ while true; do
   load_rinseignore "$CWD"
 
   # Apply .rinseignore filtering: split into active (to fix) and skipped (to acknowledge).
-  filter_output=$(filter_comments_by_rinseignore "$(echo "$comments" | jq '.')")
-  active_comments_json="${filter_output%%$'\0'*}"
-  skipped_comments_json="${filter_output#*$'\0'}"
+  # The function writes results to global out-vars _RINSE_ACTIVE_JSON / _RINSE_SKIPPED_JSON
+  # because bash $() strips NUL bytes — a stdout-based two-value return is unreliable.
+  filter_comments_by_rinseignore "$(echo "$comments" | jq '.')"
+  active_comments_json="$_RINSE_ACTIVE_JSON"
+  skipped_comments_json="$_RINSE_SKIPPED_JSON"
 
   skipped_count=$(echo "$skipped_comments_json" | jq 'length')
   active_count=$(echo "$active_comments_json" | jq '[.[] | select(.in_reply_to_id == null)] | length')
