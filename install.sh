@@ -67,9 +67,19 @@ echo "Installed → $INSTALL_DIR/$BINARY"
 # automatically (binDir/scripts/ is part of the script-resolution search path).
 if [[ -d "$SCRIPT_DIR/scripts" ]]; then
   mkdir -p "$SCRIPTS_INSTALL_DIR"
-  cp "$SCRIPT_DIR/scripts/"*.sh "$SCRIPTS_INSTALL_DIR/"
-  chmod +x "$SCRIPTS_INSTALL_DIR/"*.sh
-  echo "Scripts   → $SCRIPTS_INSTALL_DIR/"
+  installed_any_scripts=false
+  for script in "$SCRIPT_DIR/scripts/"*.sh; do
+    [[ -e "$script" ]] || continue
+    if [[ "$(basename "$script")" == "pr-review-launch.sh" ]]; then
+      continue
+    fi
+    cp "$script" "$SCRIPTS_INSTALL_DIR/"
+    chmod +x "$SCRIPTS_INSTALL_DIR/$(basename "$script")"
+    installed_any_scripts=true
+  done
+  if [[ "$installed_any_scripts" == true ]]; then
+    echo "Scripts   → $SCRIPTS_INSTALL_DIR/"
+  fi
 fi
 
 # ── Shell PATH hint ───────────────────────────────────────────────────────────
