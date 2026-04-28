@@ -136,7 +136,12 @@ _stats_check_optin() {
     read -r -p "  Enable local stats? [y/N] " _answer </dev/tty || true
     echo ""
 
-    case "${_answer,,}" in
+    # Lowercase via tr for Bash 3.2 compatibility (macOS ships /bin/bash 3.2;
+    # ${var,,} requires Bash 4+).
+    local _answer_lc
+    _answer_lc="$(printf '%s' "$_answer" | tr '[:upper:]' '[:lower:]')"
+
+    case "$_answer_lc" in
       y|yes)
         export RINSE_STATS_ENABLED="true"
         if ! _rinse_config_set "stats_enabled" "true"; then
