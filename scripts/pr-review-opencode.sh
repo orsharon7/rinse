@@ -89,9 +89,11 @@ source "${SCRIPT_DIR}/pr-review-stats.sh"
 #       No-op when <repo_root>/.rinseignore is missing.
 #
 #   filter_comments_by_rinseignore <comments_json>
-#       Reads a JSON array of comment objects on stdin/argv, partitions into
-#       (active, skipped) by ".path" against loaded patterns, and writes
-#       <active_json>\0<skipped_json> to stdout.
+#       Partitions a JSON array of comment objects into (active, skipped) by
+#       ".path" against loaded patterns. Writes results to two global
+#       variables — _RINSE_ACTIVE_JSON and _RINSE_SKIPPED_JSON — because
+#       bash command substitution strips NUL bytes, so a single-value
+#       stdout protocol cannot reliably return two JSON arrays.
 #
 #   acknowledge_ignored_comments <repo> <pr> <skipped_json>
 #       Posts a "Skipped — file is excluded by .rinseignore" reply to each
@@ -102,6 +104,8 @@ source "${SCRIPT_DIR}/pr-review-stats.sh"
 # from earlier sources are available, but before the runner main loop.
 
 _RINSE_IGNORE_PATTERNS=""
+_RINSE_ACTIVE_JSON="[]"
+_RINSE_SKIPPED_JSON="[]"
 
 load_rinseignore() {
   local repo_root="${1:-$PWD}"
@@ -163,16 +167,18 @@ _rinse_path_matches_ignore() {
 
 filter_comments_by_rinseignore() {
   local comments_json="${1:-[]}"
+  _RINSE_ACTIVE_JSON="[]"
+  _RINSE_SKIPPED_JSON="[]"
+
   # Fast path: no patterns loaded → everything is active, nothing skipped.
   if [[ -z "${_RINSE_IGNORE_PATTERNS:-}" ]]; then
-    printf '%s\0%s' "$comments_json" "[]"
+    _RINSE_ACTIVE_JSON="$comments_json"
     return 0
   fi
 
   local count
   count="$(echo "$comments_json" | jq 'length')"
   if [[ "$count" -eq 0 ]]; then
-    printf '%s\0%s' "[]" "[]"
     return 0
   fi
 
@@ -195,10 +201,8 @@ filter_comments_by_rinseignore() {
     skipped_idx_json="[$(IFS=,; echo "${skipped_indices[*]}")]"
   fi
 
-  local active_json skipped_json
-  active_json="$(echo "$comments_json" | jq --argjson idx "$active_idx_json" '[ .[$idx[]] ]')"
-  skipped_json="$(echo "$comments_json" | jq --argjson idx "$skipped_idx_json" '[ .[$idx[]] ]')"
-  printf '%s\0%s' "$active_json" "$skipped_json"
+  _RINSE_ACTIVE_JSON="$(echo "$comments_json" | jq --argjson idx "$active_idx_json" '[ .[$idx[]] ]')"
+  _RINSE_SKIPPED_JSON="$(echo "$comments_json" | jq --argjson idx "$skipped_idx_json" '[ .[$idx[]] ]')"
 }
 
 acknowledge_ignored_comments() {
@@ -868,9 +872,11 @@ while true; do
   load_rinseignore "$CWD"
 
   # Apply .rinseignore filtering: split into active (to fix) and skipped (to acknowledge).
-  filter_output=$(filter_comments_by_rinseignore "$(echo "$comments" | jq '.')")
-  active_comments_json="${filter_output%%$'\0'*}"
-  skipped_comments_json="${filter_output#*$'\0'}"
+  # The function writes results to global out-vars _RINSE_ACTIVE_JSON / _RINSE_SKIPPED_JSON
+  # because bash $() strips NUL bytes — a stdout-based two-value return is unreliable.
+  filter_comments_by_rinseignore "$(echo "$comments" | jq '.')"
+  active_comments_json="$_RINSE_ACTIVE_JSON"
+  skipped_comments_json="$_RINSE_SKIPPED_JSON"
 
   skipped_count=$(echo "$skipped_comments_json" | jq 'length')
   active_count=$(echo "$active_comments_json" | jq '[.[] | select(.in_reply_to_id == null)] | length')
