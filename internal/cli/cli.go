@@ -250,8 +250,10 @@ func renderStatusBadge(status string) string {
 // Possible values: approved / pending / new_review / merged / closed / no_reviews / error
 func queryPRStatus(repo, prNum string) (string, error) {
 	type ghPR struct {
+		// gh's PR state is one of OPEN / CLOSED / MERGED. There is no separate
+		// boolean "merged" field — historic versions of this code requested it
+		// and crashed every fresh-user invocation with "Unknown JSON field".
 		State          string `json:"state"`
-		Merged         bool   `json:"merged"`
 		ReviewDecision string `json:"reviewDecision"`
 		Reviews        []struct {
 			Author struct {
@@ -261,11 +263,18 @@ func queryPRStatus(repo, prNum string) (string, error) {
 		} `json:"reviews"`
 	}
 
-	out, err := exec.Command("gh", "pr", "view", prNum,
+	cmd := exec.Command("gh", "pr", "view", prNum,
 		"--repo", repo,
-		"--json", "state,merged,reviewDecision,reviews",
-	).Output()
+		"--json", "state,reviewDecision,reviews",
+	)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg != "" {
+			return "error", fmt.Errorf("gh pr view: %w: %s", err, msg)
+		}
 		return "error", fmt.Errorf("gh pr view: %w", err)
 	}
 
@@ -274,10 +283,10 @@ func queryPRStatus(repo, prNum string) (string, error) {
 		return "error", fmt.Errorf("parse gh output: %w", err)
 	}
 
-	if p.Merged {
+	switch strings.ToUpper(p.State) {
+	case "MERGED":
 		return "merged", nil
-	}
-	if strings.EqualFold(p.State, "closed") {
+	case "CLOSED":
 		return "closed", nil
 	}
 
