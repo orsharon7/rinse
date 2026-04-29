@@ -6,6 +6,10 @@ LDFLAGS := -ldflags "-X main.version=$(VERSION)"
 
 ## build: compile the binary for the current platform
 build:
+	@# A stale `rinse/` directory (e.g. from an old phantom-gitlink checkout)
+	@# would cause `go build -o rinse` to drop the binary inside it as
+	@# `rinse/rinse`, which then breaks `install`.
+	@if [ -d $(BINARY) ]; then rm -rf $(BINARY); fi
 	go build $(LDFLAGS) -o $(BINARY) .
 
 ## install: build and install to INSTALL_DIR (default: ~/.local/bin)
