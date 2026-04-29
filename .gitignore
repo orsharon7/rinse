@@ -2,6 +2,8 @@
 /tmp/pr-review-state/
 
 # Build artifacts
+/rinse
+/dist/
 tui/rinse
 tui/dist/
 

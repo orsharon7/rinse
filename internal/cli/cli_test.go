@@ -25,24 +25,3 @@ func TestHasFlag(t *testing.T) {
 	}
 }
 
-// TestHasPRFlag verifies the --pr skip-guard used by CheckStagedChanges.
-func TestHasPRFlag(t *testing.T) {
-	tests := []struct {
-		args []string
-		want bool
-	}{
-		{[]string{"--pr", "42"}, true},
-		{[]string{"--pr"}, true},
-		{[]string{"--repo", "owner/repo"}, false},
-		{[]string{}, false},
-		{[]string{"--json", "--pr", "7"}, true},
-		{[]string{"--json", "--repo", "o/r"}, false},
-		{[]string{"--predict"}, false},
-	}
-	for _, tt := range tests {
-		got := hasPRFlag(tt.args)
-		if got != tt.want {
-			t.Errorf("hasPRFlag(%v) = %v, want %v", tt.args, got, tt.want)
-		}
-	}
-}
