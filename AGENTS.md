@@ -5,7 +5,7 @@ Project instructions for AI coding agents.
 <!-- BEGIN:COPILOT-RULES -->
 ## Coding Guidelines (AI-maintained)
 *Auto-updated by pr-review-reflect — do not edit this section manually.*
-*Last updated: 2026-04-15 from PR #22 review*
+*Last updated: 2026-05-08 from PR #263 review*
 
 ### Shell Scripting
 - Read interactive input from `/dev/tty`; render UI output to stderr.
@@ -77,6 +77,8 @@ Project instructions for AI coding agents.
 - **Module hygiene:** Run `go mod tidy` before committing; direct imports must not be `// indirect`. Every `-X pkg.Symbol=value` LDFLAGS symbol must be declared as a `var`. No unreferenced package-level identifiers. Use `filepath.Dir()`/`filepath.Join()`; rune-aware truncation for user-visible strings.
 - **Config & maps:** Initialize fields most-specific-first (per-repo before global). Use explicit `ok` from map lookup; never treat zero values as "unset". Use scoped values verbatim; never merge with globals via `||`. Never persist a field without reading it back. Guard map writes against empty keys; parse input into canonical form before deriving values.
 - **Log/text parsing:** Anchor numeric extraction to a known prefix/suffix; never scan all whitespace-delimited tokens.
+- **Loop boundaries:** Always verify the starting index of iteration loops; off-by-one errors (e.g. starting at index 1 instead of 0) silently exclude the first element from aggregations like sums and averages.
+- **Predicate logic:** When a function scans a collection for a match, return `true` on the matching condition (`item == target`), not the inverse; an inverted predicate almost always returns the wrong result.
 
 ### Python
 - **Safety & initialization:** Guard boolean aggregates against empty collections. Initialize closure-captured accumulators before first use. If a docstring says "Never raises", wrap all code paths including pre-`try` operations.
