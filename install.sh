@@ -37,7 +37,7 @@ case "$OS" in
     ;;
 esac
 
-DIST_BINARY="$SCRIPT_DIR/tui/dist/${BINARY}-${OS}-${ARCH}"
+DIST_BINARY="$SCRIPT_DIR/dist/${BINARY}-${OS}-${ARCH}"
 
 # ── Install ───────────────────────────────────────────────────────────────────
 mkdir -p "$INSTALL_DIR"
@@ -52,20 +52,22 @@ else
     exit 1
   fi
   VERSION="$(git -C "$SCRIPT_DIR" describe --tags --always --dirty 2>/dev/null || echo "dev")"
-  (cd "$SCRIPT_DIR/tui" && go build -ldflags "-X main.version=$VERSION" -o "$INSTALL_DIR/$BINARY" .)
+  (cd "$SCRIPT_DIR" && go build -ldflags "-X main.version=$VERSION" -o "$INSTALL_DIR/$BINARY" .)
 fi
 
 echo "Installed → $INSTALL_DIR/$BINARY"
 
-# ── Install pr-review scripts alongside the binary ────────────────────────────
-# Copy the pr-review/ helper scripts into $INSTALL_DIR/pr-review/ so the
+# ── Install runner scripts alongside the binary ───────────────────────────────
+# Copy the scripts/ helper scripts into $INSTALL_DIR/rinse-scripts/ so the
 # installed command works regardless of where this repo lives or whether it is
-# deleted after installation.
-PR_REVIEW_INSTALL_DIR="$INSTALL_DIR/pr-review"
-mkdir -p "$PR_REVIEW_INSTALL_DIR"
-cp "$SCRIPT_DIR/pr-review/"*.sh "$PR_REVIEW_INSTALL_DIR/"
-chmod +x "$PR_REVIEW_INSTALL_DIR/"*.sh
-echo "Scripts    → $PR_REVIEW_INSTALL_DIR/"
+# deleted after installation. The binary discovers them via RINSE_SCRIPT_DIR.
+RINSE_SCRIPT_INSTALL_DIR="$INSTALL_DIR/rinse-scripts"
+if [[ -d "$SCRIPT_DIR/scripts" ]]; then
+  mkdir -p "$RINSE_SCRIPT_INSTALL_DIR"
+  cp "$SCRIPT_DIR/scripts/"*.sh "$RINSE_SCRIPT_INSTALL_DIR/"
+  chmod +x "$RINSE_SCRIPT_INSTALL_DIR/"*.sh
+  echo "Scripts    → $RINSE_SCRIPT_INSTALL_DIR/"
+fi
 
 # ── Shell hint ────────────────────────────────────────────────────────────────
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
@@ -76,14 +78,11 @@ if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
 fi
 
 # ── Wrapper script hint ───────────────────────────────────────────────────────
-WRAPPER="$INSTALL_DIR/pr-review"
-if [[ ! -f "$WRAPPER" ]]; then
+WRAPPER="$INSTALL_DIR/rinse-launch"
+if [[ -d "$RINSE_SCRIPT_INSTALL_DIR" && ! -f "$WRAPPER" ]]; then
   cat > "$WRAPPER" <<WRAPPER_EOF
 #!/usr/bin/env bash
-# pr-review — thin wrapper that sets PR_REVIEW_SCRIPT_DIR and launches the TUI
-# PR_REVIEW_SCRIPT_DIR points to the scripts installed alongside this binary,
-# so it works even if the original repo is moved or deleted.
-export PR_REVIEW_SCRIPT_DIR="$INSTALL_DIR/pr-review"
+export RINSE_SCRIPT_DIR="$RINSE_SCRIPT_INSTALL_DIR"
 exec "$INSTALL_DIR/$BINARY" "\$@"
 WRAPPER_EOF
   chmod +x "$WRAPPER"
@@ -91,4 +90,4 @@ WRAPPER_EOF
 fi
 
 echo ""
-echo "Done! Run:  pr-review"
+echo "Done! Run:  rinse"
