@@ -216,30 +216,14 @@ func (m wizModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.creatingCycle = false
 		m.cycleCancel = nil
 		m.cycleName = msg.cycleName
-		// Save step D synchronously before moving to E so a later Step E save
-		// cannot be overwritten by an earlier async write finishing late.
-		s := onboarding.State{
-			Version:        onboarding.StateVersion,
-			CompletedStep:  onboarding.StepD,
-			CycleNameDraft: m.cycleName,
-			Defaults: onboarding.Defaults{
-				RemindOnComplete: m.remindOnComplete,
-				AutoAdvance:      m.autoAdvance,
-				SaveHistory:      m.saveHistory,
-			},
-		}
-		if err := onboarding.SaveState(s); err != nil {
-			fmt.Fprintf(os.Stderr, "rinse: state write: %v\n", err)
-		}
-		m.view = wizStepE
-		if len(m.celebFrames) > 1 {
-			return m, tea.Tick(120*time.Millisecond, func(t time.Time) tea.Msg { return wizCelebFrameMsg{} })
-		}
-		return m, nil
+		return m.advanceToStepE()
 
 	case wizCycleErrMsg:
 		m.creatingCycle = false
 		m.cycleCancel = nil
+		if onboarding.IsOfflineErr(msg.err) {
+			return m.advanceStepDOffline()
+		}
 		m.cycleErr = friendlyCycleErr(msg.err)
 		return m, nil
 
@@ -638,6 +622,15 @@ func (m wizModel) handleStepDKey(msg tea.KeyMsg) (wizModel, tea.Cmd) {
 		m.cycleErr = ""
 		return m, nil
 
+	case key.Matches(msg, Keys.WizSkipStep):
+		// Escape hatch (issue #257): when CreateCycle has failed, allow the
+		// user to skip past Step D so they are not stranded in onboarding.
+		// Only meaningful while an error is shown; ignored otherwise.
+		if m.cycleErr == "" {
+			return m, nil
+		}
+		return m.advanceStepDOffline()
+
 	case key.Matches(msg, Keys.Confirm) || key.Matches(msg, Keys.WizStart): // "Start cycle"
 		m.creatingCycle = true
 		m.cycleErr = ""
@@ -988,11 +981,14 @@ func (m wizModel) renderStepD() string {
 	var errLine string
 	if m.cycleErr != "" {
 		errLine = "\n" + theme.StyleErr.Render("  "+theme.IconCross+" "+m.cycleErr) +
-			"\n" + theme.StyleMuted.Render("  press enter to try again")
+			"\n" + theme.StyleMuted.Render("  press enter to try again, or n to skip")
 	}
 
 	footer := theme.StyleMuted.Render("  You can always change these settings later.")
 	hints := "\n" + theme.StyleMuted.Render("  enter start  a adjust  q quit")
+	if m.cycleErr != "" {
+		hints = "\n" + theme.StyleMuted.Render("  enter retry  n skip  a adjust  q quit")
+	}
 
 	return box.Render(progress + "\n\n" + headline + "\n\n" + card + actions + errLine + "\n" + footer + hints)
 }
@@ -1095,6 +1091,40 @@ func friendlyCycleErr(err error) string {
 	default:
 		return "Something went wrong creating the cycle. Please try again."
 	}
+}
+
+// advanceToStepE persists Step D state synchronously and transitions to Step E.
+// Synchronous save (vs. saveStepCmd) prevents an in-flight async write from
+// landing after the Step E save and clobbering completion state.
+func (m wizModel) advanceToStepE() (wizModel, tea.Cmd) {
+	s := onboarding.State{
+		Version:        onboarding.StateVersion,
+		CompletedStep:  onboarding.StepD,
+		CycleNameDraft: m.cycleName,
+		Defaults: onboarding.Defaults{
+			RemindOnComplete: m.remindOnComplete,
+			AutoAdvance:      m.autoAdvance,
+			SaveHistory:      m.saveHistory,
+		},
+	}
+	if err := onboarding.SaveState(s); err != nil {
+		fmt.Fprintf(os.Stderr, "rinse: state write: %v\n", err)
+	}
+	m.view = wizStepE
+	m.cycleErr = ""
+	if len(m.celebFrames) > 1 {
+		return m, tea.Tick(120*time.Millisecond, func(t time.Time) tea.Msg { return wizCelebFrameMsg{} })
+	}
+	return m, nil
+}
+
+// advanceStepDOffline is the offline / skip path for Step D (issue #257).
+// Used when CreateCycle fails because no backend is reachable (OSS default),
+// or when the user explicitly skips past a non-transport error. The wizard
+// completes onboarding without a server-issued cycle ID; the user can create
+// real cycles later once a backend is configured.
+func (m wizModel) advanceStepDOffline() (wizModel, tea.Cmd) {
+	return m.advanceToStepE()
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
