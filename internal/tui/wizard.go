@@ -571,6 +571,7 @@ func (m model) buildCmd() ([]string, error) {
 		candidates := []string{
 			filepath.Join(binDir, "scripts"),
 			filepath.Join(binDir, "..", "scripts"),
+			filepath.Join(binDir, "..", "libexec"),
 			filepath.Join(binDir, "pr-review"),
 			filepath.Join(binDir, "..", "pr-review"),
 			binDir,

@@ -882,7 +882,7 @@ func fetchDiff(pr int, repo string) (string, error) {
 //
 //  1. $RINSE_SCRIPT_DIR
 //  2. $PR_REVIEW_SCRIPT_DIR  (legacy alias)
-//  3. <binDir>/scripts/, <binDir>/../scripts/, <binDir>/  (install layouts)
+//  3. <binDir>/scripts/, <binDir>/../scripts/, <binDir>/../libexec/, <binDir>/  (install layouts)
 func resolveScript(scriptName string) (string, error) {
 	scriptDir := os.Getenv("RINSE_SCRIPT_DIR")
 	if scriptDir == "" {
@@ -897,6 +897,7 @@ func resolveScript(scriptName string) (string, error) {
 		candidates := []string{
 			filepath.Join(binDir, "scripts"),
 			filepath.Join(binDir, "..", "scripts"),
+			filepath.Join(binDir, "..", "libexec"),
 			filepath.Join(binDir, "pr-review"),
 			filepath.Join(binDir, "..", "pr-review"),
 			binDir,
