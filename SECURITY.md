@@ -36,7 +36,6 @@ RINSE runs locally on your machine and communicates with GitHub via `gh` CLI and
 - **Local file access** — RINSE reads `.rinse.json`, `~/.rinse/`, and git worktrees
 - **Shell invocation** — RINSE shells out to `gh`, `git`, `opencode`, and `claude`
 - **GitHub API** — RINSE calls GitHub REST and GraphQL APIs via `gh` (your token, your permissions)
-- **Webhook delivery** — `RINSE_WEBHOOK_URL` receives a JSON POST after each cycle; ensure the endpoint is trusted
 
 Out of scope: vulnerabilities in `gh`, `opencode`, `claude`, or GitHub itself.
 
