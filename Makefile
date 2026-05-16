@@ -6,6 +6,7 @@ LDFLAGS := -ldflags "-X main.version=$(VERSION)"
 
 ## build: compile the binary for the current platform
 build:
+	@if [ -d $(BINARY) ]; then rm -rf $(BINARY); fi
 	go build $(LDFLAGS) -o $(BINARY) .
 
 ## install: build and install to INSTALL_DIR (default: ~/.local/bin)

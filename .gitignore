@@ -2,8 +2,8 @@
 /tmp/pr-review-state/
 
 # Build artifacts
-tui/rinse
-tui/dist/
+/rinse
+/dist/
 
 # Local settings overrides
 .claude/settings.local.json
