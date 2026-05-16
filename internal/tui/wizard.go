@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -20,6 +21,26 @@ import (
 // ── Splash timer message ──────────────────────────────────────────────────────
 
 type splashDoneMsg struct{}
+
+// ── Model list messages ───────────────────────────────────────────────────────
+
+type modelsLoadedMsg []string
+
+func fetchModelsCmd() tea.Cmd {
+	return func() tea.Msg {
+		out, err := exec.Command("opencode", "models").Output()
+		if err != nil {
+			return modelsLoadedMsg(nil)
+		}
+		var models []string
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			if s := strings.TrimSpace(line); s != "" {
+				models = append(models, s)
+			}
+		}
+		return modelsLoadedMsg(models)
+	}
+}
 
 // ── Model ─────────────────────────────────────────────────────────────────────
 
@@ -68,6 +89,12 @@ type model struct {
 	settingsEditingModel  bool
 	settingsEditingBranch bool
 	settingsBranchEdited  bool
+
+	// model picker (opencode runner only)
+	availableModels    []string
+	modelsLoading      bool
+	settingsPickingModel bool
+	settingsModelCursor  int
 
 	// selected PR
 	prNum   string
@@ -250,6 +277,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case modelsLoadedMsg:
+		m.modelsLoading = false
+		m.availableModels = []string(msg)
+		return m, nil
+
 	case currentBranchMsg:
 		m.currentBranch = string(msg)
 		if len(m.prs) > 0 && m.currentBranch != "" {
@@ -296,7 +328,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// '?' toggles the help overlay in any non-splash, non-text-input view.
 	if key.Matches(msg, Keys.Help) &&
-		m.view != viewSplash && m.view != viewManualPR && !m.settingsEditingModel && !m.settingsEditingBranch {
+		m.view != viewSplash && m.view != viewManualPR && !m.settingsEditingModel && !m.settingsEditingBranch && !m.settingsPickingModel {
 		m.showHelp = !m.showHelp
 		m.help.ShowAll = m.showHelp
 		return m, nil
@@ -421,10 +453,40 @@ func (m model) openSettings() (model, tea.Cmd) {
 	m.settingsEditingModel = false
 	m.settingsEditingBranch = false
 	m.settingsBranchEdited = false
-	return m, nil
+	m.settingsPickingModel = false
+
+	var cmd tea.Cmd
+	if runners[m.runnerIdx].name == "opencode" && len(m.availableModels) == 0 && !m.modelsLoading {
+		m.modelsLoading = true
+		cmd = fetchModelsCmd()
+	}
+	return m, cmd
 }
 
 func (m model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.settingsPickingModel {
+		switch {
+		case key.Matches(msg, Keys.Back):
+			m.settingsPickingModel = false
+			return m, nil
+		case key.Matches(msg, Keys.Confirm):
+			if m.settingsModelCursor < len(m.availableModels) {
+				chosen := m.availableModels[m.settingsModelCursor]
+				m.settingsModelInput.SetValue(chosen)
+			}
+			m.settingsPickingModel = false
+			return m, nil
+		case key.Matches(msg, Keys.Up):
+			if m.settingsModelCursor > 0 {
+				m.settingsModelCursor--
+			}
+		case key.Matches(msg, Keys.Down):
+			if m.settingsModelCursor < len(m.availableModels)-1 {
+				m.settingsModelCursor++
+			}
+		}
+		return m, nil
+	}
 	if m.settingsEditingModel {
 		switch {
 		case key.Matches(msg, Keys.Confirm), key.Matches(msg, Keys.Back):
@@ -471,11 +533,21 @@ func (m model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.settingsFocus == sfRunner && m.settingsRunnerIdx > 0 {
 			m.settingsRunnerIdx--
 			m.settingsModelInput.Placeholder = runners[m.settingsRunnerIdx].defaultModel
+			m.settingsPickingModel = false
+			if runners[m.settingsRunnerIdx].name == "opencode" && len(m.availableModels) == 0 && !m.modelsLoading {
+				m.modelsLoading = true
+				return m, fetchModelsCmd()
+			}
 		}
 	case key.Matches(msg, Keys.Right):
 		if m.settingsFocus == sfRunner && m.settingsRunnerIdx < len(runners)-1 {
 			m.settingsRunnerIdx++
 			m.settingsModelInput.Placeholder = runners[m.settingsRunnerIdx].defaultModel
+			m.settingsPickingModel = false
+			if runners[m.settingsRunnerIdx].name == "opencode" && len(m.availableModels) == 0 && !m.modelsLoading {
+				m.modelsLoading = true
+				return m, fetchModelsCmd()
+			}
 		}
 	case key.Matches(msg, Keys.Toggle):
 		switch m.settingsFocus {
@@ -492,6 +564,19 @@ func (m model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.settingsRunnerIdx = (m.settingsRunnerIdx + 1) % len(runners)
 			m.settingsModelInput.Placeholder = runners[m.settingsRunnerIdx].defaultModel
 		case sfModel:
+			if runners[m.settingsRunnerIdx].name == "opencode" && len(m.availableModels) > 0 {
+				// Pre-select the currently chosen model in the picker.
+				m.settingsModelCursor = 0
+				current := m.settingsModelInput.Value()
+				for i, mod := range m.availableModels {
+					if mod == current {
+						m.settingsModelCursor = i
+						break
+					}
+				}
+				m.settingsPickingModel = true
+				return m, nil
+			}
 			m.settingsEditingModel = true
 			m.settingsModelInput.Focus()
 			return m, textinput.Blink
@@ -1041,9 +1126,37 @@ func (m model) renderSettings() string {
 
 	// Model.
 	var modelVal string
-	if m.settingsEditingModel {
+	switch {
+	case m.settingsPickingModel:
+		const visible = 8
+		start := m.settingsModelCursor - visible/2
+		if start < 0 {
+			start = 0
+		}
+		if start+visible > len(m.availableModels) {
+			start = len(m.availableModels) - visible
+			if start < 0 {
+				start = 0
+			}
+		}
+		end := start + visible
+		if end > len(m.availableModels) {
+			end = len(m.availableModels)
+		}
+		var lines []string
+		for i := start; i < end; i++ {
+			if i == m.settingsModelCursor {
+				lines = append(lines, theme.StyleTeal.Render(theme.IconArrow+" "+m.availableModels[i]))
+			} else {
+				lines = append(lines, theme.StyleMuted.Render("  "+m.availableModels[i]))
+			}
+		}
+		modelVal = strings.Join(lines, "\n")
+	case m.settingsEditingModel:
 		modelVal = m.settingsModelInput.View()
-	} else {
+	case m.modelsLoading && runners[m.settingsRunnerIdx].name == "opencode":
+		modelVal = theme.StyleMuted.Render("  fetching models…")
+	default:
 		v := m.settingsModelInput.Value()
 		if v == "" {
 			modelVal = theme.StyleMuted.Render(runners[m.settingsRunnerIdx].defaultModel) +
