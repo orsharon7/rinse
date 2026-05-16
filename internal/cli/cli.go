@@ -893,6 +893,11 @@ func resolveScript(scriptName string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("could not determine script directory: %w", err)
 		}
+		// Resolve symlinks so bin/../libexec works under Homebrew, where
+		// /opt/homebrew/bin/rinse -> ../Cellar/rinse/<ver>/bin/rinse.
+		if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+			exe = resolved
+		}
 		binDir := filepath.Dir(exe)
 		candidates := []string{
 			filepath.Join(binDir, "scripts"),
