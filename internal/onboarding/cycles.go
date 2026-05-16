@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -98,4 +101,63 @@ func CreateCycle(ctx context.Context, name string, d Defaults) (*Cycle, error) {
 	}
 
 	return &cycle, nil
+}
+
+// IsOfflineErr reports whether err looks like a transport-level failure that
+// indicates no backend is reachable at the configured URL — connection
+// refused, no such host, network timeout, or context deadline. Used by the
+// onboarding wizard to treat the OSS default (no backend shipped) as
+// best-effort: the wizard advances without showing a fatal error.
+//
+// Non-transport failures (e.g. HTTP 4xx/5xx returned by a reachable server,
+// or a JSON parse error) are NOT classified as offline — those still surface
+// to the user, since they indicate a misconfigured or broken backend rather
+// than the absence of one.
+func IsOfflineErr(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Context cancellation / deadline reached before any response.
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+
+	// Common syscall errors when nothing is listening or the host is gone.
+	if errors.Is(err, syscall.ECONNREFUSED) ||
+		errors.Is(err, syscall.EHOSTUNREACH) ||
+		errors.Is(err, syscall.ENETUNREACH) {
+		return true
+	}
+
+	// Network operation errors (DNS, dial, timeout) wrap *net.OpError /
+	// *net.DNSError. Use errors.As so wrapped errors are caught too.
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return true
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+
+	// Fall-back string match for transport-level errors that do not surface
+	// a typed sentinel (e.g. http.Client's "connection refused" wrapped
+	// through url.Error on some platforms). Keep the list narrow — these
+	// are last-resort signals, not stylistic checks.
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "connection refused"),
+		strings.Contains(msg, "no such host"),
+		strings.Contains(msg, "i/o timeout"),
+		strings.Contains(msg, "network is unreachable"),
+		strings.Contains(msg, "no route to host"):
+		return true
+	}
+
+	return false
 }

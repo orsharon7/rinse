@@ -333,7 +333,7 @@ JSON schema:
 | `RINSE_STATS_OPTIN` | Force stats opt-in (`1` or `true`) or opt-out (`0` or `false`) without touching `~/.rinse/config.json`. Useful in ephemeral CI environments. |
 | `RINSE_SESSIONS_DIR` | Override the directory where session JSON files are written and read (default: `~/.rinse/sessions/`). Use when redirecting session storage to a shared or mounted path. |
 | `RINSE_SCRIPT_DIR` | Override the directory where runner shell scripts are found. Default: searches relative to the binary. |
-| `RINSE_API_URL` | Override the pro backend URL used by the first-run onboarding wizard (default: `http://localhost:7433`). |
+| `RINSE_API_URL` | Override the pro backend URL used by the first-run onboarding wizard (default: `http://localhost:7433`). The OSS distribution ships no backend on this port — onboarding detects the unreachable backend and completes anyway. Only set this if you are running the (unreleased) RINSE pro backend on a custom port. |
 | `RINSE_PRO` | Set to `1` to enable Pro features (`--interactive`, `--doc-drift`) without a config file. Useful for CI pipelines. |
 | `RINSE_COPILOT_TOKEN` | Override the Copilot auth token used by `--doc-drift`. Normally obtained via `gh auth token`. Set this in CI environments where `gh` is not authenticated. |
 

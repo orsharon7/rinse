@@ -32,6 +32,7 @@ type KeyMap struct {
 	WizAdjust    key.Binding // "a" — adjust settings (Step D back)
 	WizStart     key.Binding // "s" — start cycle (Step D)
 	WizGoCycles  key.Binding // "g" — go to my cycles (Step E)
+	WizSkipStep  key.Binding // "n" — skip past a failed step (e.g. Step D when backend rejects)
 	// Monitor timing info / tooltip.
 	TimingInfo key.Binding
 	// Settings view navigation.
@@ -121,6 +122,10 @@ var Keys = KeyMap{
 	WizGoCycles: key.NewBinding(
 		key.WithKeys("g"),
 		key.WithHelp("g", "go to my cycles"),
+	),
+	WizSkipStep: key.NewBinding(
+		key.WithKeys("n"),
+		key.WithHelp("n", "skip this step"),
 	),
 	TimingInfo: key.NewBinding(
 		key.WithKeys("t"),
