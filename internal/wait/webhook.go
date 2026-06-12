@@ -22,10 +22,36 @@ func hasWebhookExtension() bool {
 	return cmd.Run() == nil
 }
 
+// cleanupStaleForwarderHook deletes any pre-existing "cli" webhook on the repo
+// whose config URL points at github.com's webhook-forwarder. gh-webhook creates
+// exactly one such hook per repo and will fail with HTTP 422 if a stale one
+// remains from a previous SIGKILLed run. We only delete hooks matching both
+// name=="cli" AND the forwarder URL, so we never touch user-managed webhooks.
+func cleanupStaleForwarderHook(ctx context.Context, repo string) {
+	out, err := exec.CommandContext(ctx, "gh", "api",
+		fmt.Sprintf("/repos/%s/hooks", repo),
+		"--jq", `.[] | select(.name=="cli" and (.config.url // "" | contains("webhook-forwarder"))) | .id`,
+	).Output()
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		id := strings.TrimSpace(line)
+		if id == "" {
+			continue
+		}
+		_ = exec.CommandContext(ctx, "gh", "api",
+			fmt.Sprintf("/repos/%s/hooks/%s", repo, id),
+			"-X", "DELETE",
+		).Run()
+	}
+}
+
 // runWebhook spawns `gh webhook forward` and listens on a local HTTP port for
 // `pull_request_review` events. Returns OutcomeArrived when a matching event
 // (action=submitted on the target PR by the configured bot) arrives.
 func runWebhook(ctx context.Context, opts Opts, start time.Time) (Result, error) {
+	cleanupStaleForwarderHook(ctx, opts.Repo)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return Result{Outcome: OutcomeError, Method: "webhook"}, fmt.Errorf("wait: bind localhost: %w", err)
