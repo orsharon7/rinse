@@ -17,10 +17,11 @@ var version = "dev"
 // must pass cli.CheckDependencies before running. Commands not listed here
 // (--version, init, opt-in, opt-out, help, stats, report) work without external tools.
 var commandsRequiringDeps = map[string]bool{
-	"start":   true,
-	"run":     true,
-	"status":  true,
-	"predict": true,
+	"start":       true,
+	"run":         true,
+	"status":      true,
+	"predict":     true,
+	"wait-review": true,
 }
 
 func main() {

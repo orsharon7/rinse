@@ -128,6 +128,9 @@ func TryDispatch() bool {
 		}
 		runPredictCmd(args)
 		return true
+	case "wait-review":
+		runWaitReviewCmd(os.Args[2:])
+		return true
 	case "help", "--help", "-h":
 		PrintHelp()
 		return true
@@ -1065,6 +1068,7 @@ USAGE
   rinse status       Print the Copilot review status of a PR (agent/CI use)
   rinse start        Start the review loop non-interactively (agent/CI use)
   rinse run          Start the native Go runner directly (no shell script)
+  rinse wait-review  Block until Copilot submits a review (webhook + poll)
   rinse opt-in       Enable session stats collection
   rinse opt-out      Disable session stats collection
   rinse --version    Print the installed version
@@ -1327,6 +1331,37 @@ COMMANDS
         Emitted on fatal errors (no timestamp — process exits immediately).
 
     Note: --max-iterations and --poll-interval are reserved for a future release.
+
+  rinse wait-review <pr> [options]
+
+    Block until Copilot submits a review on the PR, or the timeout elapses.
+    Tries push-based detection first (gh webhook forward) for sub-second
+    latency, falls back to ETag-conditional polling.
+
+    --repo <owner/repo>           Override repository detection
+    --timeout <duration>          Max time to wait (default: 5m)
+    --interval <duration>         Poll fallback interval (default: 5s).
+                                  304 Not Modified responses are free of
+                                  rate-limit cost so polling can be aggressive.
+    --strategy auto|webhook|poll  Force a strategy (default: auto = webhook with
+                                  poll fallback when gh-webhook unavailable).
+    --bot <substring>             Match the review author login (default: "copilot")
+    --quiet                       Suppress progress tick lines
+    --json                        Emit a JSON result envelope
+
+    Exit codes:
+      0   Review arrived
+      1   Timed out
+      2   Error (auth, network, etc.)
+      130 Cancelled (SIGINT)
+
+    Webhook strategy requires:
+      - gh extension install cli/gh-webhook
+      - admin:repo_hook scope on the target repository
+
+    Progress format on stderr (compatible with the TUI parser):
+      ⏳ Copilot reviewing  ━━━━─────────────────  60s / 300s (20%)  [webhook]
+      ⏳ Copilot reviewing  ━━━━━━━━─────────────  120s / 300s (40%) [poll]
 
   rinse predict [<pr>] [--repo <owner/repo>] [--json] [--no-log]
                [--interactive / -i] [--doc-drift]   (Pro only)

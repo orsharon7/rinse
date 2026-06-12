@@ -498,16 +498,33 @@ react_eyes_to_review() {
 }
 
 wait_for_review() {
-  local elapsed=0 interval=15
   log "⏳ Waiting for Copilot to finish reviewing (up to ${WAIT_MAX}s)..."
-  while [[ $elapsed -lt $WAIT_MAX ]]; do
-    [[ "$(copilot_is_pending)" == "false" ]] && { ui_wait_clear; return 0; }
-    ui_wait_tick "$elapsed" "$WAIT_MAX" "Copilot reviewing"
-    local sleep_time=$(( interval < (WAIT_MAX - elapsed) ? interval : (WAIT_MAX - elapsed) ))
-    sleep "$sleep_time"
-    elapsed=$(( elapsed + sleep_time ))
-  done
-  ui_wait_clear
+
+  # Fast path: delegate to `rinse wait-review` which uses push-based webhook
+  # forwarding when the cli/gh-webhook extension is installed, with ETag-
+  # conditional polling fallback. Detection latency drops from ~15s (legacy
+  # poll interval) to <1s on the push path.
+  if command -v rinse >/dev/null 2>&1; then
+    if rinse wait-review "$PR_NUMBER" --repo "$REPO" \
+         --timeout "${WAIT_MAX}s" --interval 5s --strategy auto 2>&1; then
+      # rinse wait-review prints its own ticks to stderr; merged here.
+      log "   ✓ Copilot review arrived"
+      return 0
+    fi
+    # rinse exited non-zero → timeout (exit 1) or error (exit 2). Fall through
+    # to the existing stall recovery so behaviour is unchanged on the failure
+    # path.
+  else
+    local elapsed=0 interval=15
+    while [[ $elapsed -lt $WAIT_MAX ]]; do
+      [[ "$(copilot_is_pending)" == "false" ]] && { ui_wait_clear; return 0; }
+      ui_wait_tick "$elapsed" "$WAIT_MAX" "Copilot reviewing"
+      local sleep_time=$(( interval < (WAIT_MAX - elapsed) ? interval : (WAIT_MAX - elapsed) ))
+      sleep "$sleep_time"
+      elapsed=$(( elapsed + sleep_time ))
+    done
+    ui_wait_clear
+  fi
 
   # Grace check: review may have arrived in the last poll window — check before acting
   if [[ "$(copilot_is_pending)" == "false" ]]; then
