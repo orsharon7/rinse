@@ -137,6 +137,9 @@ func LoadAll() ([]Session, error) {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
+		if strings.HasPrefix(e.Name(), "predict-") {
+			continue
+		}
 		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
 		if err != nil {
 			continue // skip unreadable files
@@ -144,6 +147,9 @@ func LoadAll() ([]Session, error) {
 		var s Session
 		if err := json.Unmarshal(data, &s); err != nil {
 			continue // skip corrupt files
+		}
+		if s.PR == "" {
+			continue
 		}
 		sessions = append(sessions, s)
 	}
