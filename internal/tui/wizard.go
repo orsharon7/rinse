@@ -24,13 +24,20 @@ type splashDoneMsg struct{}
 
 // ── Model list messages ───────────────────────────────────────────────────────
 
-type modelsLoadedMsg []string
+// modelsLoadedMsg carries the result of fetching the model list.
+// Models is empty when the fetch succeeded but returned no models; Err is set
+// when the underlying command failed (binary missing, exec error, etc.) — the
+// UI uses Err to render a clear fallback instead of a silent empty list.
+type modelsLoadedMsg struct {
+	Models []string
+	Err    error
+}
 
 func fetchModelsCmd() tea.Cmd {
 	return func() tea.Msg {
 		out, err := exec.Command("opencode", "models").Output()
 		if err != nil {
-			return modelsLoadedMsg(nil)
+			return modelsLoadedMsg{Err: err}
 		}
 		var models []string
 		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
@@ -38,8 +45,38 @@ func fetchModelsCmd() tea.Cmd {
 				models = append(models, s)
 			}
 		}
-		return modelsLoadedMsg(models)
+		return modelsLoadedMsg{Models: models}
 	}
+}
+
+// defaultModelFilter is pre-filled into the picker so the user immediately
+// sees GitHub Copilot models (the most common selection). The user can
+// backspace it away to see all providers.
+const defaultModelFilter = "github-copilot"
+
+// filterModels returns models whose name contains every space-separated token
+// in the query, case-insensitive. An empty query returns the input unchanged.
+func filterModels(models []string, query string) []string {
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" {
+		return models
+	}
+	tokens := strings.Fields(q)
+	out := make([]string, 0, len(models))
+	for _, m := range models {
+		lower := strings.ToLower(m)
+		match := true
+		for _, t := range tokens {
+			if !strings.Contains(lower, t) {
+				match = false
+				break
+			}
+		}
+		if match {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // ── Model ─────────────────────────────────────────────────────────────────────
@@ -91,10 +128,13 @@ type model struct {
 	settingsBranchEdited  bool
 
 	// model picker (opencode runner only)
-	availableModels    []string
-	modelsLoading      bool
+	availableModels      []string
+	modelsLoading        bool
+	modelsLoadErr        error
+	modelsSpinner        spinner.Model
 	settingsPickingModel bool
 	settingsModelCursor  int
+	settingsModelFilter  textinput.Model
 
 	// selected PR
 	prNum   string
@@ -165,10 +205,22 @@ func newModel(repo, path string, rc config.RepoConfig, cfg config.Config, hasRep
 	ps.Spinner = spinner.Dot
 	ps.Style = lipgloss.NewStyle().Foreground(theme.Lavender)
 
+	// Model picker fetch spinner.
+	ms := spinner.New()
+	ms.Spinner = spinner.MiniDot
+	ms.Style = lipgloss.NewStyle().Foreground(theme.Teal)
+
+	// Model picker filter input.
+	mf := textinput.New()
+	mf.Prompt = ""
+	mf.CharLimit = 64
+	mf.Width = 40
+
 	return model{
 		view:          viewSplash,
 		splashSpinner: sp,
 		prSpinner:     ps,
+		modelsSpinner: ms,
 		repo:          repo,
 		path:          path,
 		defaultBranch: "main",
@@ -185,6 +237,7 @@ func newModel(repo, path string, rc config.RepoConfig, cfg config.Config, hasRep
 		input:               ti,
 		settingsModelInput:  mi,
 		settingsBranchInput: bi,
+		settingsModelFilter: mf,
 		help:                newHelpModel(),
 	}
 }
@@ -226,6 +279,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.prLoading {
 			var cmd tea.Cmd
 			m.prSpinner, cmd = m.prSpinner.Update(msg)
+			cmds = append(cmds, cmd)
+		}
+		if m.modelsLoading {
+			var cmd tea.Cmd
+			m.modelsSpinner, cmd = m.modelsSpinner.Update(msg)
 			cmds = append(cmds, cmd)
 		}
 		return m, tea.Batch(cmds...)
@@ -279,7 +337,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case modelsLoadedMsg:
 		m.modelsLoading = false
-		m.availableModels = []string(msg)
+		m.availableModels = msg.Models
+		m.modelsLoadErr = msg.Err
 		return m, nil
 
 	case currentBranchMsg:
@@ -455,37 +514,54 @@ func (m model) openSettings() (model, tea.Cmd) {
 	m.settingsBranchEdited = false
 	m.settingsPickingModel = false
 
-	var cmd tea.Cmd
-	if runners[m.runnerIdx].name == "opencode" && len(m.availableModels) == 0 && !m.modelsLoading {
+	if runners[m.runnerIdx].name == "opencode" && len(m.availableModels) == 0 && m.modelsLoadErr == nil && !m.modelsLoading {
 		m.modelsLoading = true
-		cmd = fetchModelsCmd()
+		return m, tea.Batch(fetchModelsCmd(), m.modelsSpinner.Tick)
 	}
-	return m, cmd
+	return m, nil
 }
 
 func (m model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.settingsPickingModel {
+		filtered := filterModels(m.availableModels, m.settingsModelFilter.Value())
 		switch {
 		case key.Matches(msg, Keys.Back):
 			m.settingsPickingModel = false
+			m.settingsModelFilter.Blur()
 			return m, nil
 		case key.Matches(msg, Keys.Confirm):
-			if m.settingsModelCursor < len(m.availableModels) {
-				chosen := m.availableModels[m.settingsModelCursor]
+			if len(filtered) > 0 {
+				if m.settingsModelCursor >= len(filtered) {
+					m.settingsModelCursor = len(filtered) - 1
+				}
+				chosen := filtered[m.settingsModelCursor]
 				m.settingsModelInput.SetValue(chosen)
 			}
 			m.settingsPickingModel = false
+			m.settingsModelFilter.Blur()
 			return m, nil
 		case key.Matches(msg, Keys.Up):
 			if m.settingsModelCursor > 0 {
 				m.settingsModelCursor--
 			}
+			return m, nil
 		case key.Matches(msg, Keys.Down):
-			if m.settingsModelCursor < len(m.availableModels)-1 {
+			if m.settingsModelCursor < len(filtered)-1 {
 				m.settingsModelCursor++
 			}
+			return m, nil
 		}
-		return m, nil
+		var cmd tea.Cmd
+		m.settingsModelFilter, cmd = m.settingsModelFilter.Update(msg)
+		newFiltered := filterModels(m.availableModels, m.settingsModelFilter.Value())
+		if m.settingsModelCursor >= len(newFiltered) {
+			if len(newFiltered) > 0 {
+				m.settingsModelCursor = len(newFiltered) - 1
+			} else {
+				m.settingsModelCursor = 0
+			}
+		}
+		return m, cmd
 	}
 	if m.settingsEditingModel {
 		switch {
@@ -534,9 +610,9 @@ func (m model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.settingsRunnerIdx--
 			m.settingsModelInput.Placeholder = runners[m.settingsRunnerIdx].defaultModel
 			m.settingsPickingModel = false
-			if runners[m.settingsRunnerIdx].name == "opencode" && len(m.availableModels) == 0 && !m.modelsLoading {
+			if runners[m.settingsRunnerIdx].name == "opencode" && len(m.availableModels) == 0 && m.modelsLoadErr == nil && !m.modelsLoading {
 				m.modelsLoading = true
-				return m, fetchModelsCmd()
+				return m, tea.Batch(fetchModelsCmd(), m.modelsSpinner.Tick)
 			}
 		}
 	case key.Matches(msg, Keys.Right):
@@ -544,9 +620,9 @@ func (m model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.settingsRunnerIdx++
 			m.settingsModelInput.Placeholder = runners[m.settingsRunnerIdx].defaultModel
 			m.settingsPickingModel = false
-			if runners[m.settingsRunnerIdx].name == "opencode" && len(m.availableModels) == 0 && !m.modelsLoading {
+			if runners[m.settingsRunnerIdx].name == "opencode" && len(m.availableModels) == 0 && m.modelsLoadErr == nil && !m.modelsLoading {
 				m.modelsLoading = true
-				return m, fetchModelsCmd()
+				return m, tea.Batch(fetchModelsCmd(), m.modelsSpinner.Tick)
 			}
 		}
 	case key.Matches(msg, Keys.Toggle):
@@ -565,17 +641,20 @@ func (m model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.settingsModelInput.Placeholder = runners[m.settingsRunnerIdx].defaultModel
 		case sfModel:
 			if runners[m.settingsRunnerIdx].name == "opencode" && len(m.availableModels) > 0 {
-				// Pre-select the currently chosen model in the picker.
+				m.settingsModelFilter.SetValue(defaultModelFilter)
+				m.settingsModelFilter.CursorEnd()
+				m.settingsModelFilter.Focus()
+				filtered := filterModels(m.availableModels, m.settingsModelFilter.Value())
 				m.settingsModelCursor = 0
 				current := m.settingsModelInput.Value()
-				for i, mod := range m.availableModels {
+				for i, mod := range filtered {
 					if mod == current {
 						m.settingsModelCursor = i
 						break
 					}
 				}
 				m.settingsPickingModel = true
-				return m, nil
+				return m, textinput.Blink
 			}
 			m.settingsEditingModel = true
 			m.settingsModelInput.Focus()
@@ -1112,6 +1191,103 @@ func (m model) renderManualPR(w, h int) string {
 	return lipgloss.Place(w, h, lipgloss.Left, lipgloss.Top, b.String())
 }
 
+// ── Model picker ──────────────────────────────────────────────────────────────
+
+// pickerVisibleRows returns the number of model rows to show in the picker
+// scroll window, sized to the terminal but clamped to a usable range. Reserves
+// vertical space for the surrounding settings chrome (title, runner row,
+// filter row, keybind hint, footer).
+func pickerVisibleRows(termHeight int) int {
+	const reservedForChrome = 12
+	rows := termHeight - reservedForChrome
+	if rows < 4 {
+		return 4
+	}
+	if rows > 14 {
+		return 14
+	}
+	return rows
+}
+
+// styleModelRow renders a single model entry. The provider/ prefix is muted so
+// the model name itself pops; the cursor row is teal-highlighted with an arrow.
+func styleModelRow(name string, selected bool) string {
+	provider, model := name, ""
+	if idx := strings.Index(name, "/"); idx >= 0 {
+		provider = name[:idx+1]
+		model = name[idx+1:]
+	} else {
+		provider = ""
+		model = name
+	}
+	if selected {
+		marker := theme.StyleTeal.Render(theme.IconArrow + " ")
+		return marker + theme.StyleMuted.Render(provider) + theme.StyleTeal.Render(model)
+	}
+	return "  " + theme.StyleMuted.Render(provider+model)
+}
+
+func (m model) renderModelPicker() string {
+	filter := m.settingsModelFilter.Value()
+	filtered := filterModels(m.availableModels, filter)
+
+	filterLabel := theme.StyleMuted.Render("filter ")
+	filterView := m.settingsModelFilter.View()
+	counter := theme.StyleMuted.Render(fmt.Sprintf("  %d/%d", len(filtered), len(m.availableModels)))
+	header := filterLabel + filterView + counter
+
+	hint := theme.StyleMuted.Render("↑↓ navigate · type to filter · enter select · esc cancel")
+
+	if len(m.availableModels) == 0 {
+		return header + "\n" +
+			"  " + theme.StyleMuted.Render("(no models available)") + "\n" +
+			hint
+	}
+	if len(filtered) == 0 {
+		return header + "\n" +
+			"  " + theme.StyleMuted.Render("no models match — backspace to broaden") + "\n" +
+			hint
+	}
+
+	if m.settingsModelCursor >= len(filtered) {
+		m.settingsModelCursor = len(filtered) - 1
+	}
+	if m.settingsModelCursor < 0 {
+		m.settingsModelCursor = 0
+	}
+
+	visible := pickerVisibleRows(m.height)
+	start := m.settingsModelCursor - visible/2
+	if start < 0 {
+		start = 0
+	}
+	if start+visible > len(filtered) {
+		start = len(filtered) - visible
+		if start < 0 {
+			start = 0
+		}
+	}
+	end := start + visible
+	if end > len(filtered) {
+		end = len(filtered)
+	}
+
+	rows := make([]string, 0, end-start)
+	for i := start; i < end; i++ {
+		rows = append(rows, styleModelRow(filtered[i], i == m.settingsModelCursor))
+	}
+	scrollHint := ""
+	if start > 0 {
+		scrollHint = theme.StyleMuted.Render("  ▲ more above\n")
+	}
+	bottomHint := ""
+	if end < len(filtered) {
+		bottomHint = "\n" + theme.StyleMuted.Render("  ▼ more below")
+	}
+
+	return header + "\n" + scrollHint + strings.Join(rows, "\n") + bottomHint + "\n" + hint
+}
+
 // ── Settings overlay ──────────────────────────────────────────────────────────
 
 func (m model) renderSettings() string {
@@ -1128,34 +1304,20 @@ func (m model) renderSettings() string {
 	var modelVal string
 	switch {
 	case m.settingsPickingModel:
-		const visible = 8
-		start := m.settingsModelCursor - visible/2
-		if start < 0 {
-			start = 0
-		}
-		if start+visible > len(m.availableModels) {
-			start = len(m.availableModels) - visible
-			if start < 0 {
-				start = 0
-			}
-		}
-		end := start + visible
-		if end > len(m.availableModels) {
-			end = len(m.availableModels)
-		}
-		var lines []string
-		for i := start; i < end; i++ {
-			if i == m.settingsModelCursor {
-				lines = append(lines, theme.StyleTeal.Render(theme.IconArrow+" "+m.availableModels[i]))
-			} else {
-				lines = append(lines, theme.StyleMuted.Render("  "+m.availableModels[i]))
-			}
-		}
-		modelVal = strings.Join(lines, "\n")
+		modelVal = m.renderModelPicker()
 	case m.settingsEditingModel:
 		modelVal = m.settingsModelInput.View()
 	case m.modelsLoading && runners[m.settingsRunnerIdx].name == "opencode":
-		modelVal = theme.StyleMuted.Render("  fetching models…")
+		modelVal = m.modelsSpinner.View() + " " + theme.StyleMuted.Render("fetching models from opencode…")
+	case m.modelsLoadErr != nil && runners[m.settingsRunnerIdx].name == "opencode":
+		v := m.settingsModelInput.Value()
+		if v == "" {
+			v = runners[m.settingsRunnerIdx].defaultModel
+			modelVal = theme.StyleMuted.Render(v + "  (default)")
+		} else {
+			modelVal = theme.StyleVal.Render(v)
+		}
+		modelVal += "\n  " + theme.StyleMuted.Render("(opencode unavailable — model list disabled, type to override)")
 	default:
 		v := m.settingsModelInput.Value()
 		if v == "" {
