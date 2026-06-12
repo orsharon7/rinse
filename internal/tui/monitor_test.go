@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"reflect"
 	"testing"
 	"time"
 )
@@ -65,5 +66,91 @@ func TestResolveETA(t *testing.T) {
 				t.Errorf("resolveETA(%v, eta=%v): expected zero time, got %v", tc.phase, tc.estimatedEnd, gotTime)
 			}
 		})
+	}
+}
+
+func TestExtractPatterns(t *testing.T) {
+	tests := []struct {
+		name  string
+		lines []string
+		want  []string
+	}{
+		{
+			name:  "drops operational status lines",
+			lines: []string{"starting  (model: github-copilot/claude-sonnet-4.6 → main)", "killed (opencode failed)", "complete"},
+			want:  nil,
+		},
+		{
+			name:  "classifies error-handling rule",
+			lines: []string{"Always check the error returned by os.WriteFile and propagate it"},
+			want:  []string{"error_handling"},
+		},
+		{
+			name:  "classifies security rule",
+			lines: []string{"Avoid hardcoded secrets — load credentials from env"},
+			want:  []string{"security"},
+		},
+		{
+			name:  "deduplicates same category",
+			lines: []string{"unhandled error", "ignore the error"},
+			want:  []string{"error_handling"},
+		},
+		{
+			name:  "drops unknown text but keeps recognised lines",
+			lines: []string{"random unrelated chatter", "fix the nil pointer dereference"},
+			want:  []string{"correctness"},
+		},
+		{
+			name:  "respects max",
+			lines: []string{"unhandled error", "fix nil pointer", "secret leak", "naming style"},
+			want:  []string{"error_handling", "correctness"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			max := 5
+			if tt.name == "respects max" {
+				max = 2
+			}
+			got := extractPatterns(tt.lines, max)
+			if len(got) == 0 && len(tt.want) == 0 {
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("extractPatterns = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsOperationalReflectLine(t *testing.T) {
+	operational := []string{
+		"starting",
+		"complete",
+		"done",
+		"killed (opencode failed)",
+		"starting (model: github-copilot/claude-sonnet-4.6 → main)",
+		"3 rule(s) pushed to main",
+		"no changes detected",
+		"nothing to commit",
+		"committing reflection rules",
+		"pushed to main",
+		"branch: feat/x",
+		"pulling from origin",
+	}
+	for _, l := range operational {
+		if !isOperationalReflectLine(l) {
+			t.Errorf("expected operational: %q", l)
+		}
+	}
+	rules := []string{
+		"Always check the error returned",
+		"Avoid hardcoded secrets",
+		"Add nil-pointer guard before dereferencing",
+	}
+	for _, l := range rules {
+		if isOperationalReflectLine(l) {
+			t.Errorf("expected non-operational rule: %q", l)
+		}
 	}
 }

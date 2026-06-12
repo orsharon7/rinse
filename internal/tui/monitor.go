@@ -18,6 +18,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/orsharon7/rinse/internal/db"
 	"github.com/orsharon7/rinse/internal/notify"
+	"github.com/orsharon7/rinse/internal/quality"
 	"github.com/orsharon7/rinse/internal/session"
 	"github.com/orsharon7/rinse/internal/stats"
 	"github.com/orsharon7/rinse/internal/theme"
@@ -1548,9 +1549,13 @@ func colorLine(line string) string {
 
 // ── Session extraction ─────────────────────────────────────────────────────────
 
-// extractPatterns derives a best-effort list of top fix patterns from the
-// reflect lines collected during the cycle. It de-duplicates short keyword
-// phrases and returns up to maxPatterns unique entries.
+// extractPatterns derives a list of snake_case category labels (e.g.
+// "error_handling", "security") from the reflect lines collected during the
+// cycle. Status/operational reflect lines (e.g. "starting (model: ...)",
+// "killed", "exited non-zero", commit/push status) are discarded so they never
+// surface as patterns in `rinse stats` / `rinse report`. Remaining lines are
+// fed through quality.ClassifyComment for normalisation; unknown classifications
+// are dropped to avoid leaking arbitrary log text.
 func extractPatterns(reflectLines []string, maxPatterns int) []string {
 	seen := make(map[string]struct{})
 	var out []string
@@ -1559,33 +1564,84 @@ func extractPatterns(reflectLines []string, maxPatterns int) []string {
 		if l == "" {
 			continue
 		}
-		// Trim common prefixes/suffixes to get the rule description.
 		for _, prefix := range []string{"✓ ", "✗ ", "• ", "- ", "* "} {
 			l = strings.TrimPrefix(l, prefix)
 		}
-		// Skip status-only lines.
-		lower := strings.ToLower(l)
-		if lower == "complete" || lower == "done" || lower == "starting" ||
-			strings.Contains(lower, "exited non-zero") ||
-			strings.Contains(lower, "rule(s) pushed") ||
-			strings.Contains(lower, "no changes") ||
-			strings.Contains(lower, "nothing to") {
+		if isOperationalReflectLine(l) {
 			continue
 		}
-		// Truncate to a readable length.
-		if len(l) > 60 {
-			l = l[:57] + "..."
-		}
-		if _, ok := seen[l]; ok {
+		category := quality.ClassifyComment(l)
+		if category == quality.CategoryUnknown {
 			continue
 		}
-		seen[l] = struct{}{}
-		out = append(out, l)
+		label := string(category)
+		if _, ok := seen[label]; ok {
+			continue
+		}
+		seen[label] = struct{}{}
+		out = append(out, label)
 		if len(out) >= maxPatterns {
 			break
 		}
 	}
 	return out
+}
+
+// isOperationalReflectLine reports whether a reflect-tagged log line is
+// operational status (lifecycle, exit codes, push results) rather than a
+// coding rule or comment description that should feed pattern classification.
+func isOperationalReflectLine(line string) bool {
+	lower := strings.ToLower(line)
+	switch lower {
+	case "complete", "done", "starting", "running", "skipped":
+		return true
+	}
+	operationalSubstrings := []string{
+		"starting ",
+		"starting:",
+		"started",
+		"running ",
+		"finished",
+		"completed",
+		"complete:",
+		"killed",
+		"aborted",
+		"timed out",
+		"exit code",
+		"exited non-zero",
+		"exited with",
+		"failed (",
+		"failure (",
+		"rule(s) pushed",
+		"rules pushed",
+		"no changes",
+		"no rules",
+		"nothing to",
+		"pushing to",
+		"pushed to",
+		"pulling from",
+		"committing",
+		"committed",
+		"merging",
+		"rebasing",
+		"worktree",
+		"branch:",
+		"model:",
+		"loading",
+		"saving",
+		"writing",
+		"reading",
+		"opencode failed",
+		"claude failed",
+		"→ main",
+		"-> main",
+	}
+	for _, s := range operationalSubstrings {
+		if strings.Contains(lower, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // ── RunMonitor ────────────────────────────────────────────────────────────────
@@ -1660,51 +1716,75 @@ func RunMonitor(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge,
 		_ = cmd.Process.Kill()
 	}
 
-	// ── Post-cycle insight summary ────────────────────────────────────────────
-	// Build and persist a session record, then print the human-readable summary.
 	if fm, ok := finalModel.(channelMonitor); ok {
 		mm := fm.monitorModel
-		// Only record sessions for terminal outcomes (done or error).
 		if mm.done {
 			commentsByRound := make([]int, len(mm.iterHistory))
 			for i, e := range mm.iterHistory {
 				commentsByRound[i] = e.comments
 			}
 			patterns := extractPatterns(mm.reflectLines, 5)
+			approved := mm.phase == phaseDone && mm.exitCode == 0
+
+			outcome := stats.OutcomeError
+			switch {
+			case approved:
+				outcome = stats.OutcomeApproved
+			case mm.exitCode == 0:
+				outcome = stats.OutcomeClean
+			}
+
+			canonical := stats.Session{
+				StartedAt:                  mm.started,
+				EndedAt:                    time.Now(),
+				Repo:                       mm.repo,
+				PR:                         mm.pr,
+				PRTitle:                    mm.prTitle,
+				Runner:                     mm.runner,
+				Model:                      mm.model,
+				Outcome:                    outcome,
+				Iterations:                 mm.iter,
+				CopilotCommentsByIteration: commentsByRound,
+				TotalComments:              mm.totalComments,
+				EstimatedTimeSavedSeconds:  mm.totalComments * 240,
+				Approved:                   approved,
+				RulesExtracted:             mm.rulesExtracted,
+				Patterns:                   patterns,
+			}
+			if saveErr := stats.Save(canonical); saveErr != nil {
+				fmt.Fprintf(os.Stderr, "rinse: could not save session: %v\n", saveErr)
+			}
+
 			sess := session.Session{
 				PR:              mm.pr,
 				Repo:            mm.repo,
 				RunnerName:      mm.runner,
 				StartedAt:       mm.started,
-				EndedAt:         time.Now(),
-				Approved:        mm.phase == phaseDone && mm.exitCode == 0,
+				EndedAt:         canonical.EndedAt,
+				Approved:        approved,
 				Iterations:      mm.iter,
 				TotalComments:   mm.totalComments,
 				RulesExtracted:  mm.rulesExtracted,
 				CommentsByRound: commentsByRound,
 				Patterns:        patterns,
 			}
-			// Persist — non-fatal on failure.
-			if saveErr := sess.Save(); saveErr != nil {
-				fmt.Fprintf(os.Stderr, "rinse: could not save session: %v\n", saveErr)
-			}
-			// Persist patterns to telemetry DB (best-effort, non-fatal).
+
 			if len(patterns) > 0 || mm.rulesExtracted > 0 {
 				if tdb, dbErr := db.OpenDefault(); dbErr == nil {
 					prNum := 0
-					fmt.Sscanf(mm.pr, "%d", &prNum)
-					if sid, _ := tdb.FindSessionID(mm.repo, prNum); sid != "" {
-						if len(patterns) > 0 {
-							_ = tdb.SavePatterns(sid, patterns)
-						}
-						if mm.rulesExtracted > 0 {
-							_ = tdb.SetRulesExtracted(sid, mm.rulesExtracted)
+					if _, err := fmt.Sscanf(mm.pr, "%d", &prNum); err == nil && prNum > 0 {
+						if sid, _ := tdb.FindSessionID(mm.repo, prNum); sid != "" {
+							if len(patterns) > 0 {
+								_ = tdb.SavePatterns(sid, patterns)
+							}
+							if mm.rulesExtracted > 0 {
+								_ = tdb.SetRulesExtracted(sid, mm.rulesExtracted)
+							}
 						}
 					}
 					tdb.Close()
 				}
 			}
-			// Print the summary only on successful completion.
 			if mm.exitCode == 0 {
 				session.PrintSummary(sess, false)
 			}
