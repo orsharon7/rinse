@@ -432,6 +432,9 @@ func runRunCmd(args []string) {
 				fatalf(asJSON, "--pr requires a value (e.g. --pr 42)")
 			}
 			prNum = rest[i]
+			if n, err := strconv.Atoi(prNum); err != nil || n <= 0 {
+				fatalf(asJSON, "PR number must be a positive integer, got: %s", prNum)
+			}
 		case "--cwd":
 			i++
 			if i >= len(rest) || strings.HasPrefix(rest[i], "-") {
@@ -575,6 +578,9 @@ func runStartCmd(args []string) {
 				fatalf(asJSON, "--pr requires a value (e.g. --pr 42)")
 			}
 			prNum = rest[i]
+			if n, err := strconv.Atoi(prNum); err != nil || n <= 0 {
+				fatalf(asJSON, "PR number must be a positive integer, got: %s", prNum)
+			}
 		case "--cwd":
 			i++
 			if i >= len(rest) || strings.HasPrefix(rest[i], "-") {

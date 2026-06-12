@@ -15,13 +15,11 @@ var version = "dev"
 
 // commandsRequiringDeps lists subcommands that exec gh/git/runners and so
 // must pass cli.CheckDependencies before running. Commands not listed here
-// (--version, init, opt-in, opt-out, help) work without external tools.
+// (--version, init, opt-in, opt-out, help, stats, report) work without external tools.
 var commandsRequiringDeps = map[string]bool{
 	"start":   true,
 	"run":     true,
 	"status":  true,
-	"stats":   true,
-	"report":  true,
 	"predict": true,
 }
 
