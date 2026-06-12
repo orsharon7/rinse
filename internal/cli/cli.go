@@ -145,6 +145,50 @@ func hasFlag(args []string, flag string) bool {
 	return false
 }
 
+// extractPositionalPR returns the first positional (non-flag) argument that
+// looks like a PR number, removing it from args. This lets users pass the PR
+// number anywhere — before, between, or after flags — instead of forcing it to
+// be args[0]. A token is considered the positional PR when it does not start
+// with "-" and the previous token is not a value-taking flag.
+//
+// Recognised value-taking flags (must be kept in sync with the flag tables in
+// the run*Cmd functions): --repo, --pr, --cwd, --model, --runner,
+// --reflect-main-branch, --max-iterations, --poll-interval.
+func extractPositionalPR(args []string) (pr string, rest []string) {
+	valueFlags := map[string]bool{
+		"--repo":                true,
+		"--pr":                  true,
+		"--cwd":                 true,
+		"--model":               true,
+		"--runner":              true,
+		"--reflect-main-branch": true,
+		"--max-iterations":      true,
+		"--poll-interval":       true,
+	}
+	rest = make([]string, 0, len(args))
+	prevTookValue := false
+	for _, a := range args {
+		if prevTookValue {
+			rest = append(rest, a)
+			prevTookValue = false
+			continue
+		}
+		if strings.HasPrefix(a, "-") {
+			rest = append(rest, a)
+			if valueFlags[a] {
+				prevTookValue = true
+			}
+			continue
+		}
+		if pr == "" {
+			pr = a
+			continue
+		}
+		rest = append(rest, a)
+	}
+	return pr, rest
+}
+
 // ── status ────────────────────────────────────────────────────────────────────
 
 func runStatusCmd(args []string) {
@@ -154,8 +198,6 @@ func runStatusCmd(args []string) {
 		asJSON bool
 	)
 
-	// Pre-scan for --json so that any validation error below is JSON-formatted
-	// regardless of flag order.
 	for _, a := range args {
 		if a == "--json" {
 			asJSON = true
@@ -163,12 +205,7 @@ func runStatusCmd(args []string) {
 		}
 	}
 
-	rest := args
-	// Optional positional PR number.
-	if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
-		prNum = rest[0]
-		rest = rest[1:]
-	}
+	prNum, rest := extractPositionalPR(args)
 
 	for i := 0; i < len(rest); i++ {
 		switch rest[i] {
@@ -362,8 +399,6 @@ func runRunCmd(args []string) {
 		// --max-iterations and --poll-interval are reserved; do not block on these.
 	)
 
-	// Pre-scan for --json before any validation so errors are emitted in the
-	// right format.
 	for _, a := range args {
 		if a == "--json" {
 			asJSON = true
@@ -371,63 +406,64 @@ func runRunCmd(args []string) {
 		}
 	}
 
-	// Auto-detect non-TTY: if stdout is not a terminal, force JSON mode.
 	if !asJSON && !stdoutIsTerminal() {
 		asJSON = true
 	}
 
-	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+	prNum, rest := extractPositionalPR(args)
+	if prNum == "" {
 		fatalf(asJSON, "usage: rinse run <pr_number> [options]\nRun 'rinse help' for full usage.")
 	}
-	prNum = args[0]
 	if n, err := strconv.Atoi(prNum); err != nil || n <= 0 {
 		fatalf(asJSON, "PR number must be a positive integer, got: %s", prNum)
 	}
 
-	for i := 1; i < len(args); i++ {
-		switch args[i] {
+	for i := 0; i < len(rest); i++ {
+		switch rest[i] {
 		case "--repo":
 			i++
-			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+			if i >= len(rest) || strings.HasPrefix(rest[i], "-") {
 				fatalf(asJSON, "--repo requires a value (e.g. --repo owner/repo)")
 			}
-			repo = args[i]
+			repo = rest[i]
+		case "--pr":
+			i++
+			if i >= len(rest) || strings.HasPrefix(rest[i], "-") {
+				fatalf(asJSON, "--pr requires a value (e.g. --pr 42)")
+			}
+			prNum = rest[i]
 		case "--cwd":
 			i++
-			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+			if i >= len(rest) || strings.HasPrefix(rest[i], "-") {
 				fatalf(asJSON, "--cwd requires a value (e.g. --cwd /path/to/repo)")
 			}
-			cwd = args[i]
+			cwd = rest[i]
 		case "--model":
 			i++
-			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+			if i >= len(rest) || strings.HasPrefix(rest[i], "-") {
 				fatalf(asJSON, "--model requires a value (e.g. --model claude-sonnet-4-6)")
 			}
-			model = args[i]
+			model = rest[i]
 		case "--runner":
 			i++
-			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+			if i >= len(rest) || strings.HasPrefix(rest[i], "-") {
 				fatalf(asJSON, "--runner requires a value (e.g. --runner opencode)")
 			}
-			runnerName = args[i]
+			runnerName = rest[i]
 		case "--json":
 			asJSON = true
 		case "--max-iterations":
-			// Future flag — consume the value but do not wire up yet.
 			i++
-			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+			if i >= len(rest) || strings.HasPrefix(rest[i], "-") {
 				fatalf(asJSON, "--max-iterations requires a value")
 			}
-			// Intentionally not wired: see RIN-23 spec.
 		case "--poll-interval":
-			// Future flag — consume the value but do not wire up yet.
 			i++
-			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+			if i >= len(rest) || strings.HasPrefix(rest[i], "-") {
 				fatalf(asJSON, "--poll-interval requires a value")
 			}
-			// Intentionally not wired: see RIN-23 spec.
 		default:
-			fatalf(asJSON, "unknown flag: %s", args[i])
+			fatalf(asJSON, "unknown flag: %s", rest[i])
 		}
 	}
 
@@ -510,8 +546,6 @@ func runStartCmd(args []string) {
 		asJSON      bool
 	)
 
-	// Pre-scan for --json so that any validation error below is JSON-formatted
-	// regardless of flag order.
 	for _, a := range args {
 		if a == "--json" {
 			asJSON = true
@@ -519,48 +553,54 @@ func runStartCmd(args []string) {
 		}
 	}
 
-	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+	prNum, rest := extractPositionalPR(args)
+	if prNum == "" {
 		fatalf(asJSON, "usage: rinse start <pr_number> [options]\nRun 'rinse help' for full usage.")
 	}
-	prNum = args[0]
 	if n, err := strconv.Atoi(prNum); err != nil || n <= 0 {
 		fatalf(asJSON, "PR number must be a positive integer, got: %s", prNum)
 	}
 
-	for i := 1; i < len(args); i++ {
-		switch args[i] {
+	for i := 0; i < len(rest); i++ {
+		switch rest[i] {
 		case "--repo":
 			i++
-			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+			if i >= len(rest) || strings.HasPrefix(rest[i], "-") {
 				fatalf(asJSON, "--repo requires a value (e.g. --repo owner/repo)")
 			}
-			repo = args[i]
+			repo = rest[i]
+		case "--pr":
+			i++
+			if i >= len(rest) || strings.HasPrefix(rest[i], "-") {
+				fatalf(asJSON, "--pr requires a value (e.g. --pr 42)")
+			}
+			prNum = rest[i]
 		case "--cwd":
 			i++
-			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+			if i >= len(rest) || strings.HasPrefix(rest[i], "-") {
 				fatalf(asJSON, "--cwd requires a value (e.g. --cwd /path/to/repo)")
 			}
-			cwd = args[i]
+			cwd = rest[i]
 		case "--model":
 			i++
-			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+			if i >= len(rest) || strings.HasPrefix(rest[i], "-") {
 				fatalf(asJSON, "--model requires a value (e.g. --model claude-sonnet-4-6)")
 			}
-			model = args[i]
+			model = rest[i]
 		case "--runner":
 			i++
-			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+			if i >= len(rest) || strings.HasPrefix(rest[i], "-") {
 				fatalf(asJSON, "--runner requires a value (e.g. --runner opencode)")
 			}
-			runnerName = args[i]
+			runnerName = rest[i]
 		case "--reflect":
 			doReflect = true
 		case "--reflect-main-branch":
 			i++
-			if i >= len(args) || strings.HasPrefix(args[i], "-") {
+			if i >= len(rest) || strings.HasPrefix(rest[i], "-") {
 				fatalf(asJSON, "--reflect-main-branch requires a value (e.g. --reflect-main-branch main)")
 			}
-			reflectMain = args[i]
+			reflectMain = rest[i]
 		case "--auto-merge":
 			autoMerge = true
 		case "--notify":
@@ -568,7 +608,7 @@ func runStartCmd(args []string) {
 		case "--json":
 			asJSON = true
 		default:
-			fatalf(asJSON, "unknown flag: %s", args[i])
+			fatalf(asJSON, "unknown flag: %s", rest[i])
 		}
 	}
 
@@ -637,17 +677,18 @@ func runStartCmd(args []string) {
 		cmdArgs = append(cmdArgs, "--auto-merge")
 	}
 
-	if asJSON {
-		// Run with streaming output redirected to stderr so stdout remains
-		// exclusively for the final JSON envelope (machine-readable).
+	if asJSON || doNotify {
+		stdout := io.Writer(os.Stdout)
+		if asJSON {
+			stdout = os.Stderr
+		}
 		start := time.Now()
-		exitCode := execInherited(cmdArgs, os.Stderr)
+		exitCode := execInherited(cmdArgs, stdout)
 		ok := exitCode == 0
 		errMsg := ""
 		if !ok {
 			errMsg = fmt.Sprintf("runner exited with code %d", exitCode)
 		}
-		// Send desktop notification when --notify is set (best-effort).
 		if doNotify {
 			var result notify.CycleResult
 			if ok {
@@ -662,20 +703,20 @@ func runStartCmd(args []string) {
 				Elapsed: time.Since(start),
 			})
 		}
-		emitJSON(StartResult{
-			OK:       ok,
-			PR:       prNum,
-			Repo:     repo,
-			Runner:   r.name,
-			Model:    model,
-			ExitCode: exitCode,
-			Error:    errMsg,
-		})
+		if asJSON {
+			emitJSON(StartResult{
+				OK:       ok,
+				PR:       prNum,
+				Repo:     repo,
+				Runner:   r.name,
+				Model:    model,
+				ExitCode: exitCode,
+				Error:    errMsg,
+			})
+		}
 		os.Exit(exitCode)
 	}
 
-	// Plain mode: replace the process so the runner owns the terminal.
-	// Notification is not available in exec-replace mode; use --json or the TUI.
 	execReplace(cmdArgs)
 }
 
@@ -691,7 +732,6 @@ func runPredictCmd(args []string) {
 		docDrift    bool
 	)
 
-	// Pre-scan for --json.
 	for _, a := range args {
 		if a == "--json" {
 			asJSON = true
@@ -699,12 +739,7 @@ func runPredictCmd(args []string) {
 		}
 	}
 
-	rest := args
-	// Optional positional PR number.
-	if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
-		prNum = rest[0]
-		rest = rest[1:]
-	}
+	prNum, rest := extractPositionalPR(args)
 
 	for i := 0; i < len(rest); i++ {
 		switch rest[i] {
@@ -755,11 +790,17 @@ func runPredictCmd(args []string) {
 		}
 	}
 
-	// Guard: if no PR is specified and nothing is staged, show an actionable
-	// hint and exit cleanly. Skip when --pr is given (diff comes from the PR).
 	if pr == 0 {
 		out, gitErr := exec.Command("git", "diff", "--cached", "--name-only").Output()
 		if gitErr == nil && strings.TrimSpace(string(out)) == "" {
+			if asJSON {
+				emitJSON(PredictResult{
+					OK:          true,
+					Source:      "staged changes",
+					Predictions: []PredictItemJSON{},
+				})
+				os.Exit(0)
+			}
 			fmt.Println(theme.StyleMuted.Render("  " + theme.IconDiamond + "  Nothing staged."))
 			fmt.Println(theme.StyleMuted.Render("     Stage your changes first:"))
 			fmt.Println("     " + theme.StyleCharm.Render("git add <files>") + theme.StyleMuted.Render("  or  ") + theme.StyleCharm.Render("git add -p"))
@@ -1228,7 +1269,7 @@ COMMANDS
     --auto-merge                  Auto-merge when Copilot approves
     --notify                      Send a desktop notification when the cycle completes.
                                   macOS: osascript, Linux: notify-send. No-op in CI/headless.
-                                  Only fires in --json mode (exec-replace mode cannot notify).
+                                  Forces non-exec-replace mode so notification can fire.
     --json                        Emit a JSON result after the runner exits.
                                   Streaming output goes to stderr throughout.
 
