@@ -5,7 +5,7 @@ Project instructions for AI coding agents.
 <!-- BEGIN:COPILOT-RULES -->
 ## Coding Guidelines (AI-maintained)
 *Auto-updated by pr-review-reflect — do not edit this section manually.*
-*Last updated: 2026-05-08 from PR #263 review*
+*Last updated: 2026-06-12 from PR #268 review*
 
 ### Shell Scripting
 - Read interactive input from `/dev/tty`; render UI output to stderr.
@@ -48,6 +48,8 @@ Project instructions for AI coding agents.
 - When renaming a binary or artifact, update all installer scripts, launchers, and cross-references atomically in the same change.
 - Build commands in documentation and install hints must include all flags required for a correct build (e.g. `-ldflags -X main.version=...` for version injection); a bare `go build` without `-ldflags` embeds wrong metadata that `--version` will expose.
 - Installer scripts must pass all required build flags (e.g. `-ldflags`) on every code path, including fallback/alternative branches; a fallback that omits version-injection flags silently produces binaries reporting wrong metadata.
+- When a CLI flag can override a value that was validated earlier in the same command, re-validate at the point of override — never assume the initial check covers all assignment paths.
+- Only gate a command behind an external-tool presence/auth check if that command actually invokes the external tool; offline-safe commands (e.g. reading local DB/session data) must not require network auth.
 
 ### TUI & Layout
 - Use a single shared predicate per logical event; never duplicate format-detection logic.
