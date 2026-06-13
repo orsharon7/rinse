@@ -56,6 +56,12 @@ type Result struct {
 
 // ForCopilotReview blocks until Copilot submits a review on the configured
 // pull request, the timeout elapses, or ctx is cancelled.
+//
+// An upfront REST check returns OutcomeArrived immediately when Copilot is
+// neither in `requested_reviewers` nor has a PENDING review entry — i.e. a
+// previous review is sitting unread. This makes the subcommand safe to call
+// after a previous fix iteration without waiting for an event that already
+// fired.
 func ForCopilotReview(ctx context.Context, opts Opts) (Result, error) {
 	if err := validate(&opts); err != nil {
 		return Result{Outcome: OutcomeError}, err
@@ -66,6 +72,10 @@ func ForCopilotReview(ctx context.Context, opts Opts) (Result, error) {
 	defer cancel()
 
 	start := time.Now()
+
+	if alreadyDone, err := copilotAlreadyDone(waitCtx, opts); err == nil && alreadyDone {
+		return Result{Outcome: OutcomeArrived, Method: "already-done", Elapsed: time.Since(start)}, nil
+	}
 
 	switch opts.Strategy {
 	case "poll":

@@ -500,6 +500,17 @@ react_eyes_to_review() {
 wait_for_review() {
   log "⏳ Waiting for Copilot to finish reviewing (up to ${WAIT_MAX}s)..."
 
+  # Early return: if Copilot already completed (e.g. caller is restarting after
+  # processing a previous review's comments), skip the entire wait. Without
+  # this, push/poll subscribers wait the full timeout for an event that has
+  # already fired. The legacy inline polling loop checked this at the top of
+  # every iteration; the rinse-wait-review delegate does not, so we must guard
+  # before invoking it.
+  if [[ "$(copilot_is_pending)" == "false" ]]; then
+    log "   ✓ Copilot review already complete — proceeding to fix comments"
+    return 0
+  fi
+
   # Fast path: delegate to `rinse wait-review` which uses push-based webhook
   # forwarding when the cli/gh-webhook extension is installed, with ETag-
   # conditional polling fallback. Detection latency drops from ~15s (legacy

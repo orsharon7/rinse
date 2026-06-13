@@ -154,3 +154,52 @@ func ghToken(ctx context.Context) (string, error) {
 	}
 	return t, nil
 }
+
+// copilotAlreadyDone reports whether Copilot has already finished any pending
+// review on the PR — i.e. neither in requested_reviewers nor has a PENDING
+// review entry. Returns true when the caller can proceed without waiting.
+//
+// Returns (false, nil) when Copilot is still pending or never reviewed.
+// Returns (false, err) on transient errors so callers fall back to waiting
+// rather than incorrectly claiming arrival.
+func copilotAlreadyDone(ctx context.Context, opts Opts) (bool, error) {
+	token, err := ghToken(ctx)
+	if err != nil {
+		return false, err
+	}
+	apiBase := "https://api.github.com"
+	if v := os.Getenv("RINSE_TEST_GH_API_BASE"); v != "" {
+		apiBase = strings.TrimRight(v, "/")
+	}
+	endpoint := fmt.Sprintf("%s/repos/%s/pulls/%d", apiBase, opts.Repo, opts.PR)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return false, fmt.Errorf("wait: pre-check %d", resp.StatusCode)
+	}
+	var pr struct {
+		RequestedReviewers []struct {
+			Login string `json:"login"`
+		} `json:"requested_reviewers"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&pr); err != nil {
+		return false, err
+	}
+	bot := strings.ToLower(opts.BotLogin)
+	for _, r := range pr.RequestedReviewers {
+		if strings.Contains(strings.ToLower(r.Login), bot) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
