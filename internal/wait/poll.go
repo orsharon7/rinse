@@ -78,6 +78,20 @@ func runPoll(ctx context.Context, opts Opts, start time.Time) (Result, error) {
 		}
 		botMatch := strings.ToLower(opts.BotLogin)
 		if !seededIDs {
+			// First poll iteration: do not seed-and-skip. A Copilot review may
+			// have landed between ForCopilotReview's upfront pre-check and the
+			// first GET here (race window of ~hundreds of ms). If any
+			// non-PENDING Copilot review exists at this moment, treat the
+			// situation as arrived. From the second iteration onwards we use
+			// the standard "only NEW reviews count" rule.
+			for _, r := range reviews {
+				if r.State == "PENDING" {
+					continue
+				}
+				if strings.Contains(strings.ToLower(r.User.Login), botMatch) {
+					return true, nil
+				}
+			}
 			for _, r := range reviews {
 				lastSeenIDs[r.ID] = true
 			}

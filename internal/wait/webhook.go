@@ -117,12 +117,14 @@ func runWebhook(ctx context.Context, opts Opts, start time.Time) (Result, error)
 		"--events", "pull_request_review",
 		"--url", url,
 	)
+	setProcessGroup(gh)
 	gh.Stdout = io.Discard
 	var ghStderr strings.Builder
 	gh.Stderr = &ghStderr
 	if err := gh.Start(); err != nil {
 		return Result{Outcome: OutcomeError, Method: "webhook"}, fmt.Errorf("wait: start gh webhook forward: %w", err)
 	}
+	defer killProcessGroup(gh)
 	ghExit := make(chan error, 1)
 	go func() { ghExit <- gh.Wait() }()
 
@@ -141,7 +143,7 @@ func runWebhook(ctx context.Context, opts Opts, start time.Time) (Result, error)
 		case <-arrived:
 			return Result{Outcome: OutcomeArrived, Method: "webhook", Elapsed: time.Since(start)}, nil
 		case <-ctx.Done():
-			_ = gh.Process.Kill()
+			killProcessGroup(gh)
 			if ctx.Err() == context.DeadlineExceeded {
 				return Result{Outcome: OutcomeTimeout, Method: "webhook", Elapsed: time.Since(start)}, nil
 			}

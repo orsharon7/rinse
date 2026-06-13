@@ -84,18 +84,67 @@ func ForCopilotReview(ctx context.Context, opts Opts) (Result, error) {
 		return runWebhook(waitCtx, opts, start)
 	case "", "auto":
 		if hasWebhookExtension() {
-			r, err := runWebhook(waitCtx, opts, start)
-			if err == nil {
-				return r, nil
-			}
-			if waitCtx.Err() != nil {
-				return r, err
-			}
+			return runRace(waitCtx, opts, start)
 		}
 		return runPoll(waitCtx, opts, start)
 	default:
 		return Result{Outcome: OutcomeError}, fmt.Errorf("wait: unknown strategy %q", opts.Strategy)
 	}
+}
+
+// runRace runs webhook and poll in parallel; whichever detects the review first
+// wins. This closes the pre-check → subscription race: if Copilot submits the
+// review in the few hundred ms between copilotAlreadyDone returning false and
+// `gh webhook forward` registering, the webhook misses the event entirely, but
+// the parallel poll catches it within PollInterval. Both methods share the
+// same deadline ctx, so they finish together on timeout.
+//
+// Progress ticks come from webhook only — poll runs silent to avoid duplicate
+// lines in the TUI. The chosen method name is reported on the winning result.
+func runRace(ctx context.Context, opts Opts, start time.Time) (Result, error) {
+	type rResult struct {
+		r   Result
+		err error
+	}
+	raceCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	results := make(chan rResult, 2)
+
+	go func() {
+		r, err := runWebhook(raceCtx, opts, start)
+		results <- rResult{r, err}
+	}()
+
+	pollOpts := opts
+	pollOpts.ProgressOut = nil
+	go func() {
+		r, err := runPoll(raceCtx, pollOpts, start)
+		results <- rResult{r, err}
+	}()
+
+	var bestResult Result
+	var bestErr error
+	hasBest := false
+	for i := 0; i < 2; i++ {
+		sr := <-results
+		if sr.err == nil && sr.r.Outcome == OutcomeArrived {
+			cancel()
+			return sr.r, nil
+		}
+		// Prefer a clean (no-error) outcome over an errored one. If both
+		// strategies error, the second-seen wins arbitrarily, which is fine
+		// because the user gets enough signal to retry.
+		if !hasBest || (bestErr != nil && sr.err == nil) {
+			bestResult = sr.r
+			bestErr = sr.err
+			hasBest = true
+		}
+	}
+	if bestResult.Outcome == "" {
+		bestResult = Result{Outcome: OutcomeTimeout, Method: "auto", Elapsed: time.Since(start)}
+	}
+	return bestResult, bestErr
 }
 
 func validate(o *Opts) error {
