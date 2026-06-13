@@ -52,6 +52,7 @@ Project instructions for AI coding agents.
 - Only gate a command behind an external-tool presence/auth check if that command actually invokes the external tool; offline-safe commands (e.g. reading local DB/session data) must not require network auth.
 - A flag the parser claims to support (or that help/usage text and runtime hints suggest, e.g. `--pr <N>`) must be fully consumed by the argument parser on every command path; a flag that is recognized but left in the leftover-args slice causes the command to still fail its usage check.
 - When a command accepts a value both positionally and via a named flag (e.g. positional PR vs `--pr <n>`), the positional extractor must consume the named-flag form too: assign its value to the target and remove the flag plus its value from the remaining args, so the named form works without an extra positional.
+- A shared positional-argument extractor must list the value-taking (argument-consuming) flags of *every* subcommand it serves; if a subcommand's value flags (e.g. `--timeout/--interval/--strategy/--bot`) are missing from that list, the flag's value is misread as the positional (e.g. `wait-review --timeout 5m 123` treats `5m` as the PR number).
 
 ### TUI & Layout
 - Use a single shared predicate per logical event; never duplicate format-detection logic.
@@ -84,6 +85,9 @@ Project instructions for AI coding agents.
 - **Log/text parsing:** Anchor numeric extraction to a known prefix/suffix; never scan all whitespace-delimited tokens.
 - **Loop boundaries:** Always verify the starting index of iteration loops; off-by-one errors (e.g. starting at index 1 instead of 0) silently exclude the first element from aggregations like sums and averages.
 - **Predicate logic:** When a function scans a collection for a match, return `true` on the matching condition (`item == target`), not the inverse; an inverted predicate almost always returns the wrong result.
+- **Duration units:** `time.Duration` is a nanosecond count and JSON-marshals as integer nanoseconds; a field named `*_ms`/`*_sec` must carry an actual millisecond/second integer (e.g. `d.Milliseconds()`), not a raw `time.Duration`. Never construct `time.Duration(n)` from a value already expressed in ms/sec — that reinterprets `n` as nanoseconds.
+- **Sub-unit truncation:** Converting a sub-unit duration to a coarser integer (`int(d.Seconds())`, `int(d.Minutes())`) yields 0 below one unit; guard any denominator derived from such a value (clamp divisor ≥ 1) before percent/ratio/progress math to avoid division by zero.
+- **Concurrent field access:** A struct field written by one goroutine (e.g. an HTTP handler) and read by another (e.g. a ticker/poll loop) must be protected by the same mutex on *both* the write and the read path; an unsynchronized shared field trips the race detector and is undefined behavior — guarding only one side is not enough.
 
 ### Python
 - **Safety & initialization:** Guard boolean aggregates against empty collections. Initialize closure-captured accumulators before first use. If a docstring says "Never raises", wrap all code paths including pre-`try` operations.
@@ -104,6 +108,8 @@ Project instructions for AI coding agents.
 
 ### API, Testing & Observability
 - When a backend enum gains values/aliases, update all mirrored client-side type definitions in the same change.
+- Absence from a "pending"/"requested" collection (e.g. `requested_reviewers`) is ambiguous: it means both "never requested" and "already completed". Never treat absence as a single state — distinguish "was requested and is now done" from "was never requested" before reporting completion, or you risk a false "done" when no work ever started.
+- Never identify an actor by substring match on its login (e.g. treating any login containing the bot name as the bot); a human login that contains the substring (e.g. `copilotfan`) yields a false positive. Match on an exact identity and, when available, a type discriminator (e.g. require `user.type == "Bot"`), rejecting non-matching types.
 - With `MagicMock`, explicitly set every field controlling branching logic (unset attributes are truthy); update fixtures and remove unused imports when settings fields are renamed/removed.
 - Retry log denominators must match actual total attempts; keep constant names, comments, and loop bounds mutually consistent.
 - When adding or changing argument/flag parsing, extend the parser's test table with a case asserting the new form is consumed into its target and removed from the leftover args (e.g. assert `--pr 42` sets the PR and leaves `rest` empty).
