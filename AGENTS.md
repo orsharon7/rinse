@@ -5,7 +5,7 @@ Project instructions for AI coding agents.
 <!-- BEGIN:COPILOT-RULES -->
 ## Coding Guidelines (AI-maintained)
 *Auto-updated by pr-review-reflect — do not edit this section manually.*
-*Last updated: 2026-06-12 from PR #268 review*
+*Last updated: 2026-06-13 from PR #268 review*
 
 ### Shell Scripting
 - Read interactive input from `/dev/tty`; render UI output to stderr.
@@ -50,6 +50,8 @@ Project instructions for AI coding agents.
 - Installer scripts must pass all required build flags (e.g. `-ldflags`) on every code path, including fallback/alternative branches; a fallback that omits version-injection flags silently produces binaries reporting wrong metadata.
 - When a CLI flag can override a value that was validated earlier in the same command, re-validate at the point of override — never assume the initial check covers all assignment paths.
 - Only gate a command behind an external-tool presence/auth check if that command actually invokes the external tool; offline-safe commands (e.g. reading local DB/session data) must not require network auth.
+- A flag the parser claims to support (or that help/usage text and runtime hints suggest, e.g. `--pr <N>`) must be fully consumed by the argument parser on every command path; a flag that is recognized but left in the leftover-args slice causes the command to still fail its usage check.
+- When a command accepts a value both positionally and via a named flag (e.g. positional PR vs `--pr <n>`), the positional extractor must consume the named-flag form too: assign its value to the target and remove the flag plus its value from the remaining args, so the named form works without an extra positional.
 
 ### TUI & Layout
 - Use a single shared predicate per logical event; never duplicate format-detection logic.
@@ -78,6 +80,7 @@ Project instructions for AI coding agents.
 - **Safety:** Use pointers for non-copy-safe types (`strings.Builder`, `sync.Mutex`) in frequently-copied structs. Drain data channels before acting on a done-channel signal.
 - **Module hygiene:** Run `go mod tidy` before committing; direct imports must not be `// indirect`. Every `-X pkg.Symbol=value` LDFLAGS symbol must be declared as a `var`. No unreferenced package-level identifiers. Use `filepath.Dir()`/`filepath.Join()`; rune-aware truncation for user-visible strings.
 - **Config & maps:** Initialize fields most-specific-first (per-repo before global). Use explicit `ok` from map lookup; never treat zero values as "unset". Use scoped values verbatim; never merge with globals via `||`. Never persist a field without reading it back. Guard map writes against empty keys; parse input into canonical form before deriving values.
+- **Serialization compatibility:** When two structs read/write the same on-disk format (e.g. a canonical writer struct and a legacy reader struct over the same JSON files), keep their field tags reconciled; if the reader's struct lacks the writer's current key, map the new key onto the legacy field (or fall back when the legacy key is absent) so consumers don't silently lose data.
 - **Log/text parsing:** Anchor numeric extraction to a known prefix/suffix; never scan all whitespace-delimited tokens.
 - **Loop boundaries:** Always verify the starting index of iteration loops; off-by-one errors (e.g. starting at index 1 instead of 0) silently exclude the first element from aggregations like sums and averages.
 - **Predicate logic:** When a function scans a collection for a match, return `true` on the matching condition (`item == target`), not the inverse; an inverted predicate almost always returns the wrong result.
@@ -103,6 +106,7 @@ Project instructions for AI coding agents.
 - When a backend enum gains values/aliases, update all mirrored client-side type definitions in the same change.
 - With `MagicMock`, explicitly set every field controlling branching logic (unset attributes are truthy); update fixtures and remove unused imports when settings fields are renamed/removed.
 - Retry log denominators must match actual total attempts; keep constant names, comments, and loop bounds mutually consistent.
+- When adding or changing argument/flag parsing, extend the parser's test table with a case asserting the new form is consumed into its target and removed from the leftover args (e.g. assert `--pr 42` sets the PR and leaves `rest` empty).
 
 ### Structured Text & Marker Validation
 - Validate paired delimiters (e.g. `<!-- BEGIN:X -->` / `<!-- END:X -->`) as exact full lines using `grep -Fxc`; never substring-match (false positives on comments/examples). Assert each appears exactly once AND BEGIN precedes END.
@@ -110,5 +114,9 @@ Project instructions for AI coding agents.
 - On validation failure, revert affected files (`git checkout -- <file>`) and abort; never continue with a corrupt section.
 - After any agent/subprocess run that may modify tracked files, assert pre-existing files still exist; revert and abort if missing.
 - After any agent/subprocess run, re-assert the full filesystem invariant of critical files — not just existence but also file type (e.g. symlink vs regular file); revert and abort if the type changed unexpectedly.
+
+### Repository Hygiene
+- Never commit local tool/agent runtime artifacts (e.g. session-continuation JSON, scratch state written during a run); they create noisy diffs and merge conflicts for other contributors.
+- Any directory generated at runtime by a tool or agent must be added to `.gitignore` so its contents are never accidentally staged; verify with `git status` before committing that no generated run-state paths are tracked.
 
 <!-- END:COPILOT-RULES -->
