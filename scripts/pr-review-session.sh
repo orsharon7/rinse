@@ -88,25 +88,32 @@ session_init() {
 
 # session_update <iter> <last_review_id>
 # Call at the top of every loop iteration to keep state fresh.
+#
+# Preserves fields that other functions own (lock_id, started_at) by reading
+# them from the existing file before overwriting. Without this, the lock_id
+# written by session_save_lock_id is silently dropped on the very next
+# session_update — breaking the crash-recovery contract that lets a runner
+# reclaim its own GH lock comment after a SIGKILL.
 session_update() {
   local iter="${1:-0}"
   local last_rid="${2:-}"
   [[ -z "$_SESSION_FILE" ]] && return 0
 
+  local prior_lock_id="" prior_started_at=""
+  if [[ -f "$_SESSION_FILE" ]]; then
+    prior_lock_id=$(jq -r '.lock_id // ""' "$_SESSION_FILE" 2>/dev/null || echo "")
+    prior_started_at=$(jq -r '.started_at // ""' "$_SESSION_FILE" 2>/dev/null || echo "")
+  fi
+
   jq -n \
     --arg hostname "$_SESSION_HOSTNAME" \
     --argjson pid "$_SESSION_PID" \
-    --arg started_at "$(
-      if [[ -f "$_SESSION_FILE" ]]; then
-        jq -r '.started_at // ""' "$_SESSION_FILE" 2>/dev/null || echo ""
-      else
-        echo ""
-      fi
-    )" \
+    --arg started_at "$prior_started_at" \
     --arg updated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --argjson iter "$iter" \
     --arg last_review_id "$last_rid" \
     --arg status "running" \
+    --arg lock_id "$prior_lock_id" \
     '{
       hostname:       $hostname,
       pid:            $pid,
@@ -114,7 +121,8 @@ session_update() {
       updated_at:     $updated_at,
       iter:           $iter,
       last_review_id: $last_review_id,
-      status:         $status
+      status:         $status,
+      lock_id:        $lock_id
     }' > "$_SESSION_FILE"
 }
 
@@ -200,13 +208,16 @@ _gh_lock_label_exists() {
 }
 
 _gh_lock_ensure_label_created() {
-  # Create the label in the repo if it doesn't exist yet (idempotent)
+  # Create the label in the repo if it doesn't exist yet (idempotent).
+  # gh api on 4xx writes the response body to stdout AND a one-line "exit
+  # status 1" to stderr — `2>/dev/null` alone leaks the 422 JSON body. Redirect
+  # both so a pre-existing label produces zero TUI noise.
   gh api "repos/${_SESSION_REPO}/labels" \
     -X POST \
     -f name="${RINSE_RUNNING_LABEL}" \
     -f color="8B5CF6" \
     -f description="RINSE is actively reviewing this PR — do not merge" \
-    2>/dev/null || true
+    >/dev/null 2>&1 || true
 }
 
 _gh_lock_add_label() {

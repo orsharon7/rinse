@@ -362,8 +362,11 @@ if [[ "$USE_WORKTREE" == true ]]; then
       git -C "$REPO_ROOT" worktree remove --force "$WORKTREE_DIR" 2>/dev/null || true
       rm -rf "$WORKTREE_DIR" 2>/dev/null || true
     fi
-    session_clear
-    gh_lock_release
+    # Lock ownership gate — see _cleanup_session_lock for the contract.
+    if [[ -n "${_LOCK_COMMENT_ID:-}" ]]; then
+      session_clear
+      gh_lock_release
+    fi
     _stats_exit_trap "$_trapped_exit"
   }
   # Override the earlier EXIT trap with one that also runs worktree cleanup.
@@ -669,8 +672,16 @@ fi
 if [[ "$USE_WORKTREE" == false ]]; then
   _cleanup_session_lock() {
     local _trapped_exit=$?
-    session_clear
-    gh_lock_release
+    # Only tear down session+lock state if we actually own the lock.
+    # _LOCK_COMMENT_ID is set by gh_lock_acquire; it stays empty on early
+    # exits (failed acquire, dry-run, ...). Without this guard, a dry-run
+    # or pre-acquire failure would wipe the session file written by a
+    # legitimate prior crashed run, destroying the lock_id that crash
+    # recovery needs to reclaim the existing GH lock comment.
+    if [[ -n "${_LOCK_COMMENT_ID:-}" ]]; then
+      session_clear
+      gh_lock_release
+    fi
     _stats_exit_trap "$_trapped_exit"
   }
   trap _cleanup_session_lock EXIT
