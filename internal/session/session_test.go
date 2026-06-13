@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -151,6 +152,40 @@ func TestLoadAll_MissingDir(t *testing.T) {
 	}
 	if sessions != nil {
 		t.Errorf("expected nil sessions for missing dir, got %v", sessions)
+	}
+}
+
+// TestLoadAll_MapsCanonicalCommentsByIteration verifies that LoadAll falls back
+// to the canonical "copilot_comments_by_iteration" field (written by the TUI as
+// stats.Session JSON) when the legacy "comments_by_round" field is absent, so
+// the History detail view keeps its per-round breakdown.
+func TestLoadAll_MapsCanonicalCommentsByIteration(t *testing.T) {
+	dir := withTempSessions(t)
+
+	canonical := map[string]any{
+		"pr":                            "42",
+		"repo":                          "owner/repo",
+		"started_at":                    time.Now().UTC().Format(time.RFC3339),
+		"copilot_comments_by_iteration": []int{5, 2},
+	}
+	data, err := json.Marshal(canonical)
+	if err != nil {
+		t.Fatalf("Marshal canonical: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "canonical.json"), data, 0o644); err != nil {
+		t.Fatalf("WriteFile canonical: %v", err)
+	}
+
+	sessions, err := LoadAll()
+	if err != nil {
+		t.Fatalf("LoadAll: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+	want := []int{5, 2}
+	if !reflect.DeepEqual(sessions[0].CommentsByRound, want) {
+		t.Errorf("CommentsByRound = %v, want %v", sessions[0].CommentsByRound, want)
 	}
 }
 

@@ -76,6 +76,30 @@ func TestExtractPositionalPR(t *testing.T) {
 			wantRest: []string{"--repo", "123"},
 		},
 		{
+			name:     "--pr is consumed as the PR token and removed from rest",
+			args:     []string{"--pr", "42"},
+			wantPR:   "42",
+			wantRest: []string{},
+		},
+		{
+			name:     "--pr alongside other flags",
+			args:     []string{"--repo", "owner/repo", "--pr", "42"},
+			wantPR:   "42",
+			wantRest: []string{"--repo", "owner/repo"},
+		},
+		{
+			name:     "--pr value wins over an earlier positional PR",
+			args:     []string{"7", "--pr", "42"},
+			wantPR:   "42",
+			wantRest: []string{},
+		},
+		{
+			name:     "malformed --pr (no value) is left in rest for the usage error",
+			args:     []string{"--pr"},
+			wantPR:   "",
+			wantRest: []string{"--pr"},
+		},
+		{
 			name:     "empty args",
 			args:     []string{},
 			wantPR:   "",

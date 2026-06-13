@@ -148,11 +148,13 @@ func hasFlag(args []string, flag string) bool {
 	return false
 }
 
-// extractPositionalPR returns the first positional (non-flag) argument that
-// looks like a PR number, removing it from args. This lets users pass the PR
-// number anywhere — before, between, or after flags — instead of forcing it to
-// be args[0]. A token is considered the positional PR when it does not start
-// with "-" and the previous token is not a value-taking flag.
+// extractPositionalPR returns the PR number from args, removing the tokens that
+// supplied it. The PR may be given either as a positional (non-flag) argument
+// anywhere — before, between, or after flags — or via "--pr <n>". A positional
+// token is the PR when it does not start with "-" and the previous token is not
+// a value-taking flag. When "--pr <n>" is present its value becomes the PR and
+// both tokens are dropped from rest so downstream commands requiring a PR
+// succeed without an extra positional argument.
 //
 // Recognised value-taking flags (must be kept in sync with the flag tables in
 // the run*Cmd functions): --repo, --pr, --cwd, --model, --runner,
@@ -169,17 +171,25 @@ func extractPositionalPR(args []string) (pr string, rest []string) {
 		"--poll-interval":       true,
 	}
 	rest = make([]string, 0, len(args))
-	prevTookValue := false
-	for _, a := range args {
-		if prevTookValue {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--pr" {
+			// Consume --pr's value as the PR when a valid value follows.
+			// Leave a malformed --pr (no value, or value is another flag) in
+			// rest so the downstream flag parser reports the usage error.
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				pr = args[i+1]
+				i++
+				continue
+			}
 			rest = append(rest, a)
-			prevTookValue = false
 			continue
 		}
 		if strings.HasPrefix(a, "-") {
 			rest = append(rest, a)
-			if valueFlags[a] {
-				prevTookValue = true
+			if valueFlags[a] && i+1 < len(args) {
+				i++
+				rest = append(rest, args[i])
 			}
 			continue
 		}
