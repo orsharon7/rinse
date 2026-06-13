@@ -154,3 +154,47 @@ func TestIsOperationalReflectLine(t *testing.T) {
 		}
 	}
 }
+
+func TestInferPhase_StalledIsTransient(t *testing.T) {
+	tests := []struct {
+		name    string
+		current phase
+		line    string
+		want    phase
+	}{
+		{"stall trigger", phaseWaiting, "   ⚠️  Stalled after 300s — dismissing and re-requesting", phaseStalled},
+		{"hold stall on unrelated line", phaseStalled, "some unrelated log line", phaseStalled},
+		{"recover on wait-tick", phaseStalled, "⏳ Copilot reviewing (retry)... (45s / 300s)", phaseWaiting},
+		{"escalate on terminal stall", phaseStalled, "   ❌ Copilot still stalled after dismiss+retry", phaseError},
+		{"approved escapes stall", phaseStalled, "APPROVED by Copilot", phaseDone},
+		{"done remains terminal", phaseDone, "any log line", phaseDone},
+		{"cancelled remains terminal", phaseCancelled, "any log line", phaseCancelled},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := inferPhase(tt.line, tt.current)
+			if got != tt.want {
+				t.Errorf("inferPhase(%q, %v) = %v, want %v", tt.line, tt.current, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestApplyPhaseChange_StalledAtTracking(t *testing.T) {
+	m := monitorModel{}
+	m2 := m.applyPhaseChange(phaseStalled)
+	if m2.stalledAt.IsZero() {
+		t.Error("entering phaseStalled should set stalledAt")
+	}
+	if m2.frozenElapsed != nil {
+		t.Error("entering phaseStalled must NOT freeze elapsed (transient state)")
+	}
+	m3 := m2.applyPhaseChange(phaseWaiting)
+	if !m3.stalledAt.IsZero() {
+		t.Error("leaving phaseStalled should clear stalledAt")
+	}
+	m4 := m.applyPhaseChange(phaseDone)
+	if m4.frozenElapsed == nil {
+		t.Error("entering phaseDone should freeze elapsed (terminal state)")
+	}
+}

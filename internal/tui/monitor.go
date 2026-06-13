@@ -255,6 +255,12 @@ type monitorModel struct {
 	done         bool
 	cancelReason string // first cancel/stalled log line, for edge-case screens
 
+	// stalledAt records when phaseStalled was last ENTERED, so the stalled
+	// screen can render a per-retry countdown ("retry: 4:32 remaining")
+	// against stallRetryWindow rather than the misleading total-cycle clock.
+	// Cleared whenever the phase transitions out of phaseStalled.
+	stalledAt time.Time
+
 	// timing: server-driven time derivation per UX spec (RIN-42).
 	// clockOffset is computed once per connection as serverNow - Date.now().
 	// For the local runner, it remains zero (runner IS the server).
@@ -339,14 +345,24 @@ func (m monitorModel) nowAdjusted() time.Time {
 
 // applyPhaseChange records a phase transition: updates lastStateChangedAt and
 // freezes elapsed when entering a terminal phase. Returns the updated model.
+//
+// phaseStalled is NOT treated as terminal here: it is a transient warning
+// state the script can recover from via the retry dismiss-and-rerequest. The
+// elapsed timer keeps ticking so the per-retry countdown (driven by stalledAt)
+// renders accurately and the post-recovery cycle clock stays consistent.
 func (m monitorModel) applyPhaseChange(newPhase phase) monitorModel {
 	if newPhase == m.phase {
 		return m
 	}
 	m.lastStateChangedAt = time.Now()
-	if newPhase == phaseDone || newPhase == phaseError || newPhase == phaseStalled || newPhase == phaseCancelled {
+	if newPhase == phaseDone || newPhase == phaseError || newPhase == phaseCancelled {
 		d := (time.Since(m.started) + m.clockOffset).Round(time.Second)
 		m.frozenElapsed = &d
+	}
+	if newPhase == phaseStalled {
+		m.stalledAt = time.Now()
+	} else {
+		m.stalledAt = time.Time{}
 	}
 	m.phase = newPhase
 	return m
@@ -928,15 +944,40 @@ func (m monitorModel) renderWaitProgress() string {
 
 // ── Edge-case screens ─────────────────────────────────────────────────────────
 
+// stallRetryWindow is how long the script's _dismiss_and_rerequst waits for
+// Copilot to respond on the retry attempt (matches WAIT_MAX default of 300s in
+// pr-review-opencode.sh). If the script is invoked with a different --wait-max
+// this becomes an approximation; the bar will reach 100% before the script
+// actually times out, but the countdown still gives the user a meaningful
+// "this is bounded" signal rather than the previous open-ended elapsed clock.
+const stallRetryWindow = 5 * time.Minute
+
 // renderStalledScreen renders an amber banner when Copilot review has stalled.
+// Shows a per-retry countdown ("retry: 4:32 remaining") instead of the
+// total-cycle elapsed time, which previously made the cycle look frozen even
+// when the retry was actively progressing.
 func (m monitorModel) renderStalledScreen(w int) string {
-	elapsed := theme.StyleMuted.Render(fmt.Sprintf("(%s elapsed)", formatElapsed(m.elapsedForDisplay())))
+	var countdown string
+	if !m.stalledAt.IsZero() {
+		remaining := stallRetryWindow - time.Since(m.stalledAt)
+		if remaining > 0 {
+			countdown = fmt.Sprintf("retry: %s remaining", formatElapsed(remaining))
+		} else {
+			countdown = "retry: timing out…"
+		}
+	} else {
+		countdown = fmt.Sprintf("(%s elapsed)", formatElapsed(m.elapsedForDisplay()))
+	}
+	countdownLine := theme.StyleMuted.Render(countdown)
+
 	title := theme.StylePhaseStalled.Render("⚠  Copilot review stalled")
 	body := lipgloss.JoinVertical(lipgloss.Left,
 		title,
 		"",
-		theme.StyleMuted.Render("The review has not responded within the expected window."),
-		theme.StyleMuted.Render("RINSE will retry automatically. "+elapsed),
+		theme.StyleMuted.Render("Copilot didn't respond in time — dismissing and re-requesting."),
+		theme.StyleMuted.Render("Progress resumes here when the next review arrives."),
+		"",
+		countdownLine,
 	)
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -1007,8 +1048,18 @@ func (m monitorModel) renderFailedScreen(w int) string {
 
 func inferPhase(plain string, current phase) phase {
 	switch {
-	case current == phaseDone || current == phaseStalled || current == phaseCancelled:
+	case current == phaseDone || current == phaseCancelled:
 		return current
+	// phaseStalled is transient: a "still stalled after dismiss+retry" line
+	// escalates to phaseError, a wait-progress tick demotes back to phaseWaiting
+	// (the retry succeeded and the normal progress bar should resume), any
+	// other recognised phase transition wins. Otherwise we hold phaseStalled.
+	case current == phaseStalled && strings.Contains(plain, "still stalled after dismiss"):
+		return phaseError
+	case current == phaseStalled && isWaitTickLine(plain):
+		return phaseWaiting
+	case current == phaseStalled && strings.Contains(plain, "APPROVED"):
+		return phaseDone
 	case strings.Contains(plain, "APPROVED"):
 		return phaseDone
 	case strings.Contains(plain, "stalled") || strings.Contains(plain, "Stalled"):
