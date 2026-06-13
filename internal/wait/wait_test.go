@@ -14,12 +14,12 @@ import (
 
 func TestMatchReviewEvent(t *testing.T) {
 	tests := []struct {
-		name     string
-		payload  map[string]any
-		pr       int
-		bot      string
-		want     bool
-		wantErr  bool
+		name    string
+		payload map[string]any
+		pr      int
+		bot     string
+		want    bool
+		wantErr bool
 	}{
 		{
 			name: "copilot bot submitted on target PR",
@@ -68,6 +68,18 @@ func TestMatchReviewEvent(t *testing.T) {
 				"pull_request": map[string]any{"number": 268},
 			},
 			pr: 268, bot: "copilot", want: true,
+		},
+		{
+			name: "human login containing bot substring is rejected via user.type",
+			payload: map[string]any{
+				"action": "submitted",
+				"review": map[string]any{
+					"state": "commented",
+					"user":  map[string]any{"login": "copilotfan", "type": "User"},
+				},
+				"pull_request": map[string]any{"number": 268},
+			},
+			pr: 268, bot: "copilot", want: false,
 		},
 	}
 	for _, tt := range tests {

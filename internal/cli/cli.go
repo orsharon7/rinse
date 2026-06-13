@@ -65,7 +65,7 @@ type StatusResult struct {
 	OK     bool   `json:"ok"`
 	PR     string `json:"pr"`
 	Repo   string `json:"repo"`
-	Status string `json:"status"`         // approved / pending / new_review / no_reviews / merged / closed / error
+	Status string `json:"status"` // approved / pending / new_review / no_reviews / merged / closed / error
 	Error  string `json:"error,omitempty"`
 }
 
@@ -82,10 +82,10 @@ type StartResult struct {
 
 // PredictResult is the JSON envelope for `rinse predict --json`.
 type PredictResult struct {
-	OK          bool               `json:"ok"`
-	Source      string             `json:"source"`
-	Predictions []PredictItemJSON  `json:"predictions"`
-	Error       string             `json:"error,omitempty"`
+	OK          bool              `json:"ok"`
+	Source      string            `json:"source"`
+	Predictions []PredictItemJSON `json:"predictions"`
+	Error       string            `json:"error,omitempty"`
 }
 
 // PredictItemJSON is a single prediction in JSON output.
@@ -158,7 +158,8 @@ func hasFlag(args []string, flag string) bool {
 //
 // Recognised value-taking flags (must be kept in sync with the flag tables in
 // the run*Cmd functions): --repo, --pr, --cwd, --model, --runner,
-// --reflect-main-branch, --max-iterations, --poll-interval.
+// --reflect-main-branch, --max-iterations, --poll-interval, --timeout,
+// --interval, --strategy, --bot.
 func extractPositionalPR(args []string) (pr string, rest []string) {
 	valueFlags := map[string]bool{
 		"--repo":                true,
@@ -169,6 +170,10 @@ func extractPositionalPR(args []string) (pr string, rest []string) {
 		"--reflect-main-branch": true,
 		"--max-iterations":      true,
 		"--poll-interval":       true,
+		"--timeout":             true,
+		"--interval":            true,
+		"--strategy":            true,
+		"--bot":                 true,
 	}
 	rest = make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {

@@ -59,8 +59,16 @@ func runWebhook(ctx context.Context, opts Opts, start time.Time) (Result, error)
 	port := listener.Addr().(*net.TCPAddr).Port
 
 	arrived := make(chan struct{}, 1)
-	var matchErr error
-	var matchOnce sync.Once
+	var (
+		matchMu   sync.Mutex
+		matchErr  error
+		matchOnce sync.Once
+	)
+	readMatchErr := func() error {
+		matchMu.Lock()
+		defer matchMu.Unlock()
+		return matchErr
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/copilot", func(w http.ResponseWriter, r *http.Request) {
@@ -72,7 +80,11 @@ func runWebhook(ctx context.Context, opts Opts, start time.Time) (Result, error)
 		}
 		matched, mErr := MatchReviewEvent(body, opts.PR, opts.BotLogin)
 		if mErr != nil {
-			matchOnce.Do(func() { matchErr = mErr })
+			matchOnce.Do(func() {
+				matchMu.Lock()
+				matchErr = mErr
+				matchMu.Unlock()
+			})
 		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -144,8 +156,8 @@ func runWebhook(ctx context.Context, opts Opts, start time.Time) (Result, error)
 				fmt.Errorf("wait: gh webhook forward exited unexpectedly")
 		case <-ticker.C:
 			emitTick(opts.ProgressOut, "webhook", time.Since(start), timeout)
-			if matchErr != nil {
-				return Result{Outcome: OutcomeError, Method: "webhook"}, matchErr
+			if mErr := readMatchErr(); mErr != nil {
+				return Result{Outcome: OutcomeError, Method: "webhook"}, mErr
 			}
 		}
 	}
@@ -174,6 +186,9 @@ func MatchReviewEvent(body []byte, pr int, botLogin string) (bool, error) {
 		return false, nil
 	}
 	if ev.PullRequest.Number != pr {
+		return false, nil
+	}
+	if t := ev.Review.User.Type; t != "" && !strings.EqualFold(t, "Bot") {
 		return false, nil
 	}
 	if !strings.Contains(strings.ToLower(ev.Review.User.Login), strings.ToLower(botLogin)) {

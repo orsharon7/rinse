@@ -20,6 +20,9 @@ func emitTick(w io.Writer, method string, elapsed, total time.Duration) {
 	}
 	elapsedSec := int(elapsed.Seconds())
 	totalSec := int(total.Seconds())
+	if totalSec < 1 {
+		totalSec = 1
+	}
 	if elapsedSec > totalSec {
 		elapsedSec = totalSec
 	}

@@ -15,13 +15,14 @@ import (
 
 // WaitReviewResult is the JSON envelope for `rinse wait-review --json`.
 type WaitReviewResult struct {
-	OK      bool          `json:"ok"`
-	PR      string        `json:"pr"`
-	Repo    string        `json:"repo"`
-	Outcome wait.Outcome  `json:"outcome"`
-	Method  string        `json:"method"`
-	Elapsed time.Duration `json:"elapsed_ms"`
-	Error   string        `json:"error,omitempty"`
+	OK      bool         `json:"ok"`
+	PR      string       `json:"pr"`
+	Repo    string       `json:"repo"`
+	Outcome wait.Outcome `json:"outcome"`
+	Method  string       `json:"method"`
+	// int64 ms, not time.Duration: a Duration marshals as nanoseconds.
+	Elapsed int64  `json:"elapsed_ms"`
+	Error   string `json:"error,omitempty"`
 }
 
 func runWaitReviewCmd(args []string) {
@@ -144,7 +145,7 @@ func runWaitReviewCmd(args []string) {
 			Repo:    repo,
 			Outcome: res.Outcome,
 			Method:  res.Method,
-			Elapsed: time.Duration(res.Elapsed.Milliseconds()),
+			Elapsed: res.Elapsed.Milliseconds(),
 		}
 		if runErr != nil {
 			out.Error = runErr.Error()

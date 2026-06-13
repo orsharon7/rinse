@@ -155,13 +155,14 @@ func ghToken(ctx context.Context) (string, error) {
 	return t, nil
 }
 
-// copilotAlreadyDone reports whether Copilot has already finished any pending
-// review on the PR — i.e. neither in requested_reviewers nor has a PENDING
-// review entry. Returns true when the caller can proceed without waiting.
+// copilotAlreadyDone reports whether Copilot has already submitted a review
+// that is sitting unread — i.e. it is not in requested_reviewers AND it has at
+// least one non-PENDING review on the PR. Returns true when the caller can
+// proceed without waiting.
 //
-// Returns (false, nil) when Copilot is still pending or never reviewed.
-// Returns (false, err) on transient errors so callers fall back to waiting
-// rather than incorrectly claiming arrival.
+// Returns (false, nil) when Copilot is still pending, was never requested, or
+// has not reviewed yet. Returns (false, err) on transient errors so callers
+// fall back to waiting rather than incorrectly claiming arrival.
 func copilotAlreadyDone(ctx context.Context, opts Opts) (bool, error) {
 	token, err := ghToken(ctx)
 	if err != nil {
@@ -201,5 +202,47 @@ func copilotAlreadyDone(ctx context.Context, opts Opts) (bool, error) {
 			return false, nil
 		}
 	}
-	return true, nil
+	return copilotHasSubmittedReview(ctx, opts, token, apiBase)
+}
+
+// copilotHasSubmittedReview reports whether the bot has at least one non-PENDING
+// review on the PR. This guards copilotAlreadyDone against the case where
+// Copilot was never requested (absent from requested_reviewers and reviews),
+// which must NOT be treated as a completed review.
+func copilotHasSubmittedReview(ctx context.Context, opts Opts, token, apiBase string) (bool, error) {
+	endpoint := fmt.Sprintf("%s/repos/%s/pulls/%d/reviews", apiBase, opts.Repo, opts.PR)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return false, fmt.Errorf("wait: pre-check reviews %d", resp.StatusCode)
+	}
+	var reviews []struct {
+		State string `json:"state"`
+		User  struct {
+			Login string `json:"login"`
+		} `json:"user"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&reviews); err != nil {
+		return false, err
+	}
+	bot := strings.ToLower(opts.BotLogin)
+	for _, r := range reviews {
+		if r.State == "PENDING" {
+			continue
+		}
+		if strings.Contains(strings.ToLower(r.User.Login), bot) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
