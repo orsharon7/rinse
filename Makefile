@@ -6,7 +6,10 @@ LDFLAGS := -ldflags "-X main.version=$(VERSION)"
 
 ## build: compile the binary for the current platform
 build:
-	@if [ -d $(BINARY) ]; then rm -rf $(BINARY); fi
+	@if [ -d "$(BINARY)" ]; then \
+		echo "error: refusing to overwrite directory '$(BINARY)' — rename or remove it first" >&2; \
+		exit 1; \
+	fi
 	go build $(LDFLAGS) -o $(BINARY) .
 
 ## install: build and install to INSTALL_DIR (default: ~/.local/bin)

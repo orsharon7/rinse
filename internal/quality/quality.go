@@ -65,17 +65,17 @@ var securityPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\bxss\b`),
 	regexp.MustCompile(`(?i)\bcsrf\b`),
 	regexp.MustCompile(`(?i)\bauth(?:entication|orization)?\b`),
-	regexp.MustCompile(`(?i)\bsecret\b`),
-	regexp.MustCompile(`(?i)\bpassword\b`),
-	regexp.MustCompile(`(?i)\bcredential\b`),
-	regexp.MustCompile(`(?i)\btoken\b`),
+	regexp.MustCompile(`(?i)\bsecrets?\b`),
+	regexp.MustCompile(`(?i)\bpasswords?\b`),
+	regexp.MustCompile(`(?i)\bcredentials?\b`),
+	regexp.MustCompile(`(?i)\btokens?\b`),
 	regexp.MustCompile(`(?i)\bpath\s*traversal\b`),
 	regexp.MustCompile(`(?i)\binjection\b`),
 	regexp.MustCompile(`(?i)\binsecure\b`),
 	regexp.MustCompile(`(?i)\bvulnerabilit\w+\b`),
 	regexp.MustCompile(`(?i)\bencrypt\w*\b`),
 	regexp.MustCompile(`(?i)\bsanitiz\w+\b`),
-	regexp.MustCompile(`(?i)\bpermission\b`),
+	regexp.MustCompile(`(?i)\bpermissions?\b`),
 }
 
 // correctnessPatterns matches logic/correctness-related comment text.

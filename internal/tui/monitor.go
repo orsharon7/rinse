@@ -18,6 +18,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/orsharon7/rinse/internal/db"
 	"github.com/orsharon7/rinse/internal/notify"
+	"github.com/orsharon7/rinse/internal/quality"
 	"github.com/orsharon7/rinse/internal/session"
 	"github.com/orsharon7/rinse/internal/stats"
 	"github.com/orsharon7/rinse/internal/theme"
@@ -254,6 +255,12 @@ type monitorModel struct {
 	done         bool
 	cancelReason string // first cancel/stalled log line, for edge-case screens
 
+	// stalledAt records when phaseStalled was last ENTERED, so the stalled
+	// screen can render a per-retry countdown ("retry: 4:32 remaining")
+	// against stallRetryWindow rather than the misleading total-cycle clock.
+	// Cleared whenever the phase transitions out of phaseStalled.
+	stalledAt time.Time
+
 	// timing: server-driven time derivation per UX spec (RIN-42).
 	// clockOffset is computed once per connection as serverNow - Date.now().
 	// For the local runner, it remains zero (runner IS the server).
@@ -338,14 +345,24 @@ func (m monitorModel) nowAdjusted() time.Time {
 
 // applyPhaseChange records a phase transition: updates lastStateChangedAt and
 // freezes elapsed when entering a terminal phase. Returns the updated model.
+//
+// phaseStalled is NOT treated as terminal here: it is a transient warning
+// state the script can recover from via the retry dismiss-and-rerequest. The
+// elapsed timer keeps ticking so the per-retry countdown (driven by stalledAt)
+// renders accurately and the post-recovery cycle clock stays consistent.
 func (m monitorModel) applyPhaseChange(newPhase phase) monitorModel {
 	if newPhase == m.phase {
 		return m
 	}
 	m.lastStateChangedAt = time.Now()
-	if newPhase == phaseDone || newPhase == phaseError || newPhase == phaseStalled || newPhase == phaseCancelled {
+	if newPhase == phaseDone || newPhase == phaseError || newPhase == phaseCancelled {
 		d := (time.Since(m.started) + m.clockOffset).Round(time.Second)
 		m.frozenElapsed = &d
+	}
+	if newPhase == phaseStalled {
+		m.stalledAt = time.Now()
+	} else {
+		m.stalledAt = time.Time{}
 	}
 	m.phase = newPhase
 	return m
@@ -927,15 +944,40 @@ func (m monitorModel) renderWaitProgress() string {
 
 // ── Edge-case screens ─────────────────────────────────────────────────────────
 
+// stallRetryWindow is how long the script's _dismiss_and_rerequst waits for
+// Copilot to respond on the retry attempt (matches WAIT_MAX default of 300s in
+// pr-review-opencode.sh). If the script is invoked with a different --wait-max
+// this becomes an approximation; the bar will reach 100% before the script
+// actually times out, but the countdown still gives the user a meaningful
+// "this is bounded" signal rather than the previous open-ended elapsed clock.
+const stallRetryWindow = 5 * time.Minute
+
 // renderStalledScreen renders an amber banner when Copilot review has stalled.
+// Shows a per-retry countdown ("retry: 4:32 remaining") instead of the
+// total-cycle elapsed time, which previously made the cycle look frozen even
+// when the retry was actively progressing.
 func (m monitorModel) renderStalledScreen(w int) string {
-	elapsed := theme.StyleMuted.Render(fmt.Sprintf("(%s elapsed)", formatElapsed(m.elapsedForDisplay())))
+	var countdown string
+	if !m.stalledAt.IsZero() {
+		remaining := stallRetryWindow - time.Since(m.stalledAt)
+		if remaining > 0 {
+			countdown = fmt.Sprintf("retry: %s remaining", formatElapsed(remaining))
+		} else {
+			countdown = "retry: timing out…"
+		}
+	} else {
+		countdown = fmt.Sprintf("(%s elapsed)", formatElapsed(m.elapsedForDisplay()))
+	}
+	countdownLine := theme.StyleMuted.Render(countdown)
+
 	title := theme.StylePhaseStalled.Render("⚠  Copilot review stalled")
 	body := lipgloss.JoinVertical(lipgloss.Left,
 		title,
 		"",
-		theme.StyleMuted.Render("The review has not responded within the expected window."),
-		theme.StyleMuted.Render("RINSE will retry automatically. "+elapsed),
+		theme.StyleMuted.Render("Copilot didn't respond in time — dismissing and re-requesting."),
+		theme.StyleMuted.Render("Progress resumes here when the next review arrives."),
+		"",
+		countdownLine,
 	)
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -1006,8 +1048,18 @@ func (m monitorModel) renderFailedScreen(w int) string {
 
 func inferPhase(plain string, current phase) phase {
 	switch {
-	case current == phaseDone || current == phaseStalled || current == phaseCancelled:
+	case current == phaseDone || current == phaseCancelled:
 		return current
+	// phaseStalled is transient: a "still stalled after dismiss+retry" line
+	// escalates to phaseError, a wait-progress tick demotes back to phaseWaiting
+	// (the retry succeeded and the normal progress bar should resume), any
+	// other recognised phase transition wins. Otherwise we hold phaseStalled.
+	case current == phaseStalled && strings.Contains(plain, "still stalled after dismiss"):
+		return phaseError
+	case current == phaseStalled && isWaitTickLine(plain):
+		return phaseWaiting
+	case current == phaseStalled && strings.Contains(plain, "APPROVED"):
+		return phaseDone
 	case strings.Contains(plain, "APPROVED"):
 		return phaseDone
 	case strings.Contains(plain, "stalled") || strings.Contains(plain, "Stalled"):
@@ -1548,9 +1600,13 @@ func colorLine(line string) string {
 
 // ── Session extraction ─────────────────────────────────────────────────────────
 
-// extractPatterns derives a best-effort list of top fix patterns from the
-// reflect lines collected during the cycle. It de-duplicates short keyword
-// phrases and returns up to maxPatterns unique entries.
+// extractPatterns derives a list of snake_case category labels (e.g.
+// "error_handling", "security") from the reflect lines collected during the
+// cycle. Status/operational reflect lines (e.g. "starting (model: ...)",
+// "killed", "exited non-zero", commit/push status) are discarded so they never
+// surface as patterns in `rinse stats` / `rinse report`. Remaining lines are
+// fed through quality.ClassifyComment for normalisation; unknown classifications
+// are dropped to avoid leaking arbitrary log text.
 func extractPatterns(reflectLines []string, maxPatterns int) []string {
 	seen := make(map[string]struct{})
 	var out []string
@@ -1559,33 +1615,84 @@ func extractPatterns(reflectLines []string, maxPatterns int) []string {
 		if l == "" {
 			continue
 		}
-		// Trim common prefixes/suffixes to get the rule description.
 		for _, prefix := range []string{"✓ ", "✗ ", "• ", "- ", "* "} {
 			l = strings.TrimPrefix(l, prefix)
 		}
-		// Skip status-only lines.
-		lower := strings.ToLower(l)
-		if lower == "complete" || lower == "done" || lower == "starting" ||
-			strings.Contains(lower, "exited non-zero") ||
-			strings.Contains(lower, "rule(s) pushed") ||
-			strings.Contains(lower, "no changes") ||
-			strings.Contains(lower, "nothing to") {
+		if isOperationalReflectLine(l) {
 			continue
 		}
-		// Truncate to a readable length.
-		if len(l) > 60 {
-			l = l[:57] + "..."
-		}
-		if _, ok := seen[l]; ok {
+		category := quality.ClassifyComment(l)
+		if category == quality.CategoryUnknown {
 			continue
 		}
-		seen[l] = struct{}{}
-		out = append(out, l)
+		label := string(category)
+		if _, ok := seen[label]; ok {
+			continue
+		}
+		seen[label] = struct{}{}
+		out = append(out, label)
 		if len(out) >= maxPatterns {
 			break
 		}
 	}
 	return out
+}
+
+// isOperationalReflectLine reports whether a reflect-tagged log line is
+// operational status (lifecycle, exit codes, push results) rather than a
+// coding rule or comment description that should feed pattern classification.
+func isOperationalReflectLine(line string) bool {
+	lower := strings.ToLower(line)
+	switch lower {
+	case "complete", "done", "starting", "running", "skipped":
+		return true
+	}
+	operationalSubstrings := []string{
+		"starting ",
+		"starting:",
+		"started",
+		"running ",
+		"finished",
+		"completed",
+		"complete:",
+		"killed",
+		"aborted",
+		"timed out",
+		"exit code",
+		"exited non-zero",
+		"exited with",
+		"failed (",
+		"failure (",
+		"rule(s) pushed",
+		"rules pushed",
+		"no changes",
+		"no rules",
+		"nothing to",
+		"pushing to",
+		"pushed to",
+		"pulling from",
+		"committing",
+		"committed",
+		"merging",
+		"rebasing",
+		"worktree",
+		"branch:",
+		"model:",
+		"loading",
+		"saving",
+		"writing",
+		"reading",
+		"opencode failed",
+		"claude failed",
+		"→ main",
+		"-> main",
+	}
+	for _, s := range operationalSubstrings {
+		if strings.Contains(lower, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // ── RunMonitor ────────────────────────────────────────────────────────────────
@@ -1660,51 +1767,75 @@ func RunMonitor(pr, repo, runnerName, modelName, prTitle, cwd string, autoMerge,
 		_ = cmd.Process.Kill()
 	}
 
-	// ── Post-cycle insight summary ────────────────────────────────────────────
-	// Build and persist a session record, then print the human-readable summary.
 	if fm, ok := finalModel.(channelMonitor); ok {
 		mm := fm.monitorModel
-		// Only record sessions for terminal outcomes (done or error).
 		if mm.done {
 			commentsByRound := make([]int, len(mm.iterHistory))
 			for i, e := range mm.iterHistory {
 				commentsByRound[i] = e.comments
 			}
 			patterns := extractPatterns(mm.reflectLines, 5)
+			approved := mm.phase == phaseDone && mm.exitCode == 0
+
+			outcome := stats.OutcomeError
+			switch {
+			case approved:
+				outcome = stats.OutcomeApproved
+			case mm.exitCode == 0:
+				outcome = stats.OutcomeClean
+			}
+
+			canonical := stats.Session{
+				StartedAt:                  mm.started,
+				EndedAt:                    time.Now(),
+				Repo:                       mm.repo,
+				PR:                         mm.pr,
+				PRTitle:                    mm.prTitle,
+				Runner:                     mm.runner,
+				Model:                      mm.model,
+				Outcome:                    outcome,
+				Iterations:                 mm.iter,
+				CopilotCommentsByIteration: commentsByRound,
+				TotalComments:              mm.totalComments,
+				EstimatedTimeSavedSeconds:  mm.totalComments * 240,
+				Approved:                   approved,
+				RulesExtracted:             mm.rulesExtracted,
+				Patterns:                   patterns,
+			}
+			if saveErr := stats.Save(canonical); saveErr != nil {
+				fmt.Fprintf(os.Stderr, "rinse: could not save session: %v\n", saveErr)
+			}
+
 			sess := session.Session{
 				PR:              mm.pr,
 				Repo:            mm.repo,
 				RunnerName:      mm.runner,
 				StartedAt:       mm.started,
-				EndedAt:         time.Now(),
-				Approved:        mm.phase == phaseDone && mm.exitCode == 0,
+				EndedAt:         canonical.EndedAt,
+				Approved:        approved,
 				Iterations:      mm.iter,
 				TotalComments:   mm.totalComments,
 				RulesExtracted:  mm.rulesExtracted,
 				CommentsByRound: commentsByRound,
 				Patterns:        patterns,
 			}
-			// Persist — non-fatal on failure.
-			if saveErr := sess.Save(); saveErr != nil {
-				fmt.Fprintf(os.Stderr, "rinse: could not save session: %v\n", saveErr)
-			}
-			// Persist patterns to telemetry DB (best-effort, non-fatal).
+
 			if len(patterns) > 0 || mm.rulesExtracted > 0 {
 				if tdb, dbErr := db.OpenDefault(); dbErr == nil {
 					prNum := 0
-					fmt.Sscanf(mm.pr, "%d", &prNum)
-					if sid, _ := tdb.FindSessionID(mm.repo, prNum); sid != "" {
-						if len(patterns) > 0 {
-							_ = tdb.SavePatterns(sid, patterns)
-						}
-						if mm.rulesExtracted > 0 {
-							_ = tdb.SetRulesExtracted(sid, mm.rulesExtracted)
+					if _, err := fmt.Sscanf(mm.pr, "%d", &prNum); err == nil && prNum > 0 {
+						if sid, _ := tdb.FindSessionID(mm.repo, prNum); sid != "" {
+							if len(patterns) > 0 {
+								_ = tdb.SavePatterns(sid, patterns)
+							}
+							if mm.rulesExtracted > 0 {
+								_ = tdb.SetRulesExtracted(sid, mm.rulesExtracted)
+							}
 						}
 					}
 					tdb.Close()
 				}
 			}
-			// Print the summary only on successful completion.
 			if mm.exitCode == 0 {
 				session.PrintSummary(sess, false)
 			}

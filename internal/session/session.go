@@ -137,6 +137,9 @@ func LoadAll() ([]Session, error) {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
+		if strings.HasPrefix(e.Name(), "predict-") {
+			continue
+		}
 		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
 		if err != nil {
 			continue // skip unreadable files
@@ -144,6 +147,21 @@ func LoadAll() ([]Session, error) {
 		var s Session
 		if err := json.Unmarshal(data, &s); err != nil {
 			continue // skip corrupt files
+		}
+		// Canonical stats.Session JSON records the per-round breakdown under
+		// "copilot_comments_by_iteration"; the legacy schema uses
+		// "comments_by_round". Fall back to the canonical field when the legacy
+		// one is absent so the History detail view keeps its per-round counts.
+		if len(s.CommentsByRound) == 0 {
+			var canonical struct {
+				CopilotCommentsByIteration []int `json:"copilot_comments_by_iteration"`
+			}
+			if err := json.Unmarshal(data, &canonical); err == nil && len(canonical.CopilotCommentsByIteration) > 0 {
+				s.CommentsByRound = canonical.CopilotCommentsByIteration
+			}
+		}
+		if s.PR == "" {
+			continue
 		}
 		sessions = append(sessions, s)
 	}

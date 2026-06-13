@@ -13,30 +13,44 @@ import (
 // version is set at build time via -ldflags "-X main.version=<tag>".
 var version = "dev"
 
+// commandsRequiringDeps lists subcommands that exec gh/git/runners and so
+// must pass cli.CheckDependencies before running. Commands not listed here
+// (--version, init, opt-in, opt-out, help, stats, report) work without external tools.
+var commandsRequiringDeps = map[string]bool{
+	"start":       true,
+	"run":         true,
+	"status":      true,
+	"predict":     true,
+	"wait-review": true,
+}
+
 func main() {
 	if len(os.Args) > 1 {
-		// cli.TryDispatch handles: status, start, --help/-h/help.
-		// It returns true when the subcommand has been handled; main() exits.
-		// All other args fall through to the switch below.
+		sub := os.Args[1]
+
+		if commandsRequiringDeps[sub] {
+			cli.CheckDependencies()
+			cli.CheckGHAuth()
+		}
+
 		if cli.TryDispatch() {
 			return
 		}
 
-		switch os.Args[1] {
+		switch sub {
 		case "--version", "-v":
 			fmt.Printf("rinse %s\n", version)
-			os.Exit(0)
+			return
 		case "init":
 			if err := tui.RunInit(); err != nil {
 				fmt.Fprintln(os.Stderr, "error:", err)
 				os.Exit(1)
 			}
-			os.Exit(0)
+			return
 		case "stats":
-			// rinse stats --predict
 			if len(os.Args) > 2 && os.Args[2] == "--predict" {
 				stats.PrintPredictStats()
-				os.Exit(0)
+				return
 			}
 			sessions, err := session.LoadAll()
 			if err != nil {
@@ -44,7 +58,7 @@ func main() {
 				os.Exit(1)
 			}
 			session.PrintStats(sessions)
-			os.Exit(0)
+			return
 		case "report":
 			sessions, err := stats.Load()
 			if err != nil {
@@ -52,7 +66,7 @@ func main() {
 				os.Exit(1)
 			}
 			stats.PrintReport(sessions)
-			os.Exit(0)
+			return
 		case "opt-in":
 			if err := stats.SetOptIn(true); err != nil {
 				fmt.Fprintln(os.Stderr, "error saving preference:", err)
@@ -64,36 +78,19 @@ func main() {
 			} else {
 				fmt.Printf("  Stats collection enabled. Sessions will be saved to %s\n", sessionsDir)
 			}
-			os.Exit(0)
+			return
 		case "opt-out":
 			if err := stats.SetOptIn(false); err != nil {
 				fmt.Fprintln(os.Stderr, "error saving preference:", err)
 				os.Exit(1)
 			}
 			fmt.Println("  Stats collection disabled. No new sessions will be saved.")
-			os.Exit(0)
+			return
 		}
 	}
 
-	// Dispatch help before dependency checks so docs are always accessible.
-	if len(os.Args) > 1 && (os.Args[1] == "help" || os.Args[1] == "--help" || os.Args[1] == "-h") {
-		cli.PrintHelp()
-		return
-	}
-
-	// Guard: check required tools (git, gh) before anything else so first-time
-	// users get a clear, styled error with install instructions rather than
-	// cryptic failures inside the TUI.
 	cli.CheckDependencies()
-
-	// Guard: ensure the user is authenticated with GitHub CLI.
 	cli.CheckGHAuth()
-
-	// Dispatch one-shot CLI subcommands (status, start) before the TUI.
-	// Returns true when a subcommand was handled; main() should exit.
-	if cli.TryDispatch() {
-		return
-	}
 
 	if err := tui.Run(version); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)

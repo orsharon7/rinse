@@ -362,8 +362,11 @@ if [[ "$USE_WORKTREE" == true ]]; then
       git -C "$REPO_ROOT" worktree remove --force "$WORKTREE_DIR" 2>/dev/null || true
       rm -rf "$WORKTREE_DIR" 2>/dev/null || true
     fi
-    session_clear
-    gh_lock_release
+    # Lock ownership gate — see _cleanup_session_lock for the contract.
+    if [[ -n "${_LOCK_COMMENT_ID:-}" ]]; then
+      session_clear
+      gh_lock_release
+    fi
     _stats_exit_trap "$_trapped_exit"
   }
   # Override the earlier EXIT trap with one that also runs worktree cleanup.
@@ -498,16 +501,44 @@ react_eyes_to_review() {
 }
 
 wait_for_review() {
-  local elapsed=0 interval=15
   log "⏳ Waiting for Copilot to finish reviewing (up to ${WAIT_MAX}s)..."
-  while [[ $elapsed -lt $WAIT_MAX ]]; do
-    [[ "$(copilot_is_pending)" == "false" ]] && { ui_wait_clear; return 0; }
-    ui_wait_tick "$elapsed" "$WAIT_MAX" "Copilot reviewing"
-    local sleep_time=$(( interval < (WAIT_MAX - elapsed) ? interval : (WAIT_MAX - elapsed) ))
-    sleep "$sleep_time"
-    elapsed=$(( elapsed + sleep_time ))
-  done
-  ui_wait_clear
+
+  # Early return: if Copilot already completed (e.g. caller is restarting after
+  # processing a previous review's comments), skip the entire wait. Without
+  # this, push/poll subscribers wait the full timeout for an event that has
+  # already fired. The legacy inline polling loop checked this at the top of
+  # every iteration; the rinse-wait-review delegate does not, so we must guard
+  # before invoking it.
+  if [[ "$(copilot_is_pending)" == "false" ]]; then
+    log "   ✓ Copilot review already complete — proceeding to fix comments"
+    return 0
+  fi
+
+  # Fast path: delegate to `rinse wait-review` which uses push-based webhook
+  # forwarding when the cli/gh-webhook extension is installed, with ETag-
+  # conditional polling fallback. Detection latency drops from ~15s (legacy
+  # poll interval) to <1s on the push path.
+  if command -v rinse >/dev/null 2>&1; then
+    if rinse wait-review "$PR_NUMBER" --repo "$REPO" \
+         --timeout "${WAIT_MAX}s" --interval 5s --strategy auto 2>&1; then
+      # rinse wait-review prints its own ticks to stderr; merged here.
+      log "   ✓ Copilot review arrived"
+      return 0
+    fi
+    # rinse exited non-zero → timeout (exit 1) or error (exit 2). Fall through
+    # to the existing stall recovery so behaviour is unchanged on the failure
+    # path.
+  else
+    local elapsed=0 interval=15
+    while [[ $elapsed -lt $WAIT_MAX ]]; do
+      [[ "$(copilot_is_pending)" == "false" ]] && { ui_wait_clear; return 0; }
+      ui_wait_tick "$elapsed" "$WAIT_MAX" "Copilot reviewing"
+      local sleep_time=$(( interval < (WAIT_MAX - elapsed) ? interval : (WAIT_MAX - elapsed) ))
+      sleep "$sleep_time"
+      elapsed=$(( elapsed + sleep_time ))
+    done
+    ui_wait_clear
+  fi
 
   # Grace check: review may have arrived in the last poll window — check before acting
   if [[ "$(copilot_is_pending)" == "false" ]]; then
@@ -641,8 +672,16 @@ fi
 if [[ "$USE_WORKTREE" == false ]]; then
   _cleanup_session_lock() {
     local _trapped_exit=$?
-    session_clear
-    gh_lock_release
+    # Only tear down session+lock state if we actually own the lock.
+    # _LOCK_COMMENT_ID is set by gh_lock_acquire; it stays empty on early
+    # exits (failed acquire, dry-run, ...). Without this guard, a dry-run
+    # or pre-acquire failure would wipe the session file written by a
+    # legitimate prior crashed run, destroying the lock_id that crash
+    # recovery needs to reclaim the existing GH lock comment.
+    if [[ -n "${_LOCK_COMMENT_ID:-}" ]]; then
+      session_clear
+      gh_lock_release
+    fi
     _stats_exit_trap "$_trapped_exit"
   }
   trap _cleanup_session_lock EXIT

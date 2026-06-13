@@ -343,16 +343,18 @@ func loadFromJSON() ([]Session, error) {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
+		// Skip predict event files; they are decoded separately.
+		if strings.HasPrefix(e.Name(), "predict-") {
+			continue
+		}
 		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
 		if err != nil {
 			continue
 		}
-		var s Session
-		if err := json.Unmarshal(data, &s); err != nil {
+		s, ok := decodeLegacyOrCurrent(data)
+		if !ok {
 			continue
 		}
-		// Migrate legacy sessions that used a boolean "approved" field instead
-		// of a string "outcome" field.
 		if s.Outcome == "" {
 			if s.Approved {
 				s.Outcome = OutcomeApproved
@@ -364,6 +366,26 @@ func loadFromJSON() ([]Session, error) {
 	}
 
 	return sortByStarted(sessions), nil
+}
+
+// decodeLegacyOrCurrent decodes a session JSON file, accepting either the
+// canonical schema (with "runner") or the legacy TUI schema (with
+// "runner_name"). Field overlap is otherwise identical, so a successful unmarshal
+// always wins, then we patch the runner field from the legacy alias when empty.
+func decodeLegacyOrCurrent(data []byte) (Session, bool) {
+	var s Session
+	if err := json.Unmarshal(data, &s); err != nil {
+		return Session{}, false
+	}
+	if s.Runner == "" {
+		var legacy struct {
+			RunnerName string `json:"runner_name"`
+		}
+		if jErr := json.Unmarshal(data, &legacy); jErr == nil {
+			s.Runner = legacy.RunnerName
+		}
+	}
+	return s, true
 }
 
 // dbRowToSession converts a db.SessionRow to a stats.Session.

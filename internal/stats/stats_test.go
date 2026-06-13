@@ -117,6 +117,48 @@ func TestLoad_MigratesNoLegacyField(t *testing.T) {
 	}
 }
 
+func TestLoad_LegacyRunnerNameField(t *testing.T) {
+	dir := overrideSessionsDir(t)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	raw := map[string]interface{}{
+		"pr":             "42",
+		"repo":           "owner/repo",
+		"runner_name":    "opencode",
+		"started_at":     now.Format(time.RFC3339Nano),
+		"ended_at":       now.Add(time.Minute).Format(time.RFC3339Nano),
+		"approved":       true,
+		"iterations":     2,
+		"total_comments": 7,
+	}
+	data, _ := json.Marshal(raw)
+	writeSession(t, dir, "owner-repo-pr42-20060102-150405-000000000.json", data)
+
+	sessions, err := stats.Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+	got := sessions[0]
+	if got.Runner != "opencode" {
+		t.Errorf("runner from legacy runner_name: want %q, got %q", "opencode", got.Runner)
+	}
+	if got.PR != "42" {
+		t.Errorf("pr: want %q, got %q", "42", got.PR)
+	}
+	if got.TotalComments != 7 {
+		t.Errorf("total_comments: want 7, got %d", got.TotalComments)
+	}
+	if !got.Approved {
+		t.Errorf("approved: want true, got false")
+	}
+	if got.Outcome != stats.OutcomeApproved {
+		t.Errorf("outcome from legacy approved=true: want OutcomeApproved, got %q", got.Outcome)
+	}
+}
+
 // ── Summarize() Last30Days / OutcomeCounts tests ──────────────────────────────
 
 func makeSess(outcome stats.Outcome, daysAgo int, comments, iters int) stats.Session {
